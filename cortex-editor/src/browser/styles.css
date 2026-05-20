@@ -1785,8 +1785,8 @@
   cursor: pointer;
 }
 
-.cortex-dropdown__option:hover,
-.cortex-dropdown__option--active {
+.cortex-dropdown__option:not(.cortex-dropdown__option--disabled):hover,
+.cortex-dropdown__option--active:not(.cortex-dropdown__option--disabled) {
   background: var(--cx-well);
   color: var(--cx-ink);
 }
@@ -1794,6 +1794,13 @@
 .cortex-dropdown__option--selected {
   font-weight: var(--cx-weight-value);
   color: var(--cx-select);
+}
+
+/* Disabled options (e.g. a singleton effect type already used by another row):
+   greyed out, no pointer affordance, no hover/active highlight. */
+.cortex-dropdown__option--disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
 }
 
 .cortex-dropdown__empty {
@@ -2370,14 +2377,15 @@
 }
 
 .cortex-color-input__hex {
-  /* Equal flex share with opacity (`flex: 1` below). Previously 2 (hex
-     dominant), but once BorderSection grew a second trailing button the
-     2:1 bias left opacity below its ~80px min-content floor and it
-     collapsed to zero width. 1:1 gives both slots a comfortable allocation
-     in single- AND double-trailing layouts without needing a scoped
-     min-width override on opacity. Hex at ~92px (Border 2-trailing) still
-     fits the size={9} input with "#ffffff" + padding with room to spare. */
-  flex: 1;
+  /* Capped flex-basis at 88px (no-grow, shrinks if needed). After
+     BorderSection grew to THREE trailing buttons (token chip + eye
+     toggle + remove), the previous 1:1 equal flex split squeezed
+     opacity below its ~80px min-content floor — the prefix icon +
+     "100" + "%" got clipped behind the row's right edge. Capping hex
+     at 88px (size={9} input fits "#ffffff" comfortably plus padding)
+     and letting opacity take the rest via flex:1 guarantees opacity
+     stays readable regardless of trailing-slot count. */
+  flex: 0 1 88px;
   height: 28px;
   padding: 0 var(--cx-sp-4);
   background: var(--cx-well);
@@ -2607,16 +2615,20 @@
   gap: var(--cx-sp-6);
 }
 
-.cortex-effects-section__shadows {
+.cortex-effects-section__effects {
   display: flex;
   flex-direction: column;
-  gap: var(--cx-sp-6);
+  gap: var(--cx-sp-4);
 }
 
 .cortex-effects-section__row {
   display: flex;
   flex-direction: column;
   gap: var(--cx-sp-3);
+  /* Reserve space below the row when auto-scrolling new rows into view via
+     scrollIntoView({ block: 'end' }) — without this, the row hugs the panel
+     bottom edge and the user has to scroll a bit more to see it comfortably. */
+  scroll-margin-bottom: var(--cx-sp-5);
 }
 
 .cortex-effects-section__row-header {
@@ -2668,12 +2680,6 @@
 .cortex-effects-section__grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: var(--cx-sp-3);
-}
-
-.cortex-effects-section__blur-controls {
-  display: flex;
-  flex-direction: column;
   gap: var(--cx-sp-3);
 }
 

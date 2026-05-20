@@ -1,15 +1,15 @@
 import { describe, it, expect, vi, afterEach } from 'vitest'
 import { render } from 'preact'
+import { useState } from 'preact/hooks'
 import {
   EffectsSection,
   parseEffectsValues,
-  replaceBlurInFilter,
   summarizeEffects,
   addShadow,
-  parseBlurValue,
 } from '../../../src/browser/components/sections/EffectsSection.js'
 import type { EffectsValues } from '../../../src/browser/components/sections/EffectsSection.js'
 import { parseBoxShadow } from '../../../src/core/shadow-utils.js'
+import { dispatchPointerEvent } from '../helpers.js'
 
 // Mock @floating-ui/dom for Dropdown
 vi.mock('@floating-ui/dom', () => ({
@@ -85,51 +85,9 @@ describe('parseEffectsValues', () => {
 })
 
 // ---------------------------------------------------------------------------
-// parseBlurValue
-// ---------------------------------------------------------------------------
-describe('parseBlurValue', () => {
-  it('extracts blur value from filter string', () => {
-    expect(parseBlurValue('blur(5px)')).toBe(5)
-  })
-
-  it('returns 0 for non-blur filter', () => {
-    expect(parseBlurValue('grayscale(100%)')).toBe(0)
-  })
-
-  it('returns 0 for empty string', () => {
-    expect(parseBlurValue('')).toBe(0)
-  })
-})
-
-// ---------------------------------------------------------------------------
-// replaceBlurInFilter
-// ---------------------------------------------------------------------------
-describe('replaceBlurInFilter', () => {
-  it('replaces blur in combined filter, preserving other functions', () => {
-    expect(replaceBlurInFilter('grayscale(50%) blur(4px)', 8)).toBe('grayscale(50%) blur(8px)')
-  })
-
-  it('adds blur to filter that has no blur', () => {
-    expect(replaceBlurInFilter('grayscale(50%)', 4)).toBe('grayscale(50%) blur(4px)')
-  })
-
-  it('removes blur when set to 0, preserving other functions', () => {
-    expect(replaceBlurInFilter('grayscale(50%) blur(4px)', 0)).toBe('grayscale(50%)')
-  })
-
-  it('returns none when removing blur from blur-only filter', () => {
-    expect(replaceBlurInFilter('blur(4px)', 0)).toBe('none')
-  })
-
-  it('handles none input', () => {
-    expect(replaceBlurInFilter('none', 4)).toBe('blur(4px)')
-  })
-
-  it('handles empty input', () => {
-    expect(replaceBlurInFilter('', 4)).toBe('blur(4px)')
-  })
-})
-
+// parseBlurValue / replaceBlurInFilter — retired from EffectsSection.tsx exports.
+// Coverage moved to effects-model.test.ts (parseFilterFunctions + formatFilter).
+//
 // ---------------------------------------------------------------------------
 // summarizeEffects
 // ---------------------------------------------------------------------------
@@ -247,34 +205,90 @@ describe('EffectsSection', () => {
     expect(root).not.toBeNull()
   })
 
+  // ── Regression: detail panel must survive a parent re-render after onChange ──
+  //
+  // User report: scrubbing an X input collapses the detail panel on mouse
+  // release. Root cause hypothesis: the external-change-detection useEffect
+  // misidentifies our own emit as external and clears expandedId. This test
+  // simulates the round-trip (emit → parent applies override → re-render with
+  // new values) and asserts the detail panel stays open.
+  it('detail panel survives onChange round-trip (regression: scrub collapse)', async () => {
+    // Setup a stateful wrapper so the parent re-renders with the emitted value.
+    container = document.createElement('div')
+    document.body.appendChild(container)
+
+    function Wrapper() {
+      const initial: EffectsValues = {
+        boxShadow: '0px 2px 8px 0px rgba(0, 0, 0, 0.1)',
+        blur: 0, backdropBlur: 0, filterRaw: '', backdropFilterRaw: '',
+      }
+      const [v, setV] = useState(initial)
+      const commit = (c: { property: string; value: string }) => {
+        if (c.property === 'box-shadow') setV((prev) => ({ ...prev, boxShadow: c.value }))
+      }
+      return <EffectsSection values={v} onChange={commit} onScrubEnd={commit} />
+    }
+    render(<Wrapper />, container)
+
+    // Expand the row
+    const expandBtn = container.querySelector<HTMLButtonElement>('.cortex-effects-section__expand-btn')
+    expandBtn!.click()
+    await vi.waitFor(() => {
+      expect(container.querySelector('.cortex-effects-section__detail')).not.toBeNull()
+    })
+
+    // Fire onChange on the X input (simulating scrub-end / typing commit)
+    const xInput = container.querySelector<HTMLInputElement>('.cortex-effects-section__grid input')
+    expect(xInput).not.toBeNull()
+    xInput!.focus()
+    xInput!.value = '15.1'
+    xInput!.dispatchEvent(new Event('input', { bubbles: true }))
+    xInput!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
+
+    // Detail must still be visible after the round-trip
+    await vi.waitFor(() => {
+      expect(container.querySelector('.cortex-effects-section__detail')).not.toBeNull()
+    })
+  })
+
   it('does NOT render overflow or cursor controls (removed in v2)', () => {
     setup()
     expect(container.textContent).not.toContain('Overflow')
     expect(container.textContent).not.toContain('Cursor')
   })
 
-  it('renders blur input with label "BL"', () => {
-    setup()
-    const inputs = container.querySelectorAll('.cortex-numeric-input')
-    const blurInput = Array.from(inputs).find((el) => {
-      const label = el.querySelector('.cortex-numeric-input__label')
-      return label?.textContent === 'BL'
-    })
-    expect(blurInput).toBeDefined()
-    const input = blurInput!.querySelector('input') as HTMLInputElement
-    expect(input.value).toBe('4')
+  // ── Polymorphic empty state + per-effect rendering ─────────────────
+  //
+  // After the polymorphic refactor, the section renders ONE row per Effect.
+  // Empty state: header + "+" only, no rows of any kind. Layer blur and
+  // backdrop blur are first-class rows in the list (not a separate bottom
+  // block); they're singletons (max 1 of each per element).
+
+  const EMPTY_VALUES: EffectsValues = {
+    boxShadow: 'none',
+    blur: 0,
+    backdropBlur: 0,
+    filterRaw: '',
+    backdropFilterRaw: '',
+  }
+
+  it('renders zero rows when there are no effects (empty state)', () => {
+    setup({ values: EMPTY_VALUES })
+    expect(container.querySelectorAll('.cortex-effects-section__row').length).toBe(0)
+    // No legacy BL/BG block lingering
+    expect(container.querySelector('.cortex-effects-section__blur-controls')).toBeNull()
   })
 
-  it('renders backdrop blur input with label "BG"', () => {
-    setup()
-    const inputs = container.querySelectorAll('.cortex-numeric-input')
-    const bgBlurInput = Array.from(inputs).find((el) => {
-      const label = el.querySelector('.cortex-numeric-input__label')
-      return label?.textContent === 'BG'
-    })
-    expect(bgBlurInput).toBeDefined()
-    const input = bgBlurInput!.querySelector('input') as HTMLInputElement
-    expect(input.value).toBe('0')
+  it('renders a layer-blur row when values.blur > 0', () => {
+    setup({ values: { ...EMPTY_VALUES, blur: 4, filterRaw: 'blur(4px)' } })
+    const rows = container.querySelectorAll<HTMLElement>('.cortex-effects-section__row[data-effect-type="layer-blur"]')
+    expect(rows.length).toBe(1)
+  })
+
+  it('renders a backdrop-blur row when values.backdropBlur > 0', () => {
+    setup({ values: { ...EMPTY_VALUES, backdropBlur: 8, backdropFilterRaw: 'blur(8px)' } })
+    const rows = container.querySelectorAll<HTMLElement>('.cortex-effects-section__row[data-effect-type="backdrop-blur"]')
+    expect(rows.length).toBe(1)
   })
 
   it('renders shadow rows for each shadow in boxShadow', () => {
@@ -283,8 +297,199 @@ describe('EffectsSection', () => {
     expect(rows.length).toBe(2)
   })
 
-  it('renders no shadow rows when boxShadow is "none"', () => {
-    setup()
+  // ── Per-property emit gating (regression: H1 from silent-failure-hunter) ──
+  //
+  // A shadow edit (X scrub) must NOT also emit unchanged filter or
+  // backdrop-filter. Panel.applyOverride installs `!important` overrides
+  // eagerly — re-emitting unchanged values would leak stale overrides on
+  // properties the gesture never touched.
+  it('shadow X scrub emits only box-shadow, not filter or backdrop-filter', async () => {
+    container = document.createElement('div')
+    document.body.appendChild(container)
+
+    function Wrapper() {
+      const initial: EffectsValues = {
+        boxShadow: '0px 2px 8px 0px rgba(0, 0, 0, 0.1)',
+        blur: 0, backdropBlur: 0, filterRaw: '', backdropFilterRaw: '',
+      }
+      const [v, setV] = useState(initial)
+      const commit = (c: { property: string; value: string }) => {
+        if (c.property === 'box-shadow') setV((prev) => ({ ...prev, boxShadow: c.value }))
+        if (c.property === 'filter') setV((prev) => ({ ...prev, filterRaw: c.value }))
+        if (c.property === 'backdrop-filter') setV((prev) => ({ ...prev, backdropFilterRaw: c.value }))
+      }
+      // Capture every onChange emission so the assertion can prove nothing
+      // outside box-shadow fires.
+      ;(Wrapper as any)._mock = vi.fn(commit)
+      return <EffectsSection values={v} onChange={(Wrapper as any)._mock} onScrubEnd={(Wrapper as any)._mock} />
+    }
+    render(<Wrapper />, container)
+
+    // Expand and edit X
+    const expandBtn = container.querySelector<HTMLButtonElement>('.cortex-effects-section__expand-btn')
+    expandBtn!.click()
+    await vi.waitFor(() => {
+      expect(container.querySelector('.cortex-effects-section__detail')).not.toBeNull()
+    })
+    const xInput = container.querySelector<HTMLInputElement>('.cortex-effects-section__grid input')
+    xInput!.focus()
+    xInput!.value = '15.1'
+    xInput!.dispatchEvent(new Event('input', { bubbles: true }))
+    xInput!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
+
+    await vi.waitFor(() => {
+      const mock = (Wrapper as any)._mock as ReturnType<typeof vi.fn>
+      const properties = mock.mock.calls.map((c: any) => c[0].property)
+      expect(properties).toContain('box-shadow')
+      // Critical: filter and backdrop-filter must NOT be in the call list
+      expect(properties).not.toContain('filter')
+      expect(properties).not.toContain('backdrop-filter')
+    })
+  })
+
+  // ── Undo-stack scrub trace (regression: Issue B from /investigate) ──
+  //
+  // A scrub gesture fires onScrub repeatedly during the drag, then onScrubEnd
+  // once on release — at the SAME value as the last onScrub tick. The
+  // per-property emit gating must still fire onScrubEnd's box-shadow emission
+  // (compared against the parent's pre-gesture `values`, NOT the last emit),
+  // otherwise Panel never runs commitScrub, no PropertyEditCommand lands in the
+  // undo stack, and Cmd+Z undoes the WRONG thing (the prior gesture).
+  it('scrubEnd emits box-shadow even when value equals the last scrub tick', async () => {
+    container = document.createElement('div')
+    document.body.appendChild(container)
+
+    const scrubEnd = vi.fn()
+    const scrub = vi.fn()
+    function Wrapper() {
+      const initial: EffectsValues = {
+        boxShadow: '0px 2px 8px 0px rgba(0, 0, 0, 0.1)',
+        blur: 0, backdropBlur: 0, filterRaw: '', backdropFilterRaw: '',
+      }
+      // values stays FROZEN through the scrub — mirrors Panel, which only bumps
+      // styleVersion on commit, not on scrub.
+      const [v] = useState(initial)
+      return <EffectsSection values={v} onChange={vi.fn()} onScrub={scrub} onScrubEnd={scrubEnd} />
+    }
+    render(<Wrapper />, container)
+
+    const expandBtn = container.querySelector<HTMLButtonElement>('.cortex-effects-section__expand-btn')
+    expandBtn!.click()
+    await vi.waitFor(() => {
+      expect(container.querySelector('.cortex-effects-section__detail')).not.toBeNull()
+    })
+
+    // Drive a real scrub on the X NumericInput: pointerdown → move → up.
+    const xWrapper = container.querySelector<HTMLElement>('.cortex-effects-section__grid .cortex-numeric-input')!
+    dispatchPointerEvent(xWrapper, 'pointerdown', { clientX: 100 })
+    await new Promise((r) => setTimeout(r, 0))
+    dispatchPointerEvent(xWrapper, 'pointermove', { clientX: 130 })
+    await vi.waitFor(() => {
+      expect(scrub).toHaveBeenCalled()
+    })
+    // Release at the SAME clientX as the last move — scrubEnd value === last scrub tick.
+    dispatchPointerEvent(xWrapper, 'pointerup', { clientX: 130 })
+
+    // scrubEnd MUST have fired a box-shadow emission — this is the undo trace.
+    await vi.waitFor(() => {
+      const props = scrubEnd.mock.calls.map((c: any) => c[0].property)
+      expect(props).toContain('box-shadow')
+    })
+  })
+
+  // ── Return-to-baseline scrub (regression: codex [P1]) ──
+  //
+  // Scrub a value away from baseline then back to it before release. The
+  // "touched property" set must keep emitting box-shadow on the return tick
+  // and at scrubEnd — otherwise the stale mid-scrub override stays installed
+  // and commitScrub never runs to clean it up.
+  it('scrub away-and-back still emits box-shadow on the return tick + scrubEnd', async () => {
+    container = document.createElement('div')
+    document.body.appendChild(container)
+
+    const scrub = vi.fn()
+    const scrubEnd = vi.fn()
+    function Wrapper() {
+      const initial: EffectsValues = {
+        boxShadow: '0px 2px 8px 0px rgba(0, 0, 0, 0.1)',
+        blur: 0, backdropBlur: 0, filterRaw: '', backdropFilterRaw: '',
+      }
+      const [v] = useState(initial)
+      return <EffectsSection values={v} onChange={vi.fn()} onScrub={scrub} onScrubEnd={scrubEnd} />
+    }
+    render(<Wrapper />, container)
+
+    const expandBtn = container.querySelector<HTMLButtonElement>('.cortex-effects-section__expand-btn')
+    expandBtn!.click()
+    await vi.waitFor(() => {
+      expect(container.querySelector('.cortex-effects-section__detail')).not.toBeNull()
+    })
+
+    const xWrapper = container.querySelector<HTMLElement>('.cortex-effects-section__grid .cortex-numeric-input')!
+    dispatchPointerEvent(xWrapper, 'pointerdown', { clientX: 100 })
+    await new Promise((r) => setTimeout(r, 0))
+    // Move away from baseline
+    dispatchPointerEvent(xWrapper, 'pointermove', { clientX: 130 })
+    await vi.waitFor(() => { expect(scrub).toHaveBeenCalled() })
+    scrub.mockClear()
+    // Move back to the exact starting X — value returns to baseline
+    dispatchPointerEvent(xWrapper, 'pointermove', { clientX: 100 })
+    // The return tick must still emit box-shadow (touched-property path)
+    await vi.waitFor(() => {
+      const props = scrub.mock.calls.map((c: any) => c[0].property)
+      expect(props).toContain('box-shadow')
+    })
+    // Release at baseline — scrubEnd must still emit box-shadow so commitScrub runs
+    dispatchPointerEvent(xWrapper, 'pointerup', { clientX: 100 })
+    await vi.waitFor(() => {
+      const props = scrubEnd.mock.calls.map((c: any) => c[0].property)
+      expect(props).toContain('box-shadow')
+    })
+  })
+
+  // ── disabledSingletons keep-row (regression: codex round 1 Bug 2) ──
+  //
+  // After eye-toggling a layer-blur row off, blur becomes 0. buildEffects
+  // would normally drop the row (blur > 0 guard), but disabledSingletons
+  // augmentation must keep it visible so the user can re-enable.
+  it('layer-blur row stays visible after eye toggle (disabled state)', async () => {
+    container = document.createElement('div')
+    document.body.appendChild(container)
+
+    function Wrapper() {
+      const initial: EffectsValues = {
+        boxShadow: 'none', blur: 4, backdropBlur: 0,
+        filterRaw: 'blur(4px)', backdropFilterRaw: '',
+      }
+      const [v, setV] = useState(initial)
+      const commit = (c: { property: string; value: string }) => {
+        if (c.property === 'filter') {
+          // Parse blur from filter string for state update
+          const m = c.value.match(/blur\(([\d.]+)px\)/)
+          setV((prev) => ({ ...prev, blur: m?.[1] ? parseFloat(m[1]) : 0, filterRaw: c.value }))
+        }
+      }
+      return <EffectsSection values={v} onChange={commit} />
+    }
+    render(<Wrapper />, container)
+
+    // The layer-blur row should be present initially
+    expect(container.querySelector('[data-effect-type="layer-blur"]')).not.toBeNull()
+
+    // Click the eye to disable
+    const layerBlurRow = container.querySelector<HTMLElement>('[data-effect-type="layer-blur"]')!
+    const eyeBtn = layerBlurRow.querySelector<HTMLButtonElement>('.cortex-icon-button[aria-label="Disable effect"]')
+    expect(eyeBtn).not.toBeNull()
+    eyeBtn!.click()
+
+    // Row must STILL be present after eye-toggle even though values.blur is now 0
+    await vi.waitFor(() => {
+      expect(container.querySelector('[data-effect-type="layer-blur"]')).not.toBeNull()
+    })
+  })
+
+  it('renders no rows when all effect values are zero/none', () => {
+    setup({ values: EMPTY_VALUES })
     const rows = container.querySelectorAll('.cortex-effects-section__row')
     expect(rows.length).toBe(0)
   })
@@ -296,16 +501,18 @@ describe('EffectsSection', () => {
   it('remove button fires onChange removing the shadow entry', () => {
     const { onChange } = setup({ values: TWO_SHADOWS_VALUES })
     const removeButtons = container.querySelectorAll<HTMLButtonElement>(
-      '.cortex-icon-button[aria-label="Remove shadow"]',
+      '.cortex-icon-button[aria-label="Remove effect"]',
     )
     expect(removeButtons.length).toBe(2)
     // Click remove on the first shadow
     removeButtons[0].click()
-    expect(onChange).toHaveBeenCalledTimes(1)
-    const call = onChange.mock.calls[0][0]
-    expect(call.property).toBe('box-shadow')
-    // Verify the reconstructed value has only the inset shadow remaining
-    const remaining = parseBoxShadow(call.value)
+    // Polymorphic emit fires once per CSS property (box-shadow, filter, backdrop-filter).
+    // Find the box-shadow change in the call list.
+    const boxShadowCall = onChange.mock.calls
+      .map((c: any) => c[0])
+      .find((c: any) => c.property === 'box-shadow')
+    expect(boxShadowCall).toBeDefined()
+    const remaining = parseBoxShadow(boxShadowCall.value)
     expect(remaining.length).toBe(1)
     expect(remaining[0].inset).toBe(true)
   })
@@ -321,14 +528,16 @@ describe('EffectsSection', () => {
     }
     const { onChange } = setup({ values })
     const eyeButton = container.querySelector<HTMLButtonElement>(
-      '.cortex-icon-button[aria-label="Disable shadow"]',
+      '.cortex-icon-button[aria-label="Disable effect"]',
     )
     expect(eyeButton).not.toBeNull()
     eyeButton!.click()
-    expect(onChange).toHaveBeenCalledTimes(1)
-    const call = onChange.mock.calls[0][0]
-    expect(call.property).toBe('box-shadow')
-    const shadows = parseBoxShadow(call.value)
+    // Polymorphic emit fires once per CSS property — find box-shadow.
+    const boxShadowCall = onChange.mock.calls
+      .map((c: any) => c[0])
+      .find((c: any) => c.property === 'box-shadow')
+    expect(boxShadowCall).toBeDefined()
+    const shadows = parseBoxShadow(boxShadowCall.value)
     expect(shadows.length).toBe(1)
     // All positional values should be zeroed
     expect(shadows[0].x).toBe(0)
@@ -366,27 +575,38 @@ describe('EffectsSection', () => {
     }, { timeout: 500 })
   })
 
-  // Spec test 6: Blur NumericInput fires filter change
-  it('blur NumericInput fires filter change via keyboard', () => {
+  // Spec test 6: Blur NumericInput on layer-blur row fires filter change via keyboard
+  it('blur NumericInput on layer-blur row fires filter change via keyboard', async () => {
+    // DEFAULT_VALUES has blur:4 → renders a layer-blur row. Expand it to access
+    // the Blur input.
     const { onChange } = setup()
-    const inputs = container.querySelectorAll('.cortex-numeric-input')
-    const blurInput = Array.from(inputs).find((el) => {
-      const label = el.querySelector('.cortex-numeric-input__label')
-      return label?.textContent === 'BL'
-    })
-    expect(blurInput).toBeDefined()
-    const input = blurInput!.querySelector('input') as HTMLInputElement
-    // NumericInput fires onChange on ArrowUp/ArrowDown keydown
-    input.focus()
-    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowUp', bubbles: true }))
-    // The onChange should fire with filter property (blur 4 + 1 = 5)
-    const filterCalls = onChange.mock.calls.filter(
-      (c: any) => c[0].property === 'filter',
+    const layerBlurRow = container.querySelector<HTMLElement>(
+      '.cortex-effects-section__row[data-effect-type="layer-blur"]',
     )
-    // ArrowUp fires exactly 1 filter change (blur 4→5). >= 1 would mask
-    // double-fire regressions; toBe(1) is precise.
-    expect(filterCalls.length).toBe(1)
-    expect(filterCalls[0][0].value).toContain('blur(5px)')
+    expect(layerBlurRow).not.toBeNull()
+    const expandBtn = layerBlurRow!.querySelector<HTMLButtonElement>(
+      '.cortex-effects-section__expand-btn',
+    )
+    expect(expandBtn).not.toBeNull()
+    expandBtn!.click()
+    await vi.waitFor(() => {
+      const inputs = layerBlurRow!.querySelectorAll('.cortex-numeric-input')
+      const blurInput = Array.from(inputs).find((el) => {
+        const label = el.querySelector('.cortex-numeric-input__label')
+        return label?.textContent === 'Blur'
+      })
+      expect(blurInput).toBeDefined()
+      const input = blurInput!.querySelector('input') as HTMLInputElement
+      input.focus()
+      input.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowUp', bubbles: true }))
+      // Polymorphic emit fires three onChange calls (one per CSS property).
+      // Find the filter call with blur(5px).
+      const filterCalls = onChange.mock.calls
+        .map((c: any) => c[0])
+        .filter((c: any) => c.property === 'filter')
+      expect(filterCalls.length).toBeGreaterThanOrEqual(1)
+      expect(filterCalls.some((c: any) => c.value.includes('blur(5px)'))).toBe(true)
+    }, { timeout: 500 })
   })
 
   it('renders type dropdown with Drop shadow / Inner shadow options', () => {

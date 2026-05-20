@@ -7,6 +7,8 @@ export interface DropdownOption {
   value: string
   label: string
   tooltip?: string
+  /** When true, the option renders greyed out and cannot be selected. */
+  disabled?: boolean
 }
 
 export interface DropdownProps {
@@ -53,9 +55,20 @@ export function Dropdown({
     const popover = popoverRef.current
     // Set popover width to match trigger (position:fixed ignores relative parent)
     popover.style.width = `${trigger.offsetWidth}px`
+    // Use the panel body as boundary so flip respects the panel's scroll
+    // window, not the document viewport. Default 'clippingAncestors' uses the
+    // document body (panel is in shadow DOM, document body is large), so flip
+    // never triggers even when the dropdown overflows the panel.
+    const panelBody = trigger.closest('.cortex-panel__body') as HTMLElement | null
+    const boundary = panelBody ?? undefined
     computePosition(trigger, popover, {
       placement: 'bottom-start',
-      middleware: [flip(), shift()],
+      middleware: [
+        // Flip to top-start if there's no room below the trigger inside the
+        // panel's scroll window.
+        flip({ padding: 8, boundary, fallbackPlacements: ['top-start', 'bottom-end', 'top-end'] }),
+        shift({ padding: 8, boundary }),
+      ],
     }).then(({ x, y }) => {
       if (!cancelled && popoverRef.current) {
         popoverRef.current.style.left = `${x}px`
@@ -75,13 +88,16 @@ export function Dropdown({
     return () => { cancelled = true }
   }, [isOpen])
 
-  // Focus filter input when opened
+  // Focus filter input when opened. Land the highlight on the first ENABLED
+  // option — starting on a disabled row would make the first Enter a no-op.
+  // (filter is reset to '' on open, so `options` === the filtered list here.)
   useEffect(() => {
     if (isOpen) {
       filterRef.current?.focus()
-      setHighlightIdx(0)
+      const firstEnabled = options.findIndex((o) => !o.disabled)
+      setHighlightIdx(firstEnabled === -1 ? 0 : firstEnabled)
     }
-  }, [isOpen])
+  }, [isOpen, options])
 
   const open = useCallback(() => {
     setFilter('')
@@ -95,16 +111,31 @@ export function Dropdown({
 
   const select = useCallback(
     (optValue: string) => {
+      const opt = options.find((o) => o.value === optValue)
+      if (opt?.disabled) return
       onChange(optValue)
       close()
     },
-    [onChange, close],
+    [onChange, close, options],
   )
 
   const handleFilterInput = useCallback((e: Event) => {
     setFilter((e.target as HTMLInputElement).value)
     setHighlightIdx(0)
   }, [])
+
+  // Walk from `from` in `dir` to the next non-disabled option index. Returns
+  // `from` unchanged if there is no enabled option in that direction, so arrow
+  // keys never strand the highlight on a disabled (non-actionable) row.
+  const nextEnabledIdx = useCallback(
+    (from: number, dir: 1 | -1): number => {
+      for (let i = from + dir; i >= 0 && i < filtered.length; i += dir) {
+        if (!filtered[i]?.disabled) return i
+      }
+      return from
+    },
+    [filtered],
+  )
 
   const handleKeyDown = useCallback(
     (e: KeyboardEvent) => {
@@ -113,10 +144,10 @@ export function Dropdown({
         close()
       } else if (e.key === 'ArrowDown') {
         e.preventDefault()
-        if (filtered.length > 0) setHighlightIdx((i) => Math.min(i + 1, filtered.length - 1))
+        if (filtered.length > 0) setHighlightIdx((i) => nextEnabledIdx(i, 1))
       } else if (e.key === 'ArrowUp') {
         e.preventDefault()
-        if (filtered.length > 0) setHighlightIdx((i) => Math.max(i - 1, 0))
+        if (filtered.length > 0) setHighlightIdx((i) => nextEnabledIdx(i, -1))
       } else if (e.key === 'Enter') {
         e.preventDefault()
         if (filtered[highlightIdx]) {
@@ -124,7 +155,7 @@ export function Dropdown({
         }
       }
     },
-    [close, select, filtered, highlightIdx],
+    [close, select, filtered, highlightIdx, nextEnabledIdx],
   )
 
   return (
@@ -179,11 +210,13 @@ export function Dropdown({
                       'cortex-dropdown__option',
                       i === highlightIdx && 'cortex-dropdown__option--active',
                       !mixed && opt.value === value && 'cortex-dropdown__option--selected',
+                      opt.disabled && 'cortex-dropdown__option--disabled',
                     ]
                       .filter(Boolean)
                       .join(' ')}
                     role="option"
                     aria-selected={!mixed && opt.value === value ? 'true' : 'false'}
+                    aria-disabled={opt.disabled ? 'true' : undefined}
                     data-tooltip={opt.tooltip}
                     onClick={() => select(opt.value)}
                   >
