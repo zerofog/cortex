@@ -1414,7 +1414,7 @@ export function Panel({
     setBorderWidths('0px')
     commitScrub()
   }, [setBorderWidths, commitScrub])
-  const handleShadowAdd = useCallback(() => {
+  const handleEffectAdd = useCallback(() => {
     applyOverride('box-shadow', addShadow(computedStyles.effects.boxShadow), true)
   }, [computedStyles.effects.boxShadow, applyOverride])
 
@@ -1792,10 +1792,18 @@ export function Panel({
           label="Effects"
           groupId="effects"
           headerAction={
-            <IconButton icon={<Plus size={14} />} ariaLabel="Add effect" tooltip="Add shadow effect" onClick={handleShadowAdd} />
+            <IconButton icon={<Plus size={14} />} ariaLabel="Add effect" tooltip="Add effect" onClick={handleEffectAdd} />
           }
         >
           <EffectsSection
+            // Keyed on the selected element's identity so a selection change
+            // remounts EffectsSection fresh — this resets its local UI state
+            // (disabledSingletons, expandedId, stashRef). Without the remount,
+            // disabling a blur on element A then selecting element B leaves a
+            // ghost disabled-blur row on B. The key is stable during a scrub
+            // (selection doesn't change mid-gesture), so it never interrupts an
+            // in-progress edit.
+            key={`${element.tagName}|${element.id}|${element.getAttribute('data-cortex-source') ?? ''}`}
             values={computedStyles.effects}
             onChange={handleCommit}
             onScrub={handleScrub}
