@@ -813,6 +813,13 @@
   cursor: grabbing;
 }
 
+/* With pseudo tabs present, they form the header's last row — drop the
+   header's bottom padding so the tabs sit flush against its border-bottom,
+   the single divider the active-tab underline rides on. */
+.cortex-panel-header:has(.cortex-pseudo-tabs) {
+  padding-bottom: 0;
+}
+
 .cortex-panel-header__info {
   flex: 1;
   min-width: 0;
@@ -2148,6 +2155,14 @@
   gap: var(--cx-sp-2);
 }
 
+/* Numeric inputs are flex containers that collapse to content width on
+   their own — stretch them to fill the field so paired rows render at
+   uniform widths (weight vs size, line-height vs letter-spacing). */
+.cortex-typography-section__field > .cortex-numeric-input {
+  flex: 1;
+  min-width: 0;
+}
+
 /* Trailing icon buttons (T for typography link, SwatchBook for color link) */
 .cortex-typography-section__t-button,
 .cortex-typography-section__swatchbook-button {
@@ -2184,9 +2199,17 @@
   gap: var(--cx-sp-3);
 }
 
-.cortex-typography-section__align-row > .cortex-segmented-control {
+/* SegmentedControl renders class `cortex-segmented` (not `-control`) —
+   the two align controls split the row 50/50. */
+.cortex-typography-section__align-row > .cortex-segmented {
   flex: 1;
   min-width: 0;
+}
+
+/* size="sm" options default to flex:0 (content width); stretch them so
+   the three icons fill each 50% control evenly. */
+.cortex-typography-section__align-row .cortex-segmented__option {
+  flex: 1;
 }
 
 /* ── TextComponentPicker popover ───────────────── */
@@ -2794,11 +2817,12 @@
 
 /* ── Pseudo tabs (in panel) ────────────────── */
 
+/* No own border-bottom — the panel header's border-bottom is the single
+   divider. Tabs overlap onto it via margin-bottom below so the active
+   underline rides the divider instead of stacking a second line. */
 .cortex-pseudo-tabs {
   display: flex;
   flex-basis: 100%;
-  border-bottom: 1px solid var(--cx-rule);
-  padding: 0 12px;
   margin-top: -2px;
 }
 
@@ -2809,6 +2833,9 @@
   padding: 5px 10px;
   border: none;
   border-bottom: 2px solid transparent;
+  /* Overlap the header's 1px border-bottom so the active underline merges
+     with the divider rather than sitting above it. */
+  margin-bottom: -1px;
   background: transparent;
   color: var(--cx-ink-tertiary);
   cursor: pointer;
