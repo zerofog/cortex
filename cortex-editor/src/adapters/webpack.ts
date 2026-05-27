@@ -129,6 +129,13 @@ function applySetActiveResult(
       message: 'Cortex is active in another tab — switch to it or close it first',
     })
   }
+  // TODO(ZF0-1051): wire telemetry activation for webpack adapter.
+  // The vite adapter fires session.telemetry?.recordActivation() here when
+  // result.broadcast.active === true. The webpack adapter needs the same
+  // treatment: (1) construct a Telemetry instance in the runtime's start()
+  // method and assign it to session.telemetry, then (2) add the same
+  // `if (result.broadcast?.active) void session.telemetry?.recordActivation()`
+  // guard here. Deferred to keep this PR focused on the vite path.
 }
 
 /**

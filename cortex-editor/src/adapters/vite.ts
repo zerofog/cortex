@@ -8,6 +8,9 @@ import { fileURLToPath } from 'url'
 import { WebSocketServer, WebSocket } from 'ws'
 import { createSourceTransform } from './source-transform.js'
 import { resolveAnnotationsFilePath } from './annotations-path-resolver.js'
+import { createTelemetry, type Telemetry } from './telemetry.js'
+import { resolveTelemetryEnabled, resolveTelemetryEndpoint } from './telemetry-config.js'
+import { version as cortexVersion } from '../version.js'
 import {
   ALLOWED_ORIGINS,
   CLI_ALLOWED_TYPES,
@@ -335,6 +338,11 @@ function applySetActiveResult(
     if (!result.broadcast.targetTabId) {
       const legacyType = result.broadcast.active ? 'cortex' : 'cortex-close'
       session.channel?.send({ type: legacyType } as ServerToBrowser)
+    }
+
+    // Telemetry: record activation when the editor is turning ON.
+    if (result.broadcast.active) {
+      void session.telemetry?.recordActivation()
     }
   }
 
@@ -1041,6 +1049,14 @@ export function cortexEditor(_options?: CortexEditorOptions): Plugin {
         throw err
       }
 
+      // Attach telemetry to the session. Fully inert when CORTEX_TELEMETRY is unset.
+      currentSession.telemetry = createTelemetry({
+        enabled: resolveTelemetryEnabled({}),
+        endpoint: resolveTelemetryEndpoint({}),
+        cortexRoot: config.root,
+        version: cortexVersion,
+      })
+
       // Register signal handlers for graceful shutdown.
       // The ?? Promise.resolve() ensures process.exit runs even if currentSession is null
       // (optional chaining would short-circuit the entire .then chain, hanging the process).
@@ -1432,6 +1448,7 @@ export function cortexEditor(_options?: CortexEditorOptions): Plugin {
           detector: detection,
           runtimeResolver,
           undoStack,
+          telemetry: currentSession.telemetry ?? undefined,
           writeFile: async (intent) => {
             // Delegates to `performEditWrite` which atomically replaces the
             // target file, tracks suppressed writes in

@@ -22,6 +22,9 @@ import {
   type PackageJson,
   type PackageManager,
 } from './detect.js'
+import { createTelemetry } from '../adapters/telemetry.js'
+import { resolveTelemetryEnabled, resolveTelemetryEndpoint } from '../adapters/telemetry-config.js'
+import { version as cortexVersion } from '../version.js'
 
 const VITE_SETUP_PACKAGES = ['vite', '@vitejs/plugin-react'] as const
 
@@ -878,6 +881,18 @@ export async function runInit(
   const setupComplete = depFound && adapterConfigured
   if (setupComplete) {
     console.log('  Setup complete. Restart your AI agent so it picks up .mcp.json.')
+    // Fire-and-forget telemetry — never let it throw or block init.
+    try {
+      const telemetry = createTelemetry({
+        enabled: resolveTelemetryEnabled({}),
+        endpoint: resolveTelemetryEndpoint({}),
+        cortexRoot: cwd,
+        version: cortexVersion,
+      })
+      await telemetry.recordInit()
+    } catch {
+      // Swallow — telemetry must never break the init command.
+    }
   } else {
     console.warn('  Cortex setup incomplete. Resolve the warnings above, then re-run cortex init.')
   }
