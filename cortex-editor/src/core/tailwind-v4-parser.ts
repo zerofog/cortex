@@ -25,17 +25,28 @@ import type { ResolvedTheme } from './tailwind-resolver.js'
 // postcss (every Vite/Next/Webpack/Tailwind setup does). Mirrors the lazy-load
 // precedent used for ts-morph. (ZF0-1974)
 let _postcss: { parse(css: string): Root } | null = null
-function loadPostcss(): { parse(css: string): Root } {
+function loadPostcss(projectRoot: string): { parse(css: string): Root } {
   if (!_postcss) {
-    // Resolve from the running project (dev-server cwd), where postcss lives as
-    // a peer. NOT via import.meta.url — esbuild emits an EMPTY import.meta.url in
-    // the CJS build, so createRequire(import.meta.url) silently fails to resolve
-    // there. cwd is build-agnostic and mirrors loadDefaultTheme's
-    // createRequire-from-package.json pattern. Stays sync (no async ripple to
-    // extractThemeProperties' many synchronous call sites + tests).
-    _postcss = createRequire(join(process.cwd(), 'package.json'))('postcss') as {
-      parse(css: string): Root
+    // Resolve postcss from the INSPECTED project root FIRST — the same base
+    // loadDefaultTheme uses for tailwindcss. In a monorepo the dev server can
+    // launch from the workspace root while the parsed project is a subproject
+    // that owns postcss; resolving from process.cwd() alone would miss it (and
+    // projectRoot resolution still walks up to a hoisted postcss). Fall back to
+    // cwd as a safety net (covers tests that pass synthetic fixture roots with no
+    // node_modules). NOT via import.meta.url — esbuild emits an EMPTY
+    // import.meta.url in the CJS build, so createRequire(import.meta.url) fails
+    // there. createRequire-from-package.json is build-agnostic and keeps this
+    // sync (no async ripple to extractThemeProperties' many sync call sites).
+    for (const base of projectRoot === process.cwd() ? [projectRoot] : [projectRoot, process.cwd()]) {
+      try {
+        _postcss = createRequire(join(base, 'package.json'))('postcss') as { parse(css: string): Root }
+        break
+      } catch {
+        // try the next base; if none resolve, the throw below is caught by
+        // extractThemeProperties and degrades to an empty theme.
+      }
     }
+    if (!_postcss) throw new Error('postcss is not installed in the project or workspace')
   }
   return _postcss
 }
@@ -51,12 +62,15 @@ function loadPostcss(): { parse(css: string): Root } {
  * - `--*: initial` clears all accumulated properties
  * - `--color-*: initial` clears all `--color-*` properties
  */
-export function extractThemeProperties(css: string): Map<string, string> {
+export function extractThemeProperties(
+  css: string,
+  projectRoot: string = process.cwd(),
+): Map<string, string> {
   const properties = new Map<string, string>()
 
   let root: Root
   try {
-    root = loadPostcss().parse(css)
+    root = loadPostcss(projectRoot).parse(css)
   } catch {
     // Malformed CSS, OR postcss not installed (it's an optional peer). Fail
     // gracefully — never hard-crash the importer/editor over a parse path that
@@ -409,7 +423,7 @@ export async function parseV4ThemeFromCSS(
 
   // Concatenate defaults first so user CSS overrides
   const combined = (defaultCSS ?? '') + '\n' + userCSS
-  const properties = extractThemeProperties(combined)
+  const properties = extractThemeProperties(combined, projectRoot)
   if (properties.size === 0) return null
 
   return themePropertiesToResolved(properties)
