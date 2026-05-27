@@ -1,0 +1,23 @@
+cortex-editor/package.json
+  s_f8f54c5707f8f4::t_c7234d37d8200c 3,6-27
+  s_f8f54c5707f8f4::t_5549489306f48c 96
+cortex-editor/tsup.config.ts
+  s_f8f54c5707f8f4::t_d2ac717a0b364b 7-15
+  s_f8f54c5707f8f4::t_e761b383b88947 84,94,107,119,128,140,149
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "248c8bff393f964dd68e25139dee45d3207c24aa",
+  "prompts": {},
+  "sessions": {
+    "s_f8f54c5707f8f4": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "3240ae04-23f9-4637-9a53-1319a5cf3c38",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "Derrick Lee <dlee@zerofog.app>"
+    }
+  }
+}
