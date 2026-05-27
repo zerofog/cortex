@@ -8,6 +8,7 @@ import type { CSSModulesRewriter } from "./rewriter/css-modules.js";
 import type { RuntimeCSSResolver } from "./rewriter/runtime-resolver.js";
 import type { UndoStack, UndoFileChange } from "./session/undo-stack.js";
 import type { InlineStyleRewriter } from "./rewriter/inline-style.js";
+import type { Telemetry } from "../adapters/telemetry.js";
 import { classifyEdit } from "./edit-strategy.js";
 import { ExternalRevertError } from "../adapters/atomic-write.js";
 import { validateClassOpToken } from "./class-op-validator.js";
@@ -303,6 +304,10 @@ export interface EditPipelineOptions {
   readFile?: (path: string) => Promise<string>;
   /** Inline style rewriter for deterministic style prop editing (Layer 3.5) */
   inlineStyleRewriter?: InlineStyleRewriter;
+  /** Optional telemetry handle. When set, `recordFirstEdit()` is called after
+   *  the first successful source-file write in this pipeline's lifetime. Omit
+   *  in tests — the pipeline does not require it and its absence is a no-op. */
+  telemetry?: Telemetry;
 }
 
 const VALID_PROPERTY = /^-{0,2}[a-zA-Z][a-zA-Z0-9-]*$/;
@@ -381,6 +386,7 @@ export class EditPipeline {
   private readonly undoStack?: UndoStack;
   private readonly readFile?: (path: string) => Promise<string>;
   private readonly inlineStyleRewriter?: InlineStyleRewriter;
+  private readonly telemetry?: Telemetry;
   private undoLock = Promise.resolve();
   private disposed = false;
 
@@ -389,7 +395,24 @@ export class EditPipeline {
     this.resolver = options.resolver;
     this.rewriter = options.rewriter;
     this.verifier = options.verifier;
-    this.writeFile = options.writeFile;
+    // Wrap writeFile so that after the first successful write we fire
+    // recordFirstEdit() once. The Telemetry interface guarantees idempotency
+    // (usage.json `firstEditRecorded` gate), so extra calls are safe, but the
+    // wrapper avoids the overhead of re-reading usage.json on every write.
+    if (options.telemetry) {
+      const rawWrite = options.writeFile;
+      const telemetry = options.telemetry;
+      let firstEditFired = false;
+      this.writeFile = async (intent: WriteIntent) => {
+        await rawWrite(intent);
+        if (!firstEditFired) {
+          firstEditFired = true;
+          void telemetry.recordFirstEdit();
+        }
+      };
+    } else {
+      this.writeFile = options.writeFile;
+    }
     try {
       this.projectRoot = realpathSync(resolve(options.projectRoot));
     } catch {
@@ -405,6 +428,7 @@ export class EditPipeline {
     this.undoStack = options.undoStack;
     this.readFile = options.readFile;
     this.inlineStyleRewriter = options.inlineStyleRewriter;
+    this.telemetry = options.telemetry;
   }
 
   registerApplyResolver(
