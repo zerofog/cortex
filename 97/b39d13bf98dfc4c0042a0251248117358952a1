@@ -1,0 +1,44 @@
+cortex-editor/src/adapters/vite.ts
+  s_f8f54c5707f8f4::t_ae7ae43004691a 342-346
+  s_f8f54c5707f8f4::t_91ff913a231f03 1451
+  s_f8f54c5707f8f4::t_fac84bcf872711 11-13
+  s_f8f54c5707f8f4::t_a1adc8b19a6b47 1052-1059
+cortex-editor/src/cli/init.ts
+  s_f8f54c5707f8f4::t_721cdd1cafee77 884-895
+  s_f8f54c5707f8f4::t_98de0ae837e67e 25-27
+cortex-editor/src/adapters/telemetry-config.ts
+  s_f8f54c5707f8f4::t_5dbace94164c53 1-62
+cortex-editor/tests/adapters/telemetry-config.test.ts
+  s_f8f54c5707f8f4::t_0ee21567695cf5 1-100
+cortex-editor/src/core/edit-pipeline.ts
+  s_f8f54c5707f8f4::t_b02f57a078e43d 307-310
+  s_f8f54c5707f8f4::t_9ed9e0561ba842 389
+  s_f8f54c5707f8f4::t_4462d3d1697093 398-415
+  s_f8f54c5707f8f4::t_d7ffd6fbd4566a 431
+  s_f8f54c5707f8f4::t_fcc8acca0049c3 11
+cortex-editor/tests/adapters/telemetry.test.ts
+  s_f8f54c5707f8f4::t_10683172ecd4fc 1-456
+cortex-editor/src/adapters/webpack.ts
+  s_f8f54c5707f8f4::t_81f527581022d4 132-138
+cortex-editor/src/core/session.ts
+  s_f8f54c5707f8f4::t_65f4389a624ecd 9
+  s_f8f54c5707f8f4::t_9a9c2b85038d5c 90-96
+cortex-editor/src/adapters/telemetry.ts
+  s_f8f54c5707f8f4::t_5333d592e1d4c5 1-227
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "97b39d13bf98dfc4c0042a0251248117358952a1",
+  "prompts": {},
+  "sessions": {
+    "s_f8f54c5707f8f4": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "3240ae04-23f9-4637-9a53-1319a5cf3c38",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "Derrick Lee <dlee@zerofog.app>"
+    }
+  }
+}
