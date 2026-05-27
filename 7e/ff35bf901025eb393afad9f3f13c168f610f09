@@ -1,0 +1,30 @@
+.gitignore
+  s_f8f54c5707f8f4::t_f4d8ba51edb5fd 16
+  s_f8f54c5707f8f4::t_30b7213e4425bc 19-37
+cortex-editor/README.md
+  s_f8f54c5707f8f4::t_20a316af72283f 1-47
+README.md
+  s_f8f54c5707f8f4::t_f483240d15b29f 261-264
+cortex-editor/LICENSE
+  s_f8f54c5707f8f4::t_31912d2f1c9730 1-21
+LICENSE
+  s_f8f54c5707f8f4::t_5fbaf1648e974b 1-21
+cortex-editor/package.json
+  s_f8f54c5707f8f4::t_100b394937a28d 5
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "7eff35bf901025eb393afad9f3f13c168f610f09",
+  "prompts": {},
+  "sessions": {
+    "s_f8f54c5707f8f4": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "3240ae04-23f9-4637-9a53-1319a5cf3c38",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "Derrick Lee <dlee@zerofog.app>"
+    }
+  }
+}
