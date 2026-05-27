@@ -14,9 +14,31 @@
 import { readdir, readFile } from 'node:fs/promises'
 import { createRequire } from 'node:module'
 import { join, dirname, sep } from 'node:path'
-import postcss from 'postcss'
+import type { Root } from 'postcss'
 import { oklchToHex } from './oklch.js'
 import type { ResolvedTheme } from './tailwind-resolver.js'
+
+// postcss is an OPTIONAL peer dependency. Resolve it lazily instead of via a
+// top-level value import so that importing cortex-editor's core entry never
+// requires postcss to be installed — it's only loaded when tailwind-v4 @theme
+// parsing actually runs, which only happens in a project that already has
+// postcss (every Vite/Next/Webpack/Tailwind setup does). Mirrors the lazy-load
+// precedent used for ts-morph. (ZF0-1974)
+let _postcss: { parse(css: string): Root } | null = null
+function loadPostcss(): { parse(css: string): Root } {
+  if (!_postcss) {
+    // Resolve from the running project (dev-server cwd), where postcss lives as
+    // a peer. NOT via import.meta.url — esbuild emits an EMPTY import.meta.url in
+    // the CJS build, so createRequire(import.meta.url) silently fails to resolve
+    // there. cwd is build-agnostic and mirrors loadDefaultTheme's
+    // createRequire-from-package.json pattern. Stays sync (no async ripple to
+    // extractThemeProperties' many synchronous call sites + tests).
+    _postcss = createRequire(join(process.cwd(), 'package.json'))('postcss') as {
+      parse(css: string): Root
+    }
+  }
+  return _postcss
+}
 
 // ── extractThemeProperties ──────────────────────────────────────────
 
@@ -32,11 +54,14 @@ import type { ResolvedTheme } from './tailwind-resolver.js'
 export function extractThemeProperties(css: string): Map<string, string> {
   const properties = new Map<string, string>()
 
-  let root: postcss.Root
+  let root: Root
   try {
-    root = postcss.parse(css)
+    root = loadPostcss().parse(css)
   } catch {
-    return properties // malformed CSS — fail gracefully, don't disable the editor
+    // Malformed CSS, OR postcss not installed (it's an optional peer). Fail
+    // gracefully — never hard-crash the importer/editor over a parse path that
+    // only matters for Tailwind v4 projects (which have postcss anyway).
+    return properties
   }
 
   root.walkAtRules('theme', (atRule) => {
