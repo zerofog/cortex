@@ -425,7 +425,7 @@ export class TailwindResolver {
     const { extractTextComponents } = await import('./text-components.js')
     const userCSS = await findV4EntryCSS(projectRoot)
     if (!userCSS) return null
-    const properties = extractThemeProperties(userCSS)
+    const properties = extractThemeProperties(userCSS, projectRoot)
     return extractTextComponents(properties)
   }
 
@@ -459,7 +459,7 @@ export class TailwindResolver {
     const userCSS = await findV4EntryCSS(projectRoot)
     if (!userCSS) return null
 
-    const properties = extractThemeProperties(userCSS)
+    const properties = extractThemeProperties(userCSS, projectRoot)
     const appTheme = themePropertiesToResolved(properties)
     const appChips = TailwindResolver.flattenNamedColors(appTheme.colors)
     const appChipByHex = new Map<string, ColorChip>()
