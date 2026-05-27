@@ -1,8 +1,13 @@
 import { defineConfig } from 'tsup'
 import type { BuildOptions } from 'esbuild'
 
-// Externalized packages: optional peer deps + heavy runtime deps (lazy-loaded)
-const externals = ['vite', 'next', 'webpack', 'tailwindcss', 'ts-morph', 'ws', 'postcss']
+// Externalized packages — left as runtime require()/import instead of inlined.
+// Includes optional peer deps (vite/next/webpack/tailwindcss/postcss), lazy heavy
+// deps (ts-morph), ws, and the two large always-bundled offenders: @babel/parser
+// (4.35MB inlined across 8 bundles) and zod (locale re-exports defeat tree-shaking).
+// Both are declared in `dependencies` so they resolve from the consumer's tree;
+// externalizing them dropped the published package ~1.4MB → ~0.14MB packed. (ZF0-dist-externalize)
+const externals = ['vite', 'next', 'webpack', 'tailwindcss', 'ts-morph', 'ws', 'postcss', '@babel/parser', 'zod']
 
 // Source maps for the server-side (Node) bundles. Emitted for local dev / test /
 // CI so contributors can trace stack traces into real source, but OMITTED from
@@ -148,7 +153,7 @@ export default defineConfig([
     target: 'node20',
     sourcemap: SERVER_SOURCEMAP,
     banner: { js: '#!/usr/bin/env node' },
-    external: [...externals, '@modelcontextprotocol/sdk', 'zod'],
+    external: [...externals, '@modelcontextprotocol/sdk'],
   },
   // Browser-side: Preact UI bundled as IIFE for Shadow DOM injection.
   // Spread from the browserBundleBase factory above so `minifySyntax` + the
