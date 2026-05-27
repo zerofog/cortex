@@ -10,8 +10,6 @@ Cortex's complete install-to-Apply workflow currently targets Vite and standalon
 - Next.js: experimental/partial. `cortex init` can wrap `next.config.*` for source instrumentation, but visual editor activation and Apply are not end-to-end supported yet.
 - Standalone Webpack/CRA: supported for Webpack 5 projects where you can add a Webpack plugin and run the app over HTTP in development. `cortex init` can configure `cortexWebpack()` automatically when a `webpack.config.*` file is present. HtmlWebpackPlugin projects get automatic script injection; projects without HtmlWebpackPlugin get a generated manual snippet. HTTPS Webpack dev pages are not supported yet because the standalone bridge serves its injected script and WebSocket endpoint from local HTTP.
 
-The Webpack adapter design is captured in [`docs/superpowers/specs/2026-05-07-webpack-adapter-current-architecture.md`](docs/superpowers/specs/2026-05-07-webpack-adapter-current-architecture.md).
-
 ## Requirements
 
 - Node.js 20 or newer.
@@ -260,3 +258,7 @@ Then remove the generated config:
 - delete `.claude/commands/cortex.md`;
 - delete `.cortex/`;
 - remove `cortexEditor()` from `vite.config.*`, `withCortex(...)` from `next.config.*`, or `cortexWebpack()` from `webpack.config.*` if they were added.
+
+## License
+
+MIT — see [LICENSE](./LICENSE).

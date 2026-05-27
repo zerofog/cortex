@@ -2,6 +2,7 @@
   "name": "cortex-editor",
   "version": "0.1.0",
   "description": "Visual refinement editor for web applications — Vite, Next.js, and Webpack plugins",
+  "license": "MIT",
   "type": "module",
   "sideEffects": [
     "src/browser/types.ts"

@@ -13,6 +13,25 @@ manual-test.ts
 tasks/
 thoughts/
 visual-editor/tasks/
-docs/superpowers/
+**/docs/superpowers/
 .gstack/
 .claude/architecture-reviews/
+
+# Internal AI-agent config / scratch (CLAUDE.md is already ignored above;
+# these are its per-tool twins and scratch dirs — kept private for consistency)
+AGENTS.md
+.impeccable.md
+.github/copilot-instructions.md
+.agents/
+.codex/
+.context/
+.superpowers/
+
+# Local scratch / reference apps and build artifacts (never publish these)
+made-refine-main/
+dev-app/
+cortex-demo/
+worktrees/
+test-results/
+.playwright-mcp/
+classes.txt
