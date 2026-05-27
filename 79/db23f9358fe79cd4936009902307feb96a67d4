@@ -1,0 +1,24 @@
+cortex-editor/src/core/tailwind-v4-parser.ts
+  s_f8f54c5707f8f4::t_551526a313d88b 426
+  s_f8f54c5707f8f4::t_1e113fa327ccde 28
+  s_f8f54c5707f8f4::t_2a2f62743457c5 65-68,73
+  s_f8f54c5707f8f4::t_31725db815f837 30-47,49
+cortex-editor/src/core/tailwind-resolver.ts
+  s_f8f54c5707f8f4::t_5c6114b7b3fcf9 428,462
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "79db23f9358fe79cd4936009902307feb96a67d4",
+  "prompts": {},
+  "sessions": {
+    "s_f8f54c5707f8f4": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "3240ae04-23f9-4637-9a53-1319a5cf3c38",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "Derrick Lee <dlee@zerofog.app>"
+    }
+  }
+}
