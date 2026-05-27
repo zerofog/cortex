@@ -4,6 +4,15 @@ import type { BuildOptions } from 'esbuild'
 // Externalized packages: optional peer deps + heavy runtime deps (lazy-loaded)
 const externals = ['vite', 'next', 'webpack', 'tailwindcss', 'ts-morph', 'ws', 'postcss']
 
+// Source maps for the server-side (Node) bundles. Emitted for local dev / test /
+// CI so contributors can trace stack traces into real source, but OMITTED from
+// the published npm artifact: `prepublishOnly` sets CORTEX_PUBLISH=true, which
+// trims ~16MB of .map files (the package goes ~21.5MB → ~5MB unpacked). The
+// maps are inert dev-dependency artifacts with zero runtime/UX impact, and
+// contributors always get maps when building from source. The browser IIFE
+// bundle is independently sourcemap:false via browserBundleBase. (ZF0-1050)
+const SERVER_SOURCEMAP = process.env.CORTEX_PUBLISH !== 'true'
+
 /**
  * Factory for browser-IIFE tsup entries (ZF0-1326 Task 3).
  *
@@ -72,7 +81,7 @@ export default defineConfig([
     entry: ['src/index.ts'],
     format: ['esm', 'cjs'],
     target: 'node20',
-    sourcemap: true,
+    sourcemap: SERVER_SOURCEMAP,
     // DTS for ALL entries generated in one pass below — not per-config
     external: externals,
   },
@@ -82,7 +91,7 @@ export default defineConfig([
     outDir: 'dist/vite',
     format: ['esm', 'cjs'],
     target: 'node20',
-    sourcemap: true,
+    sourcemap: SERVER_SOURCEMAP,
     external: externals,
     esbuildOptions(options) {
       // import.meta.url is guarded by __dirname check — CJS branch never reaches it
@@ -95,7 +104,7 @@ export default defineConfig([
     outDir: 'dist/next',
     format: ['esm', 'cjs'],
     target: 'node20',
-    sourcemap: true,
+    sourcemap: SERVER_SOURCEMAP,
     external: externals,
     esbuildOptions(options) {
       options.logOverride = { 'empty-import-meta': 'silent' }
@@ -107,7 +116,7 @@ export default defineConfig([
     outDir: 'dist/next',
     format: ['cjs'],
     target: 'node20',
-    sourcemap: true,
+    sourcemap: SERVER_SOURCEMAP,
     external: externals,
   },
   // Webpack adapter
@@ -116,7 +125,7 @@ export default defineConfig([
     outDir: 'dist/webpack',
     format: ['esm', 'cjs'],
     target: 'node20',
-    sourcemap: true,
+    sourcemap: SERVER_SOURCEMAP,
     external: externals,
     esbuildOptions(options) {
       options.logOverride = { 'empty-import-meta': 'silent' }
@@ -128,7 +137,7 @@ export default defineConfig([
     outDir: 'dist/webpack',
     format: ['cjs'],
     target: 'node20',
-    sourcemap: true,
+    sourcemap: SERVER_SOURCEMAP,
     external: externals,
   },
   // CLI entry — cortex mcp / cortex init
@@ -137,7 +146,7 @@ export default defineConfig([
     outDir: 'dist/cli',
     format: ['esm'],
     target: 'node20',
-    sourcemap: true,
+    sourcemap: SERVER_SOURCEMAP,
     banner: { js: '#!/usr/bin/env node' },
     external: [...externals, '@modelcontextprotocol/sdk', 'zod'],
   },
