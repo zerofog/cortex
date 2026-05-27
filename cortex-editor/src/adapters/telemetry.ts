@@ -185,43 +185,72 @@ export function createTelemetry(options: TelemetryOptions): Telemetry {
   }
 
   // ------------------------------------------------------------------
+  // Write serialization
+  // ------------------------------------------------------------------
+
+  // recordActivation and recordFirstEdit are both fire-and-forget (`void`) from
+  // their call sites (vite activation hook + edit-pipeline writeFile wrapper), so
+  // a user who activates then immediately applies an edit triggers two
+  // read-modify-write cycles on usage.json concurrently. Without serialization
+  // the last write wins and silently drops the other's fields — e.g. activation
+  // overwrites `firstEditRecorded` (re-emitting first_edit later) or first-edit
+  // drops `lastActivationDate` (breaking return-session detection, the metric
+  // this whole module exists for). A per-instance promise-chain tail makes each
+  // read-modify-write atomic w.r.t. the others; each task re-reads the state the
+  // previous one persisted. Mirrors EditPipeline's `undoLock` pattern.
+  let tail: Promise<void> = Promise.resolve()
+  function serialize(task: () => Promise<void>): Promise<void> {
+    // `.then(task, task)` runs the next task regardless of whether the prior
+    // settled or rejected; the chain must never wedge on one failed write.
+    const run = tail.then(task, task)
+    tail = run.catch(() => {})
+    return run
+  }
+
+  // ------------------------------------------------------------------
   // Public API
   // ------------------------------------------------------------------
 
   return {
-    async recordInit(): Promise<void> {
-      emit('cortex_init')
-      const state = readState() ?? ({ version: 1 } as UsageState)
-      await persistState(state)
+    recordInit(): Promise<void> {
+      return serialize(async () => {
+        emit('cortex_init')
+        const state = readState() ?? ({ version: 1 } as UsageState)
+        await persistState(state)
+      })
     },
 
-    async recordActivation(): Promise<void> {
-      const todayStr = today()
-      const state = readState() ?? ({ version: 1 } as UsageState)
+    recordActivation(): Promise<void> {
+      return serialize(async () => {
+        const todayStr = today()
+        const state = readState() ?? ({ version: 1 } as UsageState)
 
-      // Detect return session BEFORE updating lastActivationDate.
-      const isReturnSession =
-        state.lastActivationDate !== undefined &&
-        state.lastActivationDate !== todayStr
+        // Detect return session BEFORE updating lastActivationDate.
+        const isReturnSession =
+          state.lastActivationDate !== undefined &&
+          state.lastActivationDate !== todayStr
 
-      emit('editor_activated')
-      if (isReturnSession) emit('return_session')
+        emit('editor_activated')
+        if (isReturnSession) emit('return_session')
 
-      const updated: UsageState = {
-        ...state,
-        firstActivationDate: state.firstActivationDate ?? todayStr,
-        lastActivationDate: todayStr,
-      }
-      await persistState(updated)
+        const updated: UsageState = {
+          ...state,
+          firstActivationDate: state.firstActivationDate ?? todayStr,
+          lastActivationDate: todayStr,
+        }
+        await persistState(updated)
+      })
     },
 
-    async recordFirstEdit(): Promise<void> {
-      const state = readState() ?? ({ version: 1 } as UsageState)
-      if (state.firstEditRecorded) return
+    recordFirstEdit(): Promise<void> {
+      return serialize(async () => {
+        const state = readState() ?? ({ version: 1 } as UsageState)
+        if (state.firstEditRecorded) return
 
-      emit('first_edit')
-      const updated: UsageState = { ...state, firstEditRecorded: true }
-      await persistState(updated)
+        emit('first_edit')
+        const updated: UsageState = { ...state, firstEditRecorded: true }
+        await persistState(updated)
+      })
     },
   }
 }

@@ -454,3 +454,45 @@ describe('usage.json is a state document, not a log', () => {
     }
   })
 })
+
+// ---------------------------------------------------------------------------
+// Concurrent recorders must not lose updates (ZF0-1051 / Codex P2 race fix)
+// ---------------------------------------------------------------------------
+describe('concurrent state updates are serialized (no lost update)', () => {
+  it('recordActivation + recordFirstEdit fired concurrently both persist their fields', async () => {
+    // Stateful sink: readFileSync reflects the most-recent write, so a
+    // read-modify-write race surfaces as a dropped field in the final state.
+    let current: string | undefined
+    const readFileSync = vi.fn<(path: string, encoding: BufferEncoding) => string>(() => {
+      if (current === undefined) {
+        throw Object.assign(new Error('ENOENT'), { code: 'ENOENT' })
+      }
+      return current
+    })
+    const writeFile = vi.fn<(filePath: string, content: string) => Promise<void>>(
+      async (_p: string, content: string) => {
+        current = content
+      },
+    )
+
+    const t = createTelemetry({
+      enabled: true,
+      endpoint: undefined,
+      cortexRoot: CORTEX_ROOT,
+      version: '0.1.0',
+      readFileSync,
+      writeFile,
+      mkdirSync: mockMkdirSync(),
+      now: () => new Date('2026-05-27T12:00:00Z'),
+    })
+
+    // Fire both WITHOUT awaiting individually — mirrors the void call sites
+    // (vite activation hook + edit-pipeline writeFile wrapper).
+    await Promise.all([t.recordActivation(), t.recordFirstEdit()])
+
+    const final = JSON.parse(current!) as UsageState
+    // Both fields must survive — neither recorder may clobber the other's write.
+    expect(final.lastActivationDate).toBe('2026-05-27')
+    expect(final.firstEditRecorded).toBe(true)
+  })
+})
