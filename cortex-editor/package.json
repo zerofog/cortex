@@ -96,7 +96,6 @@
     "prepublishOnly": "node -e \"require('node:fs').rmSync('dist', { recursive: true, force: true })\" && cross-env CORTEX_TEST_BUILD=false CORTEX_PUBLISH=true npm run build"
   },
   "devDependencies": {
-    "@babel/parser": "^7.27.0",
     "@playwright/test": "^1.59.1",
     "@types/node": "^20",
     "@types/ws": "^8.18.1",
@@ -134,6 +133,7 @@
     }
   },
   "dependencies": {
+    "@babel/parser": "^7.27.0",
     "@floating-ui/dom": "^1.7.6",
     "@modelcontextprotocol/sdk": "^1.27.1",
     "preact": "^10.29.0",
