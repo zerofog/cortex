@@ -1,8 +1,30 @@
 {
   "name": "cortex-editor",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Visual refinement editor for web applications — Vite, Next.js, and Webpack plugins",
   "license": "MIT",
+  "author": "Zerofog",
+  "homepage": "https://github.com/zerofog/cortex#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/zerofog/cortex.git",
+    "directory": "cortex-editor"
+  },
+  "bugs": {
+    "url": "https://github.com/zerofog/cortex/issues"
+  },
+  "keywords": [
+    "visual-editor",
+    "design-tokens",
+    "vite-plugin",
+    "webpack-plugin",
+    "nextjs",
+    "css",
+    "tailwindcss",
+    "claude-code",
+    "mcp",
+    "devtools"
+  ],
   "type": "module",
   "sideEffects": [
     "src/browser/types.ts"
@@ -71,7 +93,7 @@
     "test:watch": "vitest",
     "test:e2e": "npm run build:test && playwright test",
     "typecheck": "tsc --noEmit && tsc --noEmit -p tests/tsconfig.json && tsc --noEmit -p tests/e2e/tsconfig.json",
-    "prepublishOnly": "node -e \"require('node:fs').rmSync('dist', { recursive: true, force: true })\" && cross-env CORTEX_TEST_BUILD=false npm run build"
+    "prepublishOnly": "node -e \"require('node:fs').rmSync('dist', { recursive: true, force: true })\" && cross-env CORTEX_TEST_BUILD=false CORTEX_PUBLISH=true npm run build"
   },
   "devDependencies": {
     "@babel/parser": "^7.27.0",
