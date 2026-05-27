@@ -1,5 +1,5 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
-import type { Telemetry, UsageState } from '../../src/adapters/telemetry.js'
+import { describe, it, expect, vi } from 'vitest'
+import type { UsageState } from '../../src/adapters/telemetry.js'
 import { createTelemetry } from '../../src/adapters/telemetry.js'
 
 // ---------------------------------------------------------------------------
@@ -8,19 +8,19 @@ import { createTelemetry } from '../../src/adapters/telemetry.js'
 
 /** Build a fresh mock writer that captures call args. */
 function mockWriter() {
-  return vi.fn<[string, string], Promise<void>>().mockResolvedValue(undefined)
+  return vi.fn<(filePath: string, content: string) => Promise<void>>().mockResolvedValue(undefined)
 }
 
 /** Build a mock fetch that resolves to a minimal Response-like. */
 function mockFetch() {
-  return vi.fn<[RequestInfo | URL, RequestInit?], Promise<Response>>().mockResolvedValue(
+  return vi.fn<(input: RequestInfo | URL, init?: RequestInit) => Promise<Response>>().mockResolvedValue(
     new Response('ok', { status: 200 }),
   )
 }
 
 /** Build a mock readFileSync that returns JSON of the given state (or throws ENOENT). */
 function mockReadFileSync(state?: UsageState) {
-  return vi.fn<[string, BufferEncoding], string>((
+  return vi.fn<(path: string, encoding: BufferEncoding) => string>((
     _path: string,
     _enc: BufferEncoding,
   ) => {
@@ -52,7 +52,7 @@ function build(overrides: Partial<Parameters<typeof createTelemetry>[0]> & {
   const writeFile = mockWriter()
   const mkdirSync = mockMkdirSync()
   const fetchImpl = fetchRejects
-    ? vi.fn<[RequestInfo | URL, RequestInit?], Promise<Response>>().mockRejectedValue(new Error('Network error'))
+    ? vi.fn<(input: RequestInfo | URL, init?: RequestInit) => Promise<Response>>().mockRejectedValue(new Error('Network error'))
     : mockFetch()
 
   const telemetry = createTelemetry({
@@ -359,7 +359,7 @@ describe('Network failure is silent', () => {
 describe('Local I/O failure is silent', () => {
   it('resolves without throwing when writeFile rejects (e.g. ExternalRevertError)', async () => {
     const { ExternalRevertError } = await import('../../src/adapters/atomic-write.js')
-    const writeFile = vi.fn<[string, string], Promise<void>>().mockRejectedValue(
+    const writeFile = vi.fn<(filePath: string, content: string) => Promise<void>>().mockRejectedValue(
       new ExternalRevertError('/fake/project/.cortex/usage.json'),
     )
     const t = createTelemetry({
