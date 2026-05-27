@@ -6,6 +6,7 @@ import type { Duplex } from 'stream'
 import type { ServerChannel } from '../adapters/types.js'
 import type { StyleCapability } from './capabilities.js'
 import type { EditPipeline } from './edit-pipeline.js'
+import type { Telemetry } from '../adapters/telemetry.js'
 import { AnnotationStore } from './annotations.js'
 import { ActivityLog } from './session/activity-log.js'
 import { StagedEditsCache } from './staged-edits.js'
@@ -85,6 +86,13 @@ export class CortexSession {
    *  change) triggers a wipe — not a transient same-UUID reconnect (WiFi flap,
    *  sleep/wake). Mirrors the browser's lastSessionIdRef.current guard. */
   lastMcpSessionId: string | null = null
+
+  // --- Telemetry ---
+  /** Opt-in telemetry handle. `null` when `CORTEX_TELEMETRY` is unset or
+   *  not `'true'`. Set by the adapter (vite.ts / webpack.ts) after session
+   *  construction, so tests that construct CortexSession directly remain
+   *  unaffected. */
+  telemetry: Telemetry | null = null
 
   // --- Editor state ---
   /** Pillar 1: server-owned activation state. Replaces editorActive as the
