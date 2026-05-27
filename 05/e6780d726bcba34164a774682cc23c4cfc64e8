@@ -1,0 +1,24 @@
+cortex-editor/tests/adapters/telemetry.test.ts
+  s_f8f54c5707f8f4::t_ea74985ab40c47 23
+  s_f8f54c5707f8f4::t_7842d801d2f7ce 1-2
+  s_f8f54c5707f8f4::t_c79311c61fa25b 55
+  s_f8f54c5707f8f4::t_b2740e4ad3dab9 362
+  s_f8f54c5707f8f4::t_91343bc0deb467 11
+  s_f8f54c5707f8f4::t_839c717c3a433d 16
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "05e6780d726bcba34164a774682cc23c4cfc64e8",
+  "prompts": {},
+  "sessions": {
+    "s_f8f54c5707f8f4": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "3240ae04-23f9-4637-9a53-1319a5cf3c38",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "Derrick Lee <dlee@zerofog.app>"
+    }
+  }
+}
