@@ -122,7 +122,7 @@ describe('ExternalRevertError (H5 path redaction)', () => {
     // contain the path. The test is falsifiable: a regression that
     // re-introduces `${filePath}` into the message will fail this
     // specific string check.
-    const path = '/Users/derricklee/secret-project/src/components/Hero.tsx'
+    const path = '/Users/dev/secret-project/src/components/Hero.tsx'
     const err = new ExternalRevertError(path)
     expect(err.message).not.toContain(path)
     expect(err.message).not.toContain('secret-project')
