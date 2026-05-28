@@ -1,0 +1,21 @@
+cortex-editor/tests/adapters/atomic-write.test.ts
+  s_e149370edac404::t_378f0fcd0c3b3c 125
+.gitignore
+  s_e149370edac404::t_0b927ed517ab0c 17
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "92b9cc74463bac327a05f59f8dfd5237a34e5c9e",
+  "prompts": {},
+  "sessions": {
+    "s_e149370edac404": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "4ebdef96-b790-4995-aa78-abaa802d962e",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "Derrick Lee <dlee@zerofog.app>"
+    }
+  }
+}
