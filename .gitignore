@@ -12,13 +12,15 @@ manual-test.ts
 # Local review/task/planning docs
 tasks/
 thoughts/
-visual-editor/tasks/
 **/docs/superpowers/
 docs/prds/
 cortex-editor/docs/panel-v2-plan.md
 cortex-editor/docs/panel-v2-mock.html
 .gstack/
 .claude/architecture-reviews/
+
+# Abandoned predecessor — migrated to cortex-editor/ on 2026-03-11
+visual-editor/
 
 # Internal AI-agent config / scratch (CLAUDE.md is already ignored above;
 # these are its per-tool twins and scratch dirs — kept private for consistency)

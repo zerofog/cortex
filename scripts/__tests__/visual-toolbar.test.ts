@@ -8,7 +8,7 @@ import { describe, expect, it } from 'vitest';
  *
  * NOTE: This test file runs in Node.js (no DOM). buildTokenMaps tests
  * verify the SSR guard behavior here. Full DOM-dependent buildTokenMaps
- * tests live in visual-editor/tests/client/toolbar.test.ts (happy-dom).
+ * tests require a happy-dom environment (not exercised in this file).
  */
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports
