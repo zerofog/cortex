@@ -1,4 +1,4 @@
-import { resolve, sep } from "path";
+import { resolve, sep, dirname } from "path";
 import { realpathSync } from "fs";
 import type { ServerChannel, ClassOp } from "../adapters/types.js";
 import type { TailwindResolver } from "./tailwind-resolver.js";
@@ -355,6 +355,62 @@ function parseCssMapping(
  * 4. On success: write file, send status, track HMR verification
  * 5. On failure: emit terminal failed (mcpMode → needs-source-edit for Claude)
  */
+
+/** Realpath of the deepest EXISTING ancestor directory of absolute path `p`.
+ *  Walks up until realpathSync succeeds; the filesystem root always exists, so
+ *  this terminates. Used to confine writes whose leaf does not exist yet. */
+function realpathNearestExistingAncestor(p: string): string {
+  let dir = dirname(p);
+  for (;;) {
+    try {
+      return realpathSync(dir);
+    } catch {
+      const parent = dirname(dir);
+      if (parent === dir) return dir; // reached filesystem root
+      dir = parent;
+    }
+  }
+}
+
+/**
+ * True iff a write to `filePath` lands inside `projectRoot`.
+ *
+ * Security: confines every source-file write to the project tree, defeating a
+ * symlinked directory inside the root that points outside it (e.g.
+ * `src/link -> /etc`, then a write to `src/link/new.tsx`).
+ *
+ * Strategy hinges on whether the root exists on disk:
+ *   - Root does NOT exist (a synthetic/injected root, e.g. unit tests that
+ *     stub `writeFile`): no real symlinks can be in play, so fall back to a
+ *     syntactic containment check. Preserves the original behavior.
+ *   - Root EXISTS (real usage): resolve the target's REAL path — fully if it
+ *     exists, else via the nearest existing ancestor (a not-yet-created leaf
+ *     can hold no symlink) — and require it inside the root's real path. This
+ *     rejects BOTH sibling-escape symlinks (`-> /etc`) and parent-escape
+ *     symlinks (`-> ..`), which a symlink-blind string check let through.
+ *
+ * Exported for direct regression testing (the EditPipeline method is private).
+ */
+export function isWriteTargetInsideRoot(filePath: string, projectRoot: string): boolean {
+  const resolved = resolve(filePath);
+
+  let rootReal: string;
+  try {
+    rootReal = realpathSync(projectRoot);
+  } catch {
+    // Root not on disk → no symlinks possible → syntactic containment only.
+    return resolved === projectRoot || resolved.startsWith(projectRoot + sep);
+  }
+
+  let real: string;
+  try {
+    real = realpathSync(resolved);
+  } catch {
+    real = realpathNearestExistingAncestor(resolved);
+  }
+  return real === rootReal || real.startsWith(rootReal + sep);
+}
+
 export class EditPipeline {
   private debounceTimers = new Map<string, ReturnType<typeof setTimeout>>();
   private lastValues = new Map<string, string>();
@@ -1351,19 +1407,7 @@ export class EditPipeline {
   }
 
   private isInsideProjectRoot(filePath: string): boolean {
-    let real: string;
-    try {
-      real = realpathSync(filePath);
-    } catch {
-      // File may not exist yet (e.g., source path in CSS Modules edits).
-      // Fall back to string-based check against the resolved project root.
-      const resolved = resolve(filePath);
-      return (
-        resolved === this.projectRoot ||
-        resolved.startsWith(this.projectRoot + sep)
-      );
-    }
-    return real === this.projectRoot || real.startsWith(this.projectRoot + sep);
+    return isWriteTargetInsideRoot(filePath, this.projectRoot);
   }
 
   /**

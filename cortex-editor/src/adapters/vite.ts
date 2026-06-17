@@ -18,6 +18,7 @@ import {
   WRITE_TYPES,
   HEARTBEAT_INTERVAL,
   MAX_CLI_CONNECTIONS,
+  tokensEqual,
 } from './shared-server-constants.js'
 import type { ServerChannel, BrowserToServer, ServerToBrowser, Annotation } from './types.js'
 import { TailwindResolver } from '../core/tailwind-resolver.js'
@@ -1131,7 +1132,7 @@ export function cortexEditor(_options?: CortexEditorOptions): Plugin {
         // Token validation for write operations — must precede forwardToCLI to prevent
         // unauthenticated messages from being fanned out to CLI clients.
         if (WRITE_TYPES.has(data.type)) {
-          if (!('token' in data) || data.token !== currentSession.token) {
+          if (!('token' in data) || !tokensEqual(data.token, currentSession.token)) {
             if (currentSession.channel) {
               currentSession!.channel.send({ type: 'error', code: 'AUTH_FAILED', message: 'Invalid or missing auth token' })
             }
@@ -1528,7 +1529,7 @@ export function cortexEditor(_options?: CortexEditorOptions): Plugin {
 
             // Token validation for ALL CLI messages
             const msgToken = (parsed as Record<string, unknown>).token
-            if (typeof msgToken !== 'string' || msgToken !== currentSession!.token) {
+            if (!tokensEqual(msgToken, currentSession!.token)) {
               try {
                 ws.send(JSON.stringify({ type: 'error', code: 'AUTH_FAILED', message: 'Invalid or missing auth token' }))
               } catch (sendErr) {

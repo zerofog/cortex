@@ -7,10 +7,30 @@
  * added to one allowlist but not the other is a silent auth-bypass bug. Keeping
  * them here makes that drift structurally impossible — there is one definition.
  */
+import { timingSafeEqual } from 'node:crypto'
 import type { BrowserToServer } from './types.js'
 
 /** Localhost-only origin allowlist for the CLI/browser WebSocket upgrade check. */
 export const ALLOWED_ORIGINS = /^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$/
+
+/**
+ * Constant-time comparison of an inbound auth token against the session token.
+ *
+ * The session token is a `randomUUID()` (CSPRNG, 122 bits), but comparing it
+ * with plain `!==` short-circuits on the first differing byte and leaks timing
+ * a local attacker could in principle use to recover it byte-by-byte. Use
+ * `crypto.timingSafeEqual` instead. `actual` comes straight off the wire and
+ * may be any type — only a string of the exact expected byte-length can pass.
+ * Length is checked first (timingSafeEqual throws on unequal-length buffers);
+ * tokens are fixed-length UUIDs so this comparison leaks nothing useful.
+ */
+export function tokensEqual(actual: unknown, expected: string): boolean {
+  if (typeof actual !== 'string') return false
+  const a = Buffer.from(actual)
+  const b = Buffer.from(expected)
+  if (a.length !== b.length) return false
+  return timingSafeEqual(a, b)
+}
 
 /** Message `type` values a CLI (MCP) client is permitted to send. */
 export const CLI_ALLOWED_TYPES = new Set(['cortex', 'cortex-close', 'cortex/set-active'])

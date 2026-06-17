@@ -6,6 +6,7 @@ import {
   WRITE_TYPES,
   BROWSER_TO_CLI_FORWARD_TYPES,
   CLI_ALLOWED_TYPES,
+  tokensEqual,
 } from '../../src/adapters/shared-server-constants.js'
 
 // These constants are shared by the Vite and Webpack adapters. The
@@ -66,5 +67,46 @@ describe('WRITE_TYPES — Pillar 1 exclusion', () => {
     for (const t of WRITE_TYPES_ARRAY) {
       expect(allTypes, `expected "${t}" to be a BrowserToServer schema variant`).toContain(t)
     }
+  })
+})
+
+// Security review finding P2-2: auth-token comparison must be constant-time.
+// tokensEqual replaces plain `!==` (which short-circuits on the first differing
+// byte, leaking timing) with crypto.timingSafeEqual. These tests pin the
+// functional contract; the timing property itself isn't unit-assertable.
+describe('tokensEqual — constant-time auth token comparison', () => {
+  const token = '11111111-2222-4333-8444-555555555555' // UUID shape, fixed length
+
+  it('returns true for an exact match', () => {
+    expect(tokensEqual(token, token)).toBe(true)
+    expect(tokensEqual(String(token), token)).toBe(true) // distinct instance
+  })
+
+  it('returns false for a different same-length token', () => {
+    const other = '99999999-2222-4333-8444-555555555555'
+    expect(other.length).toBe(token.length)
+    expect(tokensEqual(other, token)).toBe(false)
+  })
+
+  it('returns false for non-string actual (off-the-wire payloads are untyped)', () => {
+    expect(tokensEqual(undefined, token)).toBe(false)
+    expect(tokensEqual(null, token)).toBe(false)
+    expect(tokensEqual(42, token)).toBe(false)
+    expect(tokensEqual({ token }, token)).toBe(false)
+    expect(tokensEqual([token], token)).toBe(false)
+  })
+
+  it('returns false (does NOT throw) on length mismatch', () => {
+    // timingSafeEqual throws on unequal-length buffers; the length guard must
+    // catch this first and return false rather than crash the message handler.
+    expect(() => tokensEqual('short', token)).not.toThrow()
+    expect(tokensEqual('short', token)).toBe(false)
+    expect(tokensEqual(token + 'extra', token)).toBe(false)
+    expect(tokensEqual('', token)).toBe(false)
+  })
+
+  it('handles multibyte correctly via byte-length (not char-length)', () => {
+    // '✓' is 3 UTF-8 bytes; a 1-char actual must not be treated as equal-length.
+    expect(tokensEqual('✓', 'abc')).toBe(false)
   })
 })
