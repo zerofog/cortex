@@ -1,7 +1,7 @@
 {
   "name": "cortex-editor",
   "version": "0.2.0",
-  "description": "Visual refinement editor for web applications — Vite, Next.js, and Webpack plugins",
+  "description": "Visual editor for Claude Code",
   "license": "MIT",
   "author": "Zerofog",
   "homepage": "https://github.com/zerofog/cortex#readme",

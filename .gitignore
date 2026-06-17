@@ -41,6 +41,11 @@ test-results/
 .playwright-mcp/
 classes.txt
 
+# Maintainer-local worktree tooling (Codex Desktop; references internal paths
+# + AI provider key names — not part of the published product, kept local)
+scripts/setup-worktree.sh
+scripts/cleanup-worktree.sh
+
 
 #Ignore cursor AI rules
 .cursor/rules/codacy.mdc
