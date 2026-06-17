@@ -1,0 +1,21 @@
+.gitignore
+  s_e149370edac404::t_b2a31cf9dc7222 44-48
+cortex-editor/package.json
+  s_e149370edac404::t_a347abebec940b 4
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.8",
+  "base_commit_sha": "9aa41bdb4f05fdc908cecb7f04f3a531e01655f2",
+  "prompts": {},
+  "sessions": {
+    "s_e149370edac404": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "4ebdef96-b790-4995-aa78-abaa802d962e",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": null
+    }
+  }
+}
