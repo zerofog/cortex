@@ -32,6 +32,7 @@ import {
   WRITE_TYPES,
   HEARTBEAT_INTERVAL,
   MAX_CLI_CONNECTIONS,
+  tokensEqual,
 } from './shared-server-constants.js'
 import { shouldSuppressHmr } from './vite.js'
 import { shouldExcludeCortexSource, markRuntimeDisabled, markRuntimeEnabled } from './source-loader-utils.js'
@@ -815,7 +816,7 @@ class CortexWebpackRuntime {
       return
     }
     if (WRITE_TYPES.has(data.type)) {
-      if (!('token' in data) || data.token !== session.token) {
+      if (!('token' in data) || !tokensEqual(data.token, session.token)) {
         this.sendToBrowser(session, ws, { type: 'error', code: 'AUTH_FAILED', message: 'Invalid or missing auth token' }, 'webpack.browserMessage.auth')
         return
       }
@@ -854,7 +855,7 @@ class CortexWebpackRuntime {
 
     if (data.type === 'init') {
       const msgToken = (parsed as Record<string, unknown>).token
-      if (typeof msgToken !== 'string' || msgToken !== session.token) {
+      if (!tokensEqual(msgToken, session.token)) {
         this.sendToBrowser(session, ws, { type: 'error', code: 'AUTH_FAILED', message: 'Invalid or missing auth token' }, 'webpack.browserMessage.initAuth')
         return
       }
@@ -1013,7 +1014,7 @@ class CortexWebpackRuntime {
     if (typeof type !== 'string') return
 
     const msgToken = (parsed as Record<string, unknown>).token
-    if (typeof msgToken !== 'string' || msgToken !== session.token) {
+    if (!tokensEqual(msgToken, session.token)) {
       try { ws.send(JSON.stringify({ type: 'error', code: 'AUTH_FAILED', message: 'Invalid or missing auth token' })) } catch {}
       this.removeCliClient(session, ws)
       return
