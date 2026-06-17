@@ -1,0 +1,21 @@
+cortex-editor/README.md
+  s_e149370edac404::t_391297cc5c9653 3,7,9-15,22-52,54-56,58,63,67,75,77
+README.md
+  s_e149370edac404::t_ef8f645bad4595 19-106
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.8",
+  "base_commit_sha": "3e93c5a064ac456de5f26fac0d5e82f97752b7c6",
+  "prompts": {},
+  "sessions": {
+    "s_e149370edac404": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "4ebdef96-b790-4995-aa78-abaa802d962e",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "dklzf <213919963+dklzf@users.noreply.github.com>"
+    }
+  }
+}
