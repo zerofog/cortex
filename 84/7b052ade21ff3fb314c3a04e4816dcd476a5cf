@@ -1,0 +1,38 @@
+cortex-editor/src/adapters/vite.ts
+  s_e149370edac404::t_d04b43887f25c7 1135
+  s_e149370edac404::t_8013a2d2e084f7 1532
+  s_e149370edac404::t_4a1971c181927f 21
+cortex-editor/src/core/edit-pipeline.ts
+  s_e149370edac404::t_62ed51ca00bc6e 376,378-380,382-390,394,396-404,411
+  s_e149370edac404::t_1b5068baa9afa7 1410
+  s_e149370edac404::t_ede37088012b77 358-375,377,381,391-393,395,405-410,412-413
+  s_e149370edac404::t_4fc5079508fa88 1
+cortex-editor/src/adapters/shared-server-constants.ts
+  s_e149370edac404::t_4b62bbdfec95d1 10,16-33
+cortex-editor/tests/core/edit-pipeline.path-confinement.test.ts
+  s_e149370edac404::t_6358b64c486e9d 1-92
+cortex-editor/tests/adapters/shared-server-constants.test.ts
+  s_e149370edac404::t_5c24111678674e 72-112
+  s_e149370edac404::t_0f0064260c4b16 9
+cortex-editor/src/adapters/webpack.ts
+  s_e149370edac404::t_8c8df6c0c38d03 819
+  s_e149370edac404::t_eca34dcac2beeb 858
+  s_e149370edac404::t_f1a51b7a313dfa 1017
+  s_e149370edac404::t_2a2dd740dc973d 35
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.8",
+  "base_commit_sha": "847b052ade21ff3fb314c3a04e4816dcd476a5cf",
+  "prompts": {},
+  "sessions": {
+    "s_e149370edac404": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "4ebdef96-b790-4995-aa78-abaa802d962e",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "dklzf <213919963+dklzf@users.noreply.github.com>"
+    }
+  }
+}
