@@ -1,8 +1,8 @@
 # cortex-editor
 
-**Claude Code's visual editor.**
+**Visual editor for Claude Code**
 
-Cortex is a dev-time visual editor for web apps. Select an element in the browser, adjust design tokens visually, see the change immediately — then hand the staged edits to Claude Code, which applies them back to your source files.
+Cortex is a dev-time visual editor for web apps. Select an element in the browser, adjust design tokens visually, see the change immediately, then hand the staged edits to Claude Code, which applies them back to your source files.
 
 ## What you'll do
 
@@ -33,7 +33,7 @@ Start Claude Code in the **same folder** as your app. If it was already open, re
 
 ### 4. Activate
 
-In Claude Code, type `/cortex`. Reload your browser tab — the Cortex panel appears on the side.
+In Claude Code, type `/cortex`. Reload your browser tab and the Cortex panel appears on the side.
 
 ### 5. Edit + Apply
 
@@ -41,19 +41,19 @@ In Claude Code, type `/cortex`. Reload your browser tab — the Cortex panel app
 - Adjust spacing, color, typography, etc. in the panel.
 - Click **Apply** (or run `/cortex apply` in Claude Code) when you're ready. Claude Code writes the changes to your source files.
 
-> **Staging, not saving.** Your edits live in the browser until you Apply. Reload without applying and they're gone — on purpose. Experiment freely; commit when ready.
+> **Staging, not saving.** Your edits live in the browser until you Apply. Reload without applying and they're gone, on purpose. Experiment freely; commit when ready.
 
 ## Why Cortex?
 
-Designers usually bounce between Figma (where the change is visual) and Claude Code (where the change becomes code) — a round-trip that loses fidelity at every step.
+Designers usually bounce between Figma (where the change is visual) and Claude Code (where the change becomes code). That round-trip loses fidelity at every step.
 
 Cortex puts the editing surface on the live app itself. You adjust spacing, color, and typography directly on real content, with real responsive behavior, then Apply hands the intent to Claude Code. No spec to write, no screenshot to annotate, no translation step.
 
 ## Supported stacks
 
-- **Vite** — fully supported. `cortex init` auto-configures the plugin.
-- **Webpack 5** — supported (HtmlWebpackPlugin or manual snippet).
-- **Next.js** — experimental. `cortex init` instruments source; full Apply flow not yet end-to-end.
+- **Vite**: fully supported. `cortex init` auto-configures the plugin.
+- **Webpack 5**: supported (HtmlWebpackPlugin or manual snippet).
+- **Next.js**: experimental. `cortex init` instruments source; full Apply flow not yet end-to-end.
 
 Works with **React, Vue, or Svelte**, styled with **Tailwind CSS** or **CSS Modules**.
 
@@ -72,10 +72,10 @@ AI-assisted edits route through your existing Claude Code session over MCP. Cort
 
 ## Full documentation
 
-Step-by-step setup walkthrough, Webpack/Next specifics, annotation persistence, and troubleshooting live in the project repository:
+The step-by-step setup walkthrough, Webpack/Next specifics, annotation persistence, and troubleshooting live in the project repository:
 
 https://github.com/zerofog/cortex#getting-started
 
 ## License
 
-MIT — see [LICENSE](./LICENSE).
+MIT. See [LICENSE](./LICENSE).

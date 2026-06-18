@@ -1,4 +1,4 @@
-# Cortex Visual Editor
+# Visual editor for Claude Code
 
 Cortex is a dev-time visual editor for web apps. It lets you select elements in the browser, adjust design tokens visually, preview changes immediately, and hand staged edits to Claude Code so they can be applied back to source.
 
@@ -24,11 +24,11 @@ This is the walkthrough for designers and anyone setting up Cortex on a project 
 
 You'll need three things on your machine:
 
-- **Node.js 20 or newer** — the runtime your app and Cortex both use. Check with `node --version` in a terminal.
-- **Claude Code** — the AI that applies your edits to source files. See [code.claude.com](https://code.claude.com/).
+- **Node.js 20 or newer**: the runtime your app and Cortex both use. Check with `node --version` in a terminal.
+- **Claude Code**: the AI that applies your edits to source files. See [code.claude.com](https://code.claude.com/).
 - **Your web app, running locally.** If you've never started it on your machine before, ask your engineering team for the dev-server command (usually `npm run dev`).
 
-### Step 1 — Open a terminal in your app's folder
+### Step 1: Open a terminal in your app's folder
 
 The folder with your app's `package.json` file. In a typical project that's the repo root. In a monorepo with multiple apps, it's the specific app folder.
 
@@ -36,7 +36,7 @@ The folder with your app's `package.json` file. In a typical project that's the 
 cd ~/path/to/your-app
 ```
 
-### Step 2 — Install Cortex
+### Step 2: Install Cortex
 
 ```bash
 npm install -D cortex-editor
@@ -44,7 +44,7 @@ npm install -D cortex-editor
 
 **What you should see:** a few lines ending with `added N packages`. No red errors.
 
-### Step 3 — Run setup
+### Step 3: Run setup
 
 ```bash
 npx cortex init
@@ -54,7 +54,7 @@ npx cortex init
 
 **What you should see:** messages confirming the Vite plugin was configured and `.mcp.json` was written.
 
-### Step 4 — Start your app
+### Step 4: Start your app
 
 In the same terminal:
 
@@ -64,15 +64,15 @@ npm run dev
 
 **What you should see:** a URL like `http://localhost:5173`. Leave this terminal running.
 
-### Step 5 — Open your app in a browser
+### Step 5: Open your app in a browser
 
-Visit the URL from Step 4. Your app loads normally. Cortex isn't visible yet — that's expected.
+Visit the URL from Step 4. Your app loads normally. Cortex isn't visible yet. That's expected.
 
-### Step 6 — Open Claude Code
+### Step 6: Open Claude Code
 
 Start Claude Code in the **same folder** as your app (so it can see your source files). If Claude Code was already open, restart it from this folder so it picks up the new MCP server.
 
-### Step 7 — Activate Cortex
+### Step 7: Activate Cortex
 
 In Claude Code, type:
 
@@ -82,15 +82,15 @@ In Claude Code, type:
 
 **What happens:** Claude Code starts Cortex and confirms it's connected. Reload your browser tab and the Cortex editing panel appears on the side.
 
-### Step 8 — Edit something
+### Step 8: Edit something
 
-- Click any element in your app — it highlights.
+- Click any element in your app, and it highlights.
 - The Cortex panel shows controls for spacing, color, typography, and other supported design properties.
 - Change a value. The browser updates instantly.
 
-> **Heads up:** your changes are **staged**, not saved. They live in the browser. If you reload the tab without applying, they're gone. This is on purpose — it lets you experiment without dirty source files.
+> **Heads up:** your changes are **staged**, not saved. They live in the browser. If you reload the tab without applying, they're gone. This is on purpose: it lets you experiment without dirty source files.
 
-### Step 9 — Apply
+### Step 9: Apply
 
 When you're happy with the changes, click **Apply** in the Cortex panel (or run `/cortex apply` in Claude Code).
 
@@ -98,9 +98,9 @@ Claude Code reads your staged edits and writes them to your source files. Your e
 
 ### When something goes wrong
 
-- **`/cortex` says "not connected" or "MCP unavailable"** — your dev server (Step 4) needs to still be running. Also try restarting Claude Code from your app folder so it reloads the MCP config.
-- **No panel appears in the browser** — reload the tab. The panel only injects on a fresh page load after `/cortex` runs.
-- **`npx cortex init` says it can't find a config** — Cortex supports Vite and Webpack 5 today. See [Support Status](#support-status) for what each adapter does.
+- **`/cortex` says "not connected" or "MCP unavailable"**: your dev server (Step 4) needs to still be running. Also try restarting Claude Code from your app folder so it reloads the MCP config.
+- **No panel appears in the browser**: reload the tab. The panel only injects on a fresh page load after `/cortex` runs.
+- **`npx cortex init` says it can't find a config**: Cortex supports Vite and Webpack 5 today. See [Support Status](#support-status) for what each adapter does.
 
 For more troubleshooting and edge cases, see the [Troubleshooting](#troubleshooting) section below.
 
@@ -291,11 +291,11 @@ When enabled, Cortex writes annotations to `.cortex/annotations.json` in your pr
 
 **Staleness caveat:** annotations are tied to a specific snapshot of your UI and source code. After code changes, an annotation may reference DOM elements or source lines that no longer exist. The designer is responsible for resolving or dismissing stale annotations.
 
-**Privacy:** `.cortex/` is already in the repo's `.gitignore` — annotations stay local to your machine. Schema is versioned (`{ version: 1, annotations: [...] }`); mismatched versions are dropped with a warning rather than failing the dev server.
+**Privacy:** `.cortex/` is already in the repo's `.gitignore`, so annotations stay local to your machine. Schema is versioned (`{ version: 1, annotations: [...] }`); mismatched versions are dropped with a warning rather than failing the dev server.
 
-**Failure modes:** if `.cortex/` cannot be created (read-only filesystem, container bind-mount, permission issues), Cortex logs a one-time warning and falls back to ephemeral mode — no per-mutation noise. If `annotations.json` becomes corrupt or its schema version no longer matches the running Cortex, the session starts empty and logs a warning; the file is overwritten on the next mutation. If you want to preserve in-flight annotations across a Cortex upgrade with a schema bump, back up `annotations.json` first.
+**Failure modes:** if `.cortex/` cannot be created (read-only filesystem, container bind-mount, permission issues), Cortex logs a one-time warning and falls back to ephemeral mode, with no per-mutation noise. If `annotations.json` becomes corrupt or its schema version no longer matches the running Cortex, the session starts empty and logs a warning; the file is overwritten on the next mutation. If you want to preserve in-flight annotations across a Cortex upgrade with a schema bump, back up `annotations.json` first.
 
-Default behavior (env var unset or any value other than `true`, case-insensitive) is unchanged — annotations remain ephemeral.
+Default behavior (env var unset or any value other than `true`, case-insensitive) is unchanged: annotations remain ephemeral.
 
 ## Troubleshooting
 
@@ -349,4 +349,4 @@ Then remove the generated config:
 
 ## License
 
-MIT — see [LICENSE](./LICENSE).
+MIT. See [LICENSE](./LICENSE).
