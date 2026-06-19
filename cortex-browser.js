@@ -1233,6 +1233,13 @@ var CortexEditor = (() => {
       case "cortex-toggle":
         return cortexAppReducer(state, action.active ? { type: "cortex" } : { type: "cortex-close" });
       // -----------------------------------------------------------------------
+      // Pillar 1 unified action. Routes to the existing cortex/cortex-close
+      // branches so behavior stays identical to the legacy paths during the
+      // dual-mode period. After deprecation removes cortex/cortex-close, this
+      // case absorbs their bodies directly.
+      case "set-active":
+        return cortexAppReducer(state, action.active ? { type: "cortex" } : { type: "cortex-close" });
+      // -----------------------------------------------------------------------
       case "capabilities": {
         let filtered = action.systems.filter((s3) => s3.status !== "supported");
         return { state: { ...state, capabilitySystems: filtered }, effects: [] };
@@ -1312,6 +1319,21 @@ var CortexEditor = (() => {
           }
         ];
         return (action.reason_code === "stale" || action.reason_code === "write_failed") && effects.push({ type: "send", message: { type: "clear_server_undo" } }), { state, effects };
+      }
+      // -----------------------------------------------------------------------
+      case "annotations-snapshot": {
+        let nextAnnotations = new Map(
+          action.annotations.map((ann) => [ann.id, ann])
+        ), nextErrors = state.editErrors, errorsCloned = !1;
+        for (let ann of action.annotations)
+          if (ann.kind === "fix-request" && (ann.status === "resolved" || ann.status === "dismissed") && ann.fixMeta) {
+            let key = `${ann.elementSource}\0${ann.fixMeta.property}`;
+            nextErrors.has(key) && (errorsCloned || (nextErrors = new Map(nextErrors), errorsCloned = !0), nextErrors.delete(key));
+          }
+        return {
+          state: { ...state, annotations: nextAnnotations, editErrors: nextErrors },
+          effects: []
+        };
       }
       // -----------------------------------------------------------------------
       case "annotation-created": {
@@ -1925,13 +1947,14 @@ var CortexEditor = (() => {
     let { minX, maxX, minY, maxY } = getPanelBounds(), freeY = clamp(position.y, minY, maxY), distLeft = position.x - minX, distRight = maxX - position.x, x3;
     return distLeft <= SNAP_THRESHOLD ? x3 = minX : distRight <= SNAP_THRESHOLD ? x3 = maxX : x3 = clamp(position.x, minX, maxX), { x: x3, y: freeY };
   }
-  function getInitialPosition() {
-    if (typeof window > "u") return { x: 0, y: 0 };
-    let defaultPos = {
+  function getDefaultPosition() {
+    return typeof window > "u" ? { x: 0, y: 0 } : normalizePosition({
       x: Math.max(0, window.innerWidth - PANEL_WIDTH - PANEL_MARGIN),
       y: PANEL_MARGIN
-    };
-    return normalizePosition(cortexStorage.get("panel-position", defaultPos, isValidPosition));
+    });
+  }
+  function getInitialPosition() {
+    return typeof window > "u" ? { x: 0, y: 0 } : normalizePosition(cortexStorage.get("panel-position", getDefaultPosition(), isValidPosition));
   }
   function useSnapToEdge() {
     let [position, setPositionState] = d2(getInitialPosition), [isSnapping, setIsSnapping] = d2(!1), snapTimerRef = A2(null), positionRef = A2(position), setPosition = q2((pos) => {
@@ -1952,7 +1975,10 @@ var CortexEditor = (() => {
       }
       return window.addEventListener("resize", handleResize), () => window.removeEventListener("resize", handleResize);
     }, []);
-    let recheckOverlap = q2((elementRect) => {
+    let reset = q2(() => {
+      let home = getDefaultPosition();
+      positionRef.current = home, setPositionState(home);
+    }, []), recheckOverlap = q2((elementRect) => {
       let pos = positionRef.current, panelRight = pos.x + PANEL_WIDTH, panelBottom = pos.y + PANEL_MAX_HEIGHT;
       if (!(panelRight < elementRect.left || pos.x > elementRect.right || panelBottom < elementRect.top || pos.y > elementRect.bottom)) {
         let viewportCenter = window.innerWidth / 2, targetX = pos.x < viewportCenter ? window.innerWidth - PANEL_WIDTH - PANEL_MARGIN : PANEL_MARGIN;
@@ -1961,19 +1987,7 @@ var CortexEditor = (() => {
     }, [snap]);
     return y2(() => () => {
       snapTimerRef.current && clearTimeout(snapTimerRef.current);
-    }, []), { position, isSnapping, setPosition, snap, recheckOverlap };
-  }
-
-  // src/browser/format-shortcut.ts
-  var isMac = typeof navigator < "u" && /Mac|iPod|iPhone|iPad/.test(navigator.platform), MODIFIER_DISPLAY = isMac ? { $mod: "\u2318", Shift: "\u21E7", Alt: "\u2325" } : { $mod: "Ctrl", Shift: "Shift", Alt: "Alt" }, KEY_DISPLAY = {
-    Period: ".",
-    Comma: ",",
-    Slash: "/",
-    Minus: "-",
-    Equal: "="
-  };
-  function formatShortcut(binding) {
-    return binding.split("+").map((p3) => MODIFIER_DISPLAY[p3] ?? KEY_DISPLAY[p3] ?? p3.replace("Key", "")).join(isMac ? "" : "+");
+    }, []), { position, isSnapping, setPosition, snap, reset, recheckOverlap };
   }
 
   // src/browser/class-extractor.ts
@@ -2365,46 +2379,40 @@ var CortexEditor = (() => {
   function Paperclip({ size: size2 = 16, class: cls } = {}) {
     return /* @__PURE__ */ u4("svg", { ...svgProps(size2, cls), children: /* @__PURE__ */ u4("path", { d: "m16 6-8.414 8.586a2 2 0 0 0 2.829 2.829l8.414-8.586a4 4 0 1 0-5.657-5.657l-8.379 8.551a6 6 0 1 0 8.485 8.485l8.379-8.551" }) });
   }
-  function AlignHorizontalJustifyStart({ size: size2 = 16, class: cls } = {}) {
+  function JustifySelfStart({ size: size2 = 16, class: cls } = {}) {
     return /* @__PURE__ */ u4("svg", { ...svgProps(size2, cls), children: [
-      /* @__PURE__ */ u4("rect", { width: "6", height: "14", x: "6", y: "5", rx: "2" }),
-      /* @__PURE__ */ u4("rect", { width: "6", height: "10", x: "16", y: "7", rx: "2" }),
-      /* @__PURE__ */ u4("path", { d: "M2 2v20" })
+      /* @__PURE__ */ u4("rect", { x: "2", y: "3", width: "20", height: "18", rx: "2", "stroke-dasharray": "3 2" }),
+      /* @__PURE__ */ u4("rect", { x: "3", y: "6", width: "6", height: "12", rx: "1.5" })
     ] });
   }
-  function AlignHorizontalJustifyCenter({ size: size2 = 16, class: cls } = {}) {
+  function JustifySelfCenter({ size: size2 = 16, class: cls } = {}) {
     return /* @__PURE__ */ u4("svg", { ...svgProps(size2, cls), children: [
-      /* @__PURE__ */ u4("rect", { width: "6", height: "14", x: "2", y: "5", rx: "2" }),
-      /* @__PURE__ */ u4("rect", { width: "6", height: "10", x: "16", y: "7", rx: "2" }),
-      /* @__PURE__ */ u4("path", { d: "M12 2v20" })
+      /* @__PURE__ */ u4("rect", { x: "2", y: "3", width: "20", height: "18", rx: "2", "stroke-dasharray": "3 2" }),
+      /* @__PURE__ */ u4("rect", { x: "9", y: "6", width: "6", height: "12", rx: "1.5" })
     ] });
   }
-  function AlignHorizontalJustifyEnd({ size: size2 = 16, class: cls } = {}) {
+  function JustifySelfEnd({ size: size2 = 16, class: cls } = {}) {
     return /* @__PURE__ */ u4("svg", { ...svgProps(size2, cls), children: [
-      /* @__PURE__ */ u4("rect", { width: "6", height: "14", x: "2", y: "5", rx: "2" }),
-      /* @__PURE__ */ u4("rect", { width: "6", height: "10", x: "12", y: "7", rx: "2" }),
-      /* @__PURE__ */ u4("path", { d: "M22 2v20" })
+      /* @__PURE__ */ u4("rect", { x: "2", y: "3", width: "20", height: "18", rx: "2", "stroke-dasharray": "3 2" }),
+      /* @__PURE__ */ u4("rect", { x: "15", y: "6", width: "6", height: "12", rx: "1.5" })
     ] });
   }
-  function AlignVerticalJustifyStart({ size: size2 = 16, class: cls } = {}) {
+  function AlignSelfStart({ size: size2 = 16, class: cls } = {}) {
     return /* @__PURE__ */ u4("svg", { ...svgProps(size2, cls), children: [
-      /* @__PURE__ */ u4("rect", { width: "14", height: "6", x: "5", y: "16", rx: "2" }),
-      /* @__PURE__ */ u4("rect", { width: "10", height: "6", x: "7", y: "6", rx: "2" }),
-      /* @__PURE__ */ u4("path", { d: "M2 2h20" })
+      /* @__PURE__ */ u4("rect", { x: "2", y: "3", width: "20", height: "18", rx: "2", "stroke-dasharray": "3 2" }),
+      /* @__PURE__ */ u4("rect", { x: "6", y: "4", width: "12", height: "6", rx: "1.5" })
     ] });
   }
-  function AlignVerticalJustifyCenter({ size: size2 = 16, class: cls } = {}) {
+  function AlignSelfCenter({ size: size2 = 16, class: cls } = {}) {
     return /* @__PURE__ */ u4("svg", { ...svgProps(size2, cls), children: [
-      /* @__PURE__ */ u4("rect", { width: "14", height: "6", x: "5", y: "16", rx: "2" }),
-      /* @__PURE__ */ u4("rect", { width: "10", height: "6", x: "7", y: "2", rx: "2" }),
-      /* @__PURE__ */ u4("path", { d: "M2 12h20" })
+      /* @__PURE__ */ u4("rect", { x: "2", y: "3", width: "20", height: "18", rx: "2", "stroke-dasharray": "3 2" }),
+      /* @__PURE__ */ u4("rect", { x: "6", y: "9", width: "12", height: "6", rx: "1.5" })
     ] });
   }
-  function AlignVerticalJustifyEnd({ size: size2 = 16, class: cls } = {}) {
+  function AlignSelfEnd({ size: size2 = 16, class: cls } = {}) {
     return /* @__PURE__ */ u4("svg", { ...svgProps(size2, cls), children: [
-      /* @__PURE__ */ u4("rect", { width: "14", height: "6", x: "5", y: "12", rx: "2" }),
-      /* @__PURE__ */ u4("rect", { width: "10", height: "6", x: "7", y: "2", rx: "2" }),
-      /* @__PURE__ */ u4("path", { d: "M2 22h20" })
+      /* @__PURE__ */ u4("rect", { x: "2", y: "3", width: "20", height: "18", rx: "2", "stroke-dasharray": "3 2" }),
+      /* @__PURE__ */ u4("rect", { x: "6", y: "14", width: "12", height: "6", rx: "1.5" })
     ] });
   }
   function RotateCw({ size: size2 = 16, class: cls } = {}) {
@@ -2810,14 +2818,17 @@ var CortexEditor = (() => {
     ancestorLine,
     bufferSize,
     onApply,
-    onApplyError
+    onApplyError,
+    applyError
   }) {
     let [delivering, setDelivering] = d2(!1), [pendingClaude, setPendingClaude] = d2(!1), mountedRef = A2(!0);
     _2(() => () => {
       mountedRef.current = !1;
     }, []), y2(() => {
       bufferSize === 0 && pendingClaude && setPendingClaude(!1);
-    }, [bufferSize, pendingClaude]);
+    }, [bufferSize, pendingClaude]), y2(() => {
+      applyError != null && pendingClaude && setPendingClaude(!1);
+    }, [applyError, pendingClaude]);
     let handleApply = () => {
       if (delivering) return;
       setDelivering(!0);
@@ -3054,8 +3065,8 @@ var CortexEditor = (() => {
       activeBtn ? (indicator.style.transform = `translateX(${activeBtn.offsetLeft}px)`, indicator.style.width = `${activeBtn.offsetWidth}px`, indicator.style.opacity = "1") : (indicator.style.width = "0", indicator.style.opacity = "0");
     }, [value, mixed, disabled]);
     let handleClick = q2(
-      (optValue) => {
-        disabled || (mixed || optValue !== value) && onChange(optValue);
+      (optValue, optDisabled) => {
+        disabled || optDisabled || (mixed || optValue !== value) && onChange(optValue);
       },
       [disabled, mixed, value, onChange]
     ), hasActiveOption = options.some((opt) => opt.value === value), handleKeyDown = q2(
@@ -3064,10 +3075,15 @@ var CortexEditor = (() => {
         if (disabled) return;
         let focusedIdx = targetValue ? options.findIndex((o4) => o4.value === targetValue) : -1, idx = mixed || !hasActiveOption ? focusedIdx >= 0 ? focusedIdx : 0 : options.findIndex((o4) => o4.value === value);
         if (idx === -1) return;
-        let next = -1;
-        e4.key === "ArrowRight" || e4.key === "ArrowDown" ? (e4.preventDefault(), next = (idx + 1) % options.length) : (e4.key === "ArrowLeft" || e4.key === "ArrowUp") && (e4.preventDefault(), next = (idx - 1 + options.length) % options.length);
-        let target = next >= 0 ? options[next] : void 0;
-        target && onChange(target.value);
+        let step = 0;
+        if (e4.key === "ArrowRight" || e4.key === "ArrowDown" ? step = 1 : (e4.key === "ArrowLeft" || e4.key === "ArrowUp") && (step = -1), step === 0) return;
+        e4.preventDefault();
+        let next = (idx + step + options.length) % options.length;
+        for (; next !== idx && options[next]?.disabled; )
+          next = (next + step + options.length) % options.length;
+        if (next === idx) return;
+        let target = options[next];
+        target && !target.disabled && onChange(target.value);
       },
       [disabled, options, value, mixed, hasActiveOption, onChange]
     );
@@ -3083,20 +3099,20 @@ var CortexEditor = (() => {
           /* @__PURE__ */ u4("div", { ref: indicatorRef, class: "cortex-segmented__indicator" }),
           mixed && /* @__PURE__ */ u4("span", { class: "cortex-segmented__mixed-label", children: "Mixed" }),
           options.map((opt, index) => {
-            let isActive = !mixed && opt.value === value;
+            let isActive = !mixed && opt.value === value, optDisabled = disabled || opt.disabled === !0, tooltip = optDisabled ? opt.disabledTooltip ?? disabledTooltip ?? opt.title : opt.title;
             return /* @__PURE__ */ u4(
               "button",
               {
-                class: `cortex-segmented__option${isActive ? " cortex-segmented__option--active" : ""}`,
+                class: `cortex-segmented__option${isActive ? " cortex-segmented__option--active" : ""}${opt.disabled && !disabled ? " cortex-segmented__option--disabled" : ""}`,
                 type: "button",
                 role: "radio",
                 "aria-checked": isActive ? "true" : "false",
                 tabIndex: disabled || mixed || !hasActiveOption ? index === 0 ? 0 : -1 : isActive ? 0 : -1,
-                "aria-disabled": disabled ? "true" : void 0,
+                "aria-disabled": optDisabled ? "true" : void 0,
                 "aria-label": opt.label ? void 0 : opt.title,
-                "data-tooltip": disabled ? disabledTooltip ?? opt.title : opt.title,
+                "data-tooltip": tooltip,
                 "data-value": opt.value,
-                onClick: () => handleClick(opt.value),
+                onClick: () => handleClick(opt.value, opt.disabled === !0),
                 children: [
                   opt.icon && /* @__PURE__ */ u4("span", { class: "cortex-segmented__icon", children: opt.icon }),
                   opt.label && /* @__PURE__ */ u4("span", { class: "cortex-segmented__label", children: opt.label })
@@ -6079,16 +6095,37 @@ var CortexEditor = (() => {
       minHeight: cs.minHeight ?? "0px",
       maxHeight: cs.maxHeight ?? "none",
       overflow: cs.overflow ?? "visible",
-      boxSizing: cs.boxSizing ?? "content-box"
+      boxSizing: cs.boxSizing ?? "content-box",
+      tagName: "",
+      parentDisplay: "block"
     };
   }
-  var DISPLAY_OPTIONS = [
-    { value: "block", label: "block" },
-    { value: "flex", label: "flex" },
-    { value: "grid", label: "grid" },
-    { value: "inline", label: "inline" },
-    { value: "none", label: "none" }
-  ];
+  var WIDGET_TAGS = /* @__PURE__ */ new Set([
+    "button",
+    "input",
+    "select",
+    "textarea",
+    "progress",
+    "meter"
+  ]);
+  function inlineDisplayApplies(values) {
+    return !(WIDGET_TAGS.has(values.tagName) || values.parentDisplay.includes("flex") || values.parentDisplay.includes("grid"));
+  }
+  function buildDisplayOptions(values) {
+    let inlineEnabled = inlineDisplayApplies(values), inlineDisabledReason = inlineEnabled ? void 0 : WIDGET_TAGS.has(values.tagName) ? `<${values.tagName}> elements coerce display:inline to inline-block (HTML widget UA stylesheet) \u2014 no visible change` : `Parent is ${values.parentDisplay}; flex/grid children blockify display:inline to block (CSS spec) \u2014 no visible change`;
+    return [
+      { value: "block", label: "block" },
+      { value: "flex", label: "flex" },
+      { value: "grid", label: "grid" },
+      {
+        value: "inline",
+        label: "inline",
+        disabled: !inlineEnabled,
+        disabledTooltip: inlineDisabledReason
+      },
+      { value: "none", label: "none" }
+    ];
+  }
   function LayoutSection({
     values,
     onChange,
@@ -6125,7 +6162,7 @@ var CortexEditor = (() => {
       /* @__PURE__ */ u4("div", { class: `cortex-layout-section__group${isDimmed(dimmedProperties, "display") ? " cortex-control--dimmed" : ""}`, children: /* @__PURE__ */ u4(
         SegmentedControl,
         {
-          options: DISPLAY_OPTIONS,
+          options: buildDisplayOptions(values),
           value: values.display,
           onChange: handleDisplayChange,
           mixed: mixedProperties?.has("display")
@@ -6206,9 +6243,16 @@ var CortexEditor = (() => {
     y2(() => {
       if (!isOpen || !triggerRef.current || !popoverRef.current) return;
       let cancelled = !1, trigger = triggerRef.current, popover = popoverRef.current;
-      return popover.style.width = `${trigger.offsetWidth}px`, computePosition2(trigger, popover, {
+      popover.style.width = `${trigger.offsetWidth}px`;
+      let boundary = trigger.closest(".cortex-panel__body") ?? void 0;
+      return computePosition2(trigger, popover, {
         placement: "bottom-start",
-        middleware: [flip2(), shift2()]
+        middleware: [
+          // Flip to top-start if there's no room below the trigger inside the
+          // panel's scroll window.
+          flip2({ padding: 8, boundary, fallbackPlacements: ["top-start", "bottom-end", "top-end"] }),
+          shift2({ padding: 8, boundary })
+        ]
       }).then(({ x: x3, y: y3 }) => {
         !cancelled && popoverRef.current && (popoverRef.current.style.left = `${x3}px`, popoverRef.current.style.top = `${y3}px`);
       }).catch((err) => {
@@ -6221,24 +6265,35 @@ var CortexEditor = (() => {
         cancelled = !0;
       };
     }, [isOpen]), y2(() => {
-      isOpen && (filterRef.current?.focus(), setHighlightIdx(0));
-    }, [isOpen]);
+      if (isOpen) {
+        filterRef.current?.focus();
+        let firstEnabled = options.findIndex((o4) => !o4.disabled);
+        setHighlightIdx(firstEnabled === -1 ? 0 : firstEnabled);
+      }
+    }, [isOpen, options]);
     let open = q2(() => {
       setFilter(""), setIsOpen(!0);
     }, []), close = q2(() => {
       setIsOpen(!1), setFilter("");
     }, []), select = q2(
       (optValue) => {
-        onChange(optValue), close();
+        options.find((o4) => o4.value === optValue)?.disabled || (onChange(optValue), close());
       },
-      [onChange, close]
+      [onChange, close, options]
     ), handleFilterInput = q2((e4) => {
       setFilter(e4.target.value), setHighlightIdx(0);
-    }, []), handleKeyDown = q2(
-      (e4) => {
-        e4.key === "Escape" ? (e4.preventDefault(), close()) : e4.key === "ArrowDown" ? (e4.preventDefault(), filtered.length > 0 && setHighlightIdx((i4) => Math.min(i4 + 1, filtered.length - 1))) : e4.key === "ArrowUp" ? (e4.preventDefault(), filtered.length > 0 && setHighlightIdx((i4) => Math.max(i4 - 1, 0))) : e4.key === "Enter" && (e4.preventDefault(), filtered[highlightIdx] && select(filtered[highlightIdx].value));
+    }, []), nextEnabledIdx = q2(
+      (from, dir) => {
+        for (let i4 = from + dir; i4 >= 0 && i4 < filtered.length; i4 += dir)
+          if (!filtered[i4]?.disabled) return i4;
+        return from;
       },
-      [close, select, filtered, highlightIdx]
+      [filtered]
+    ), handleKeyDown = q2(
+      (e4) => {
+        e4.key === "Escape" ? (e4.preventDefault(), close()) : e4.key === "ArrowDown" ? (e4.preventDefault(), filtered.length > 0 && setHighlightIdx((i4) => nextEnabledIdx(i4, 1))) : e4.key === "ArrowUp" ? (e4.preventDefault(), filtered.length > 0 && setHighlightIdx((i4) => nextEnabledIdx(i4, -1))) : e4.key === "Enter" && (e4.preventDefault(), filtered[highlightIdx] && select(filtered[highlightIdx].value));
+      },
+      [close, select, filtered, highlightIdx, nextEnabledIdx]
     );
     return /* @__PURE__ */ u4("div", { class: `cortex-dropdown${mixed ? " cortex-dropdown--mixed" : ""}`, children: [
       /* @__PURE__ */ u4(
@@ -6290,10 +6345,12 @@ var CortexEditor = (() => {
                   class: [
                     "cortex-dropdown__option",
                     i4 === highlightIdx && "cortex-dropdown__option--active",
-                    !mixed && opt.value === value && "cortex-dropdown__option--selected"
+                    !mixed && opt.value === value && "cortex-dropdown__option--selected",
+                    opt.disabled && "cortex-dropdown__option--disabled"
                   ].filter(Boolean).join(" "),
                   role: "option",
                   "aria-selected": !mixed && opt.value === value ? "true" : "false",
+                  "aria-disabled": opt.disabled ? "true" : void 0,
                   "data-tooltip": opt.tooltip,
                   onClick: () => select(opt.value),
                   children: opt.label
@@ -8178,48 +8235,118 @@ var CortexEditor = (() => {
     }).join(", ");
   }
 
+  // src/browser/components/sections/effects-model.ts
+  var DEFAULT_SHADOW_FIELDS = {
+    x: 0,
+    y: 2,
+    spread: 0,
+    color: "rgba(0, 0, 0, 0.1)"
+  }, DEFAULT_SHADOW = {
+    inset: !1,
+    x: DEFAULT_SHADOW_FIELDS.x,
+    y: DEFAULT_SHADOW_FIELDS.y,
+    blur: 8,
+    spread: DEFAULT_SHADOW_FIELDS.spread,
+    color: DEFAULT_SHADOW_FIELDS.color
+  };
+  function parseFilterFunctions(raw) {
+    if (!raw || raw === "none") return { blur: 0, rest: "" };
+    let blurMatch = raw.match(/blur\(([\d.]+)px\)/), blur = blurMatch?.[1] ? parseFloat(blurMatch[1]) : 0, rest = raw.replace(/blur\([^)]*\)/g, "").replace(/\s{2,}/g, " ").trim();
+    return { blur, rest };
+  }
+  function formatFilter(rest, blur) {
+    return blur === 0 ? rest || "none" : rest ? `${rest} blur(${blur}px)` : `blur(${blur}px)`;
+  }
+  function buildEffects(values) {
+    let effects = [], shadows = parseBoxShadow(values.boxShadow), clamp6 = (n3) => Number.isFinite(n3) ? Math.max(0, n3) : 0;
+    shadows.forEach((shadow, index) => {
+      let type = shadow.inset ? "inset" : "drop";
+      effects.push({
+        id: `${type}-${index}`,
+        type,
+        x: Number.isFinite(shadow.x) ? shadow.x : 0,
+        y: Number.isFinite(shadow.y) ? shadow.y : 0,
+        blur: clamp6(shadow.blur),
+        spread: Number.isFinite(shadow.spread) ? shadow.spread : 0,
+        color: shadow.color
+      });
+    });
+    let layerBlur = clamp6(values.blur);
+    layerBlur > 0 && effects.push({ id: "layer-blur", type: "layer-blur", blur: layerBlur });
+    let backdropBlur = clamp6(values.backdropBlur);
+    return backdropBlur > 0 && effects.push({ id: "backdrop-blur", type: "backdrop-blur", blur: backdropBlur }), effects;
+  }
+  function commitEffects(effects, filterRaw, backdropFilterRaw) {
+    let shadows = effects.filter((e4) => e4.type === "drop" || e4.type === "inset").map((e4) => ({
+      inset: e4.type === "inset",
+      x: e4.x,
+      y: e4.y,
+      blur: e4.blur,
+      spread: e4.spread,
+      color: e4.color
+    })), layerBlur = effects.find(
+      (e4) => e4.type === "layer-blur"
+    ), backdropBlur = effects.find(
+      (e4) => e4.type === "backdrop-blur"
+    ), { rest: filterRest } = parseFilterFunctions(filterRaw), { rest: backdropFilterRest } = parseFilterFunctions(backdropFilterRaw);
+    return {
+      boxShadow: serializeBoxShadow(shadows),
+      filter: formatFilter(filterRest, layerBlur?.blur ?? 0),
+      backdropFilter: formatFilter(backdropFilterRest, backdropBlur?.blur ?? 0)
+    };
+  }
+  function convertEffect(effect, newType) {
+    if (effect.type === newType) return effect;
+    let { id } = effect;
+    switch (newType) {
+      case "drop":
+      case "inset":
+        return effect.type === "drop" || effect.type === "inset" ? { id, type: newType, x: effect.x, y: effect.y, blur: effect.blur, spread: effect.spread, color: effect.color } : {
+          id,
+          type: newType,
+          x: DEFAULT_SHADOW_FIELDS.x,
+          y: DEFAULT_SHADOW_FIELDS.y,
+          blur: effect.blur,
+          spread: DEFAULT_SHADOW_FIELDS.spread,
+          color: DEFAULT_SHADOW_FIELDS.color
+        };
+      case "layer-blur":
+      case "backdrop-blur":
+        return { id, type: newType, blur: effect.blur };
+    }
+  }
+  function isTypeOptionDisabled(effects, rowIndex, option) {
+    return option !== "layer-blur" && option !== "backdrop-blur" ? !1 : effects.some((e4, i4) => e4.type === option && i4 !== rowIndex);
+  }
+
   // src/browser/components/sections/EffectsSection.tsx
-  function parseBlurValue(filter) {
-    let m3 = filter.match(/blur\(([\d.]+)px\)/);
-    return m3?.[1] ? parseFloat(m3[1]) : 0;
-  }
-  function replaceBlurInFilter(existing, newBlur) {
-    let withoutBlur = (!existing || existing === "none" ? "" : existing).replace(/blur\([^)]*\)/g, "").replace(/\s{2,}/g, " ").trim();
-    return newBlur === 0 ? withoutBlur || "none" : withoutBlur ? `${withoutBlur} blur(${newBlur}px)` : `blur(${newBlur}px)`;
-  }
   function parseEffectsValues(cs) {
+    let csWithVendor = cs, backdrop = cs.backdropFilter || csWithVendor.webkitBackdropFilter || "";
     return {
       boxShadow: cs.boxShadow ?? "none",
-      blur: parseBlurValue(cs.filter ?? ""),
-      backdropBlur: parseBlurValue(
-        cs.backdropFilter ?? cs.webkitBackdropFilter ?? ""
-      ),
+      blur: parseFilterFunctions(cs.filter ?? "").blur,
+      backdropBlur: parseFilterFunctions(backdrop).blur,
       filterRaw: cs.filter ?? "",
-      backdropFilterRaw: cs.backdropFilter ?? cs.webkitBackdropFilter ?? ""
+      backdropFilterRaw: backdrop
     };
   }
   function addShadow(currentBoxShadow) {
     let shadows = parseBoxShadow(currentBoxShadow);
     return serializeBoxShadow([...shadows, { ...DEFAULT_SHADOW }]);
   }
-  var DEFAULT_SHADOW = {
-    inset: !1,
-    x: 0,
-    y: 2,
-    blur: 8,
-    spread: 0,
-    color: "rgba(0, 0, 0, 0.1)"
-  }, SHADOW_TYPE_OPTIONS = [
+  var EFFECT_TYPE_OPTIONS = [
     { value: "drop", label: "Drop shadow" },
-    { value: "inset", label: "Inner shadow" }
-  ], ZEROED_SHADOW = {
-    x: 0,
-    y: 0,
-    blur: 0,
-    spread: 0
+    { value: "inset", label: "Inner shadow" },
+    { value: "layer-blur", label: "Blur" },
+    { value: "backdrop-blur", label: "Background blur" }
+  ], DISABLED_TOOLTIP = {
+    drop: void 0,
+    inset: void 0,
+    "layer-blur": "Only one Blur per element",
+    "backdrop-blur": "Only one Background blur per element"
   };
-  function isShadowEnabled(s3) {
-    return s3.x !== 0 || s3.y !== 0 || s3.blur !== 0 || s3.spread !== 0;
+  function isEffectEnabled(e4) {
+    return e4.type === "drop" || e4.type === "inset" ? e4.x !== 0 || e4.y !== 0 || e4.blur !== 0 || e4.spread !== 0 : e4.blur !== 0;
   }
   function EffectsSection({
     values,
@@ -8230,242 +8357,277 @@ var CortexEditor = (() => {
     dimmedProperties,
     mixedProperties
   }) {
-    let [expandedKey, setExpandedKey] = d2(null), stashRef = A2(/* @__PURE__ */ new Map()), shadows = T2(() => parseBoxShadow(values.boxShadow).map((s3, i4) => ({ ...s3, _key: i4 })), [values.boxShadow]), emitChange = q2(
-      (updated) => {
-        onChange({ property: "box-shadow", value: serializeBoxShadow(updated) });
+    let baseEffects = T2(() => buildEffects(values), [values]), [disabledSingletons, setDisabledSingletons] = d2(/* @__PURE__ */ new Set()), effects = T2(() => {
+      let result = [...baseEffects];
+      for (let type of disabledSingletons)
+        result.some((e4) => e4.type === type) || result.push({ id: type, type, blur: 0 });
+      return result;
+    }, [baseEffects, disabledSingletons]), [expandedId, setExpandedId] = d2(null), stashRef = A2(/* @__PURE__ */ new Map()), baseline = T2(
+      () => commitEffects(baseEffects, values.filterRaw, values.backdropFilterRaw),
+      [baseEffects, values.filterRaw, values.backdropFilterRaw]
+    ), rowsContainerRef = A2(null), prevEffectsCountRef = A2(effects.length);
+    y2(() => {
+      prevEffectsCountRef.current > 0 && effects.length > prevEffectsCountRef.current && rowsContainerRef.current?.lastElementChild?.scrollIntoView({ block: "end", behavior: "smooth" }), prevEffectsCountRef.current = effects.length;
+    }, [effects.length]), y2(() => {
+      if (!expandedId) return;
+      rowsContainerRef.current?.querySelector(
+        `.cortex-effects-section__row[data-effect-id="${expandedId}"]`
+      )?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+    }, [expandedId]);
+    let touchedPropsRef = A2(/* @__PURE__ */ new Set()), prevPhaseRef = A2(null), emit = q2(
+      (phase, nextEffects) => {
+        let callback = phase === "change" ? onChange : phase === "scrub" ? onScrub : onScrubEnd;
+        if (!callback) return;
+        (phase === "change" || phase === "scrub" && prevPhaseRef.current !== "scrub") && touchedPropsRef.current.clear(), prevPhaseRef.current = phase;
+        let next = commitEffects(nextEffects, values.filterRaw, values.backdropFilterRaw), emitProp = (property, value, baselineValue) => {
+          let changed = value !== baselineValue;
+          (changed || touchedPropsRef.current.has(property)) && (callback({ property, value }), changed && touchedPropsRef.current.add(property));
+        };
+        emitProp("box-shadow", next.boxShadow, baseline.boxShadow), emitProp("filter", next.filter, baseline.filter), emitProp("backdrop-filter", next.backdropFilter, baseline.backdropFilter), (phase === "scrubEnd" || phase === "change") && touchedPropsRef.current.clear();
       },
-      [onChange]
+      [onChange, onScrub, onScrubEnd, baseline, values.filterRaw, values.backdropFilterRaw]
+    ), updateShadowField = q2(
+      (id, field, value, phase = "change") => {
+        let next = effects.map((e4) => e4.id !== id || e4.type !== "drop" && e4.type !== "inset" ? e4 : { ...e4, [field]: value });
+        emit(phase, next);
+      },
+      [effects, emit]
+    ), updateBlurField = q2(
+      (id, value, phase = "change") => {
+        let next = effects.map((e4) => e4.id !== id || e4.type !== "layer-blur" && e4.type !== "backdrop-blur" ? e4 : { ...e4, blur: value });
+        emit(phase, next);
+      },
+      [effects, emit]
     ), handleRemove = q2(
-      (index) => {
-        let shifted = /* @__PURE__ */ new Map();
-        for (let [key, val] of stashRef.current)
-          key < index ? shifted.set(key, val) : key > index && shifted.set(key - 1, val);
-        stashRef.current = shifted, setExpandedKey((prev) => prev === null || prev === index ? null : prev > index ? prev - 1 : prev);
-        let updated = shadows.filter((_3, i4) => i4 !== index);
-        emitChange(updated);
-      },
-      [shadows, emitChange]
-    ), handleFieldChange = q2(
-      (index, field, value) => {
-        let updated = shadows.map(
-          (s3, i4) => i4 === index ? { ...s3, [field]: value } : s3
-        );
-        emitChange(updated);
-      },
-      [shadows, emitChange]
-    ), handleFieldScrub = q2(
-      (index, field, value) => {
-        if (!onScrub) return;
-        let updated = shadows.map(
-          (s3, i4) => i4 === index ? { ...s3, [field]: value } : s3
-        );
-        onScrub({ property: "box-shadow", value: serializeBoxShadow(updated) });
-      },
-      [shadows, onScrub]
-    ), handleFieldScrubEnd = q2(
-      (index, field, value) => {
-        if (!onScrubEnd) return;
-        let updated = shadows.map(
-          (s3, i4) => i4 === index ? { ...s3, [field]: value } : s3
-        );
-        onScrubEnd({ property: "box-shadow", value: serializeBoxShadow(updated) });
-      },
-      [shadows, onScrubEnd]
-    ), handleTypeChange = q2(
-      (index, type) => {
-        handleFieldChange(index, "inset", type === "inset");
-      },
-      [handleFieldChange]
-    ), handleEyeToggle = q2(
-      (index) => {
-        let shadow = shadows[index];
-        if (!shadow) return;
-        if (isShadowEnabled(shadow)) {
-          stashRef.current.set(shadow._key, {
-            x: shadow.x,
-            y: shadow.y,
-            blur: shadow.blur,
-            spread: shadow.spread
-          });
-          let updated = shadows.map(
-            (s3, i4) => i4 === index ? { ...s3, ...ZEROED_SHADOW } : s3
-          );
-          emitChange(updated);
-        } else {
-          let restore = stashRef.current.get(shadow._key) ?? { x: DEFAULT_SHADOW.x, y: DEFAULT_SHADOW.y, blur: DEFAULT_SHADOW.blur, spread: DEFAULT_SHADOW.spread };
-          stashRef.current.delete(shadow._key);
-          let updated = shadows.map(
-            (s3, i4) => i4 === index ? { ...s3, ...restore } : s3
-          );
-          emitChange(updated);
+      (id) => {
+        let idx = effects.findIndex((e4) => e4.id === id);
+        if (idx === -1) return;
+        let target = effects[idx];
+        if (stashRef.current.delete(id), expandedId === id && setExpandedId(null), (target.type === "layer-blur" || target.type === "backdrop-blur") && disabledSingletons.has(target.type)) {
+          let next2 = new Set(disabledSingletons);
+          next2.delete(target.type), setDisabledSingletons(next2);
         }
+        if (target.type === "drop" || target.type === "inset") {
+          let newStash = /* @__PURE__ */ new Map();
+          effects.forEach((e4, i4) => {
+            if (i4 === idx) return;
+            let entry = stashRef.current.get(e4.id);
+            if (entry)
+              if (e4.type === "drop" || e4.type === "inset") {
+                let newIdx = i4 > idx ? i4 - 1 : i4, newId = `${e4.type}-${newIdx}`;
+                newStash.set(newId, entry);
+              } else
+                newStash.set(e4.id, entry);
+          }), stashRef.current = newStash;
+        }
+        let next = effects.filter((e4) => e4.id !== id);
+        emit("change", next);
       },
-      [shadows, emitChange]
-    ), toggleExpand = q2((key) => {
-      setExpandedKey((prev) => prev === key ? null : key);
-    }, []), handleBlurChange = q2(
-      (v3) => onChange({ property: "filter", value: replaceBlurInFilter(values.filterRaw, v3) }),
-      [onChange, values.filterRaw]
-    ), handleBlurScrub = q2(
-      (v3) => {
-        onScrub && onScrub({ property: "filter", value: replaceBlurInFilter(values.filterRaw, v3) });
+      [effects, emit, expandedId, disabledSingletons]
+    ), handleTypeChange = q2(
+      (id, newType) => {
+        let target = effects.find((e4) => e4.id === id);
+        if (!target || target.type === newType || (newType === "layer-blur" || newType === "backdrop-blur") && effects.some((e4) => e4.id !== id && e4.type === newType))
+          return;
+        (target.type === "drop" || target.type === "inset") !== (newType === "drop" || newType === "inset") && stashRef.current.delete(id);
+        let converted = convertEffect(target, newType), next = effects.map((e4) => e4.id === id ? converted : e4);
+        emit("change", next);
       },
-      [onScrub, values.filterRaw]
-    ), handleBlurScrubEnd = q2(
-      (v3) => {
-        onScrubEnd && onScrubEnd({ property: "filter", value: replaceBlurInFilter(values.filterRaw, v3) });
+      [effects, emit]
+    ), handleEyeToggle = q2(
+      (id) => {
+        let target = effects.find((e4) => e4.id === id);
+        if (!target) return;
+        let enabled = isEffectEnabled(target), updated;
+        if (target.type === "drop" || target.type === "inset")
+          if (enabled)
+            stashRef.current.set(id, {
+              kind: "shadow",
+              x: target.x,
+              y: target.y,
+              blur: target.blur,
+              spread: target.spread
+            }), updated = { ...target, x: 0, y: 0, blur: 0, spread: 0 };
+          else {
+            let stashed = stashRef.current.get(id);
+            stashRef.current.delete(id);
+            let restore = stashed && stashed.kind === "shadow" ? { x: stashed.x, y: stashed.y, blur: stashed.blur, spread: stashed.spread } : { x: DEFAULT_SHADOW.x, y: DEFAULT_SHADOW.y, blur: DEFAULT_SHADOW.blur, spread: DEFAULT_SHADOW.spread };
+            updated = { ...target, ...restore };
+          }
+        else if (enabled) {
+          stashRef.current.set(id, { kind: "blur", blur: target.blur });
+          let nextDisabled = new Set(disabledSingletons);
+          nextDisabled.add(target.type), setDisabledSingletons(nextDisabled), updated = { ...target, blur: 0 };
+        } else {
+          let stashed = stashRef.current.get(id);
+          if (stashRef.current.delete(id), disabledSingletons.has(target.type)) {
+            let nextDisabled = new Set(disabledSingletons);
+            nextDisabled.delete(target.type), setDisabledSingletons(nextDisabled);
+          }
+          let restoreBlur = stashed && stashed.kind === "blur" ? stashed.blur : DEFAULT_SHADOW.blur;
+          updated = { ...target, blur: restoreBlur };
+        }
+        let next = effects.map((e4) => e4.id === id ? updated : e4);
+        emit("change", next);
       },
-      [onScrubEnd, values.filterRaw]
-    ), handleBackdropBlurChange = q2(
-      (v3) => onChange({ property: "backdrop-filter", value: replaceBlurInFilter(values.backdropFilterRaw, v3) }),
-      [onChange, values.backdropFilterRaw]
-    ), handleBackdropBlurScrub = q2(
-      (v3) => {
-        onScrub && onScrub({ property: "backdrop-filter", value: replaceBlurInFilter(values.backdropFilterRaw, v3) });
-      },
-      [onScrub, values.backdropFilterRaw]
-    ), handleBackdropBlurScrubEnd = q2(
-      (v3) => {
-        onScrubEnd && onScrubEnd({ property: "backdrop-filter", value: replaceBlurInFilter(values.backdropFilterRaw, v3) });
-      },
-      [onScrubEnd, values.backdropFilterRaw]
+      [effects, emit, disabledSingletons]
+    ), toggleExpand = q2((id) => {
+      setExpandedId((prev) => prev === id ? null : id);
+    }, []), optionsForRow = q2(
+      (rowIndex) => EFFECT_TYPE_OPTIONS.map((opt) => {
+        let disabled = isTypeOptionDisabled(effects, rowIndex, opt.value);
+        return {
+          ...opt,
+          disabled,
+          // Tooltip surfaces only when the option is greyed out — otherwise
+          // the user sees a sibling-row constraint on their own active selection.
+          tooltip: disabled ? DISABLED_TOOLTIP[opt.value] : void 0
+        };
+      }),
+      [effects]
     );
-    return /* @__PURE__ */ u4("div", { class: "cortex-effects-section", "data-section-id": "effects", children: [
-      /* @__PURE__ */ u4("div", { class: `cortex-effects-section__shadows${isDimmed(dimmedProperties, "box-shadow") ? " cortex-control--dimmed" : ""}`, children: shadows.map((shadow, index) => {
-        let isExpanded = expandedKey === shadow._key, enabled = isShadowEnabled(shadow);
-        return /* @__PURE__ */ u4("div", { class: "cortex-effects-section__row", "data-expanded": String(isExpanded), children: [
-          /* @__PURE__ */ u4("div", { class: "cortex-effects-section__row-header", children: [
-            /* @__PURE__ */ u4(
-              "button",
-              {
-                class: "cortex-effects-section__expand-btn",
-                type: "button",
-                "aria-label": isExpanded ? "Collapse shadow controls" : "Expand shadow controls",
-                "aria-expanded": isExpanded,
-                onClick: () => toggleExpand(shadow._key),
-                children: /* @__PURE__ */ u4(BoxShadow, { size: 14 })
-              }
-            ),
-            /* @__PURE__ */ u4("div", { class: "cortex-effects-section__type", children: /* @__PURE__ */ u4(
-              Dropdown,
-              {
-                options: SHADOW_TYPE_OPTIONS,
-                value: shadow.inset ? "inset" : "drop",
-                onChange: (v3) => handleTypeChange(index, v3)
-              }
-            ) }),
-            /* @__PURE__ */ u4(
-              IconButton,
-              {
-                icon: enabled ? /* @__PURE__ */ u4(Eye, { size: 14 }) : /* @__PURE__ */ u4(EyeClosed, { size: 14 }),
-                ariaLabel: enabled ? "Disable shadow" : "Enable shadow",
-                tooltip: enabled ? "Disable shadow" : "Enable shadow",
-                onClick: () => handleEyeToggle(index)
-              }
-            ),
-            /* @__PURE__ */ u4(
-              IconButton,
-              {
-                icon: /* @__PURE__ */ u4(Minus, { size: 14 }),
-                ariaLabel: "Remove shadow",
-                tooltip: "Remove shadow",
-                onClick: () => handleRemove(index)
-              }
-            )
-          ] }),
-          isExpanded && /* @__PURE__ */ u4("div", { class: "cortex-effects-section__detail", children: [
-            /* @__PURE__ */ u4("div", { class: "cortex-effects-section__grid", children: [
+    function dimmedForType(type) {
+      return type === "drop" || type === "inset" ? isDimmed(dimmedProperties, "box-shadow") : type === "layer-blur" ? isDimmed(dimmedProperties, "filter") : isDimmed(dimmedProperties, "backdrop-filter");
+    }
+    function mixedForType(type) {
+      return type === "drop" || type === "inset" ? mixedProperties?.has("box-shadow") : type === "layer-blur" ? mixedProperties?.has("filter") : mixedProperties?.has("backdrop-filter");
+    }
+    return /* @__PURE__ */ u4("div", { class: "cortex-effects-section", "data-section-id": "effects", children: /* @__PURE__ */ u4("div", { class: "cortex-effects-section__effects", ref: rowsContainerRef, children: effects.map((effect, index) => {
+      let isExpanded = expandedId === effect.id, enabled = isEffectEnabled(effect), dimmed = dimmedForType(effect.type), mixed = mixedForType(effect.type);
+      return /* @__PURE__ */ u4(
+        "div",
+        {
+          class: `cortex-effects-section__row${dimmed ? " cortex-control--dimmed" : ""}`,
+          "data-expanded": String(isExpanded),
+          "data-effect-type": effect.type,
+          "data-effect-id": effect.id,
+          children: [
+            /* @__PURE__ */ u4("div", { class: "cortex-effects-section__row-header", children: [
               /* @__PURE__ */ u4(
-                NumericInput,
+                "button",
                 {
-                  value: shadow.x,
-                  unit: "px",
-                  label: "X",
-                  tooltip: "Horizontal offset",
-                  mixed: mixedProperties?.has("box-shadow"),
-                  onChange: (v3) => handleFieldChange(index, "x", v3)
+                  class: "cortex-effects-section__expand-btn",
+                  type: "button",
+                  "aria-label": isExpanded ? "Collapse effect controls" : "Expand effect controls",
+                  "aria-expanded": isExpanded,
+                  onClick: () => toggleExpand(effect.id),
+                  children: /* @__PURE__ */ u4(BoxShadow, { size: 14 })
+                }
+              ),
+              /* @__PURE__ */ u4("div", { class: "cortex-effects-section__type", children: /* @__PURE__ */ u4(
+                Dropdown,
+                {
+                  options: optionsForRow(index),
+                  value: effect.type,
+                  onChange: (v3) => handleTypeChange(effect.id, v3)
+                }
+              ) }),
+              /* @__PURE__ */ u4(
+                IconButton,
+                {
+                  icon: enabled ? /* @__PURE__ */ u4(Eye, { size: 14 }) : /* @__PURE__ */ u4(EyeClosed, { size: 14 }),
+                  ariaLabel: enabled ? "Disable effect" : "Enable effect",
+                  tooltip: enabled ? "Disable effect" : "Enable effect",
+                  onClick: () => handleEyeToggle(effect.id)
                 }
               ),
               /* @__PURE__ */ u4(
-                NumericInput,
+                IconButton,
                 {
-                  value: shadow.y,
-                  unit: "px",
-                  label: "Y",
-                  tooltip: "Vertical offset",
-                  mixed: mixedProperties?.has("box-shadow"),
-                  onChange: (v3) => handleFieldChange(index, "y", v3)
-                }
-              ),
-              /* @__PURE__ */ u4(
-                NumericInput,
-                {
-                  value: shadow.blur,
-                  unit: "px",
-                  label: "B",
-                  tooltip: "Blur radius",
-                  min: 0,
-                  mixed: mixedProperties?.has("box-shadow"),
-                  onChange: (v3) => handleFieldChange(index, "blur", v3)
-                }
-              ),
-              /* @__PURE__ */ u4(
-                NumericInput,
-                {
-                  value: shadow.spread,
-                  unit: "px",
-                  label: "S",
-                  tooltip: "Spread radius",
-                  mixed: mixedProperties?.has("box-shadow"),
-                  onChange: (v3) => handleFieldChange(index, "spread", v3)
+                  icon: /* @__PURE__ */ u4(Minus, { size: 14 }),
+                  ariaLabel: "Remove effect",
+                  tooltip: "Remove effect",
+                  onClick: () => handleRemove(effect.id)
                 }
               )
             ] }),
-            /* @__PURE__ */ u4(
-              ColorInput,
+            isExpanded && (effect.type === "drop" || effect.type === "inset") && /* @__PURE__ */ u4("div", { class: "cortex-effects-section__detail", children: [
+              /* @__PURE__ */ u4("div", { class: "cortex-effects-section__grid", children: [
+                /* @__PURE__ */ u4(
+                  NumericInput,
+                  {
+                    value: effect.x,
+                    unit: "px",
+                    label: "X",
+                    tooltip: "Horizontal offset",
+                    mixed,
+                    onChange: (v3) => updateShadowField(effect.id, "x", v3),
+                    onScrub: onScrub ? (v3) => updateShadowField(effect.id, "x", v3, "scrub") : void 0,
+                    onScrubEnd: onScrubEnd ? (v3) => updateShadowField(effect.id, "x", v3, "scrubEnd") : void 0
+                  }
+                ),
+                /* @__PURE__ */ u4(
+                  NumericInput,
+                  {
+                    value: effect.y,
+                    unit: "px",
+                    label: "Y",
+                    tooltip: "Vertical offset",
+                    mixed,
+                    onChange: (v3) => updateShadowField(effect.id, "y", v3),
+                    onScrub: onScrub ? (v3) => updateShadowField(effect.id, "y", v3, "scrub") : void 0,
+                    onScrubEnd: onScrubEnd ? (v3) => updateShadowField(effect.id, "y", v3, "scrubEnd") : void 0
+                  }
+                ),
+                /* @__PURE__ */ u4(
+                  NumericInput,
+                  {
+                    value: effect.blur,
+                    unit: "px",
+                    label: "B",
+                    tooltip: "Blur radius",
+                    min: 0,
+                    mixed,
+                    onChange: (v3) => updateShadowField(effect.id, "blur", v3),
+                    onScrub: onScrub ? (v3) => updateShadowField(effect.id, "blur", v3, "scrub") : void 0,
+                    onScrubEnd: onScrubEnd ? (v3) => updateShadowField(effect.id, "blur", v3, "scrubEnd") : void 0
+                  }
+                ),
+                /* @__PURE__ */ u4(
+                  NumericInput,
+                  {
+                    value: effect.spread,
+                    unit: "px",
+                    label: "S",
+                    tooltip: "Spread radius",
+                    mixed,
+                    onChange: (v3) => updateShadowField(effect.id, "spread", v3),
+                    onScrub: onScrub ? (v3) => updateShadowField(effect.id, "spread", v3, "scrub") : void 0,
+                    onScrubEnd: onScrubEnd ? (v3) => updateShadowField(effect.id, "spread", v3, "scrubEnd") : void 0
+                  }
+                )
+              ] }),
+              /* @__PURE__ */ u4(
+                ColorInput,
+                {
+                  value: effect.color,
+                  onChange: (hex) => updateShadowField(effect.id, "color", hex),
+                  onScrub: onScrub ? (hex) => updateShadowField(effect.id, "color", hex, "scrub") : void 0,
+                  onScrubEnd: onScrubEnd ? (hex) => updateShadowField(effect.id, "color", hex, "scrubEnd") : void 0,
+                  swatches,
+                  mixed
+                }
+              )
+            ] }),
+            isExpanded && (effect.type === "layer-blur" || effect.type === "backdrop-blur") && /* @__PURE__ */ u4("div", { class: "cortex-effects-section__detail", children: /* @__PURE__ */ u4(
+              NumericInput,
               {
-                value: shadow.color,
-                onChange: (hex) => handleFieldChange(index, "color", hex),
-                onScrub: onScrub ? (hex) => handleFieldScrub(index, "color", hex) : void 0,
-                onScrubEnd: onScrubEnd ? (hex) => handleFieldScrubEnd(index, "color", hex) : void 0,
-                swatches,
-                mixed: mixedProperties?.has("box-shadow")
+                value: effect.blur,
+                unit: "px",
+                label: effect.type === "layer-blur" ? "Blur" : "Background blur",
+                tooltip: effect.type === "layer-blur" ? "Element blur" : "Backdrop blur",
+                min: 0,
+                mixed,
+                onChange: (v3) => updateBlurField(effect.id, v3),
+                onScrub: onScrub ? (v3) => updateBlurField(effect.id, v3, "scrub") : void 0,
+                onScrubEnd: onScrubEnd ? (v3) => updateBlurField(effect.id, v3, "scrubEnd") : void 0
               }
-            )
-          ] })
-        ] }, shadow._key);
-      }) }),
-      /* @__PURE__ */ u4("div", { class: "cortex-effects-section__blur-controls", children: [
-        /* @__PURE__ */ u4("div", { class: isDimmed(dimmedProperties, "filter") ? "cortex-control--dimmed" : void 0, children: /* @__PURE__ */ u4(
-          NumericInput,
-          {
-            value: values.blur,
-            unit: "px",
-            label: "BL",
-            tooltip: "Blur",
-            min: 0,
-            mixed: mixedProperties?.has("filter"),
-            onChange: handleBlurChange,
-            onScrub: handleBlurScrub,
-            onScrubEnd: handleBlurScrubEnd
-          }
-        ) }),
-        /* @__PURE__ */ u4("div", { class: isDimmed(dimmedProperties, "backdrop-filter") ? "cortex-control--dimmed" : void 0, children: /* @__PURE__ */ u4(
-          NumericInput,
-          {
-            value: values.backdropBlur,
-            unit: "px",
-            label: "BG",
-            tooltip: "Background Blur",
-            min: 0,
-            mixed: mixedProperties?.has("backdrop-filter"),
-            onChange: handleBackdropBlurChange,
-            onScrub: handleBackdropBlurScrub,
-            onScrubEnd: handleBackdropBlurScrubEnd
-          }
-        ) })
-      ] })
-    ] });
+            ) })
+          ]
+        },
+        effect.id
+      );
+    }) }) });
   }
 
   // src/browser/components/controls/PositionDropdown.tsx
@@ -8632,7 +8794,6 @@ var CortexEditor = (() => {
   }
 
   // src/browser/components/sections/PositionSection.tsx
-  var STATIC_POSITION_TOOLTIP = "Switch to relative, absolute, fixed, or sticky to edit position";
   function parsePositionValues(cs) {
     let scale = cs.scale ?? "none", scaleX = "1", scaleY = "1";
     if (scale !== "none") {
@@ -8643,34 +8804,76 @@ var CortexEditor = (() => {
       position: cs.position ?? "static",
       left: cs.left ?? "auto",
       top: cs.top ?? "auto",
+      right: cs.right ?? "auto",
+      bottom: cs.bottom ?? "auto",
       zIndex: cs.zIndex ?? "auto",
       rotate: cs.rotate ?? "none",
       scaleX,
       scaleY,
       justifySelf: cs.justifySelf ?? "auto",
-      alignSelf: cs.alignSelf ?? "auto"
+      alignSelf: cs.alignSelf ?? "auto",
+      parentDisplay: "block",
+      parentFlexDirection: "row"
     };
   }
+  function alignSelfAxis(values) {
+    if (values.position === "absolute" || values.position === "fixed") return "vertical";
+    if (values.parentDisplay.includes("flex")) {
+      let dir = values.parentFlexDirection;
+      return dir === "column" || dir === "column-reverse" ? "horizontal" : "vertical";
+    }
+    return "vertical";
+  }
+  function justifySelfApplies(values) {
+    return values.position === "absolute" || values.position === "fixed" ? !0 : values.parentDisplay.includes("grid");
+  }
+  function alignSelfApplies(values) {
+    return values.position === "absolute" || values.position === "fixed" ? !0 : values.parentDisplay.includes("flex") || values.parentDisplay.includes("grid");
+  }
+  var HORIZONTAL_AXIS = {
+    startIcon: JustifySelfStart,
+    centerIcon: JustifySelfCenter,
+    endIcon: JustifySelfEnd,
+    startLabel: "left",
+    centerLabel: "center",
+    endLabel: "right"
+  }, VERTICAL_AXIS = {
+    startIcon: AlignSelfStart,
+    centerIcon: AlignSelfCenter,
+    endIcon: AlignSelfEnd,
+    startLabel: "top",
+    centerLabel: "middle",
+    endLabel: "bottom"
+  };
   function SelfAlignmentBlock({
+    values,
     onChange
   }) {
     let setJustify = q2(
-      (value) => onChange({ property: "justify-self", value }),
-      [onChange]
+      (value) => onChange({
+        property: "justify-self",
+        value: values.justifySelf === value ? "auto" : value
+      }),
+      [onChange, values.justifySelf]
     ), setAlign = q2(
-      (value) => onChange({ property: "align-self", value }),
-      [onChange]
-    );
+      (value) => onChange({
+        property: "align-self",
+        value: values.alignSelf === value ? "auto" : value
+      }),
+      [onChange, values.alignSelf]
+    ), showJustify = justifySelfApplies(values), showAlign = alignSelfApplies(values);
+    if (!showJustify && !showAlign) return null;
+    let justifyAxis = HORIZONTAL_AXIS, alignAxis = alignSelfAxis(values) === "horizontal" ? HORIZONTAL_AXIS : VERTICAL_AXIS, cap = (s3) => s3.charAt(0).toUpperCase() + s3.slice(1);
     return /* @__PURE__ */ u4("div", { class: "cortex-position-section__self-align", children: [
-      /* @__PURE__ */ u4("div", { class: "cortex-position-section__btn-group", role: "group", "aria-label": "Justify self", children: [
-        /* @__PURE__ */ u4(IconButton, { icon: /* @__PURE__ */ u4(AlignHorizontalJustifyStart, { size: 14 }), ariaLabel: "Justify self start", tooltip: "Justify self \xB7 start", onClick: () => setJustify("start") }),
-        /* @__PURE__ */ u4(IconButton, { icon: /* @__PURE__ */ u4(AlignHorizontalJustifyCenter, { size: 14 }), ariaLabel: "Justify self center", tooltip: "Justify self \xB7 center", onClick: () => setJustify("center") }),
-        /* @__PURE__ */ u4(IconButton, { icon: /* @__PURE__ */ u4(AlignHorizontalJustifyEnd, { size: 14 }), ariaLabel: "Justify self end", tooltip: "Justify self \xB7 end", onClick: () => setJustify("end") })
+      showJustify && /* @__PURE__ */ u4("div", { class: "cortex-position-section__btn-group", role: "group", "aria-label": `Justify self ${justifyAxis.startLabel}/${justifyAxis.centerLabel}/${justifyAxis.endLabel}`, children: [
+        /* @__PURE__ */ u4(IconButton, { icon: /* @__PURE__ */ u4(justifyAxis.startIcon, { size: 14 }), ariaLabel: `Justify self ${justifyAxis.startLabel}`, tooltip: `Justify self \xB7 ${cap(justifyAxis.startLabel)}`, active: values.justifySelf === "start", onClick: () => setJustify("start") }),
+        /* @__PURE__ */ u4(IconButton, { icon: /* @__PURE__ */ u4(justifyAxis.centerIcon, { size: 14 }), ariaLabel: `Justify self ${justifyAxis.centerLabel}`, tooltip: `Justify self \xB7 ${cap(justifyAxis.centerLabel)}`, active: values.justifySelf === "center", onClick: () => setJustify("center") }),
+        /* @__PURE__ */ u4(IconButton, { icon: /* @__PURE__ */ u4(justifyAxis.endIcon, { size: 14 }), ariaLabel: `Justify self ${justifyAxis.endLabel}`, tooltip: `Justify self \xB7 ${cap(justifyAxis.endLabel)}`, active: values.justifySelf === "end", onClick: () => setJustify("end") })
       ] }),
-      /* @__PURE__ */ u4("div", { class: "cortex-position-section__btn-group", role: "group", "aria-label": "Align self", children: [
-        /* @__PURE__ */ u4(IconButton, { icon: /* @__PURE__ */ u4(AlignVerticalJustifyStart, { size: 14 }), ariaLabel: "Align self start", tooltip: "Align self \xB7 start", onClick: () => setAlign("start") }),
-        /* @__PURE__ */ u4(IconButton, { icon: /* @__PURE__ */ u4(AlignVerticalJustifyCenter, { size: 14 }), ariaLabel: "Align self center", tooltip: "Align self \xB7 center", onClick: () => setAlign("center") }),
-        /* @__PURE__ */ u4(IconButton, { icon: /* @__PURE__ */ u4(AlignVerticalJustifyEnd, { size: 14 }), ariaLabel: "Align self end", tooltip: "Align self \xB7 end", onClick: () => setAlign("end") })
+      showAlign && /* @__PURE__ */ u4("div", { class: "cortex-position-section__btn-group", role: "group", "aria-label": `Align self ${alignAxis.startLabel}/${alignAxis.centerLabel}/${alignAxis.endLabel}`, children: [
+        /* @__PURE__ */ u4(IconButton, { icon: /* @__PURE__ */ u4(alignAxis.startIcon, { size: 14 }), ariaLabel: `Align self ${alignAxis.startLabel}`, tooltip: `Align self \xB7 ${cap(alignAxis.startLabel)}`, active: values.alignSelf === "start", onClick: () => setAlign("start") }),
+        /* @__PURE__ */ u4(IconButton, { icon: /* @__PURE__ */ u4(alignAxis.centerIcon, { size: 14 }), ariaLabel: `Align self ${alignAxis.centerLabel}`, tooltip: `Align self \xB7 ${cap(alignAxis.centerLabel)}`, active: values.alignSelf === "center", onClick: () => setAlign("center") }),
+        /* @__PURE__ */ u4(IconButton, { icon: /* @__PURE__ */ u4(alignAxis.endIcon, { size: 14 }), ariaLabel: `Align self ${alignAxis.endLabel}`, tooltip: `Align self \xB7 ${cap(alignAxis.endLabel)}`, active: values.alignSelf === "end", onClick: () => setAlign("end") })
       ] })
     ] });
   }
@@ -8685,27 +8888,13 @@ var CortexEditor = (() => {
     let isStatic = values.position === "static", handlePositionMode = q2(
       (v3) => onChange({ property: "position", value: v3 }),
       [onChange]
-    ), handleXChange = q2(
-      (v3) => onChange({ property: "left", value: `${v3}px` }),
-      [onChange]
-    ), handleYChange = q2(
-      (v3) => onChange({ property: "top", value: `${v3}px` }),
-      [onChange]
-    ), handleZChange = q2(
+    ), makeEdgeHandler = (property) => ({
+      onChange: (v3) => onChange({ property, value: `${v3}px` }),
+      onScrub: (v3) => onScrub?.({ property, value: `${v3}px` }),
+      onScrubEnd: (v3) => onScrubEnd?.({ property, value: `${v3}px` })
+    }), topHandlers = makeEdgeHandler("top"), rightHandlers = makeEdgeHandler("right"), bottomHandlers = makeEdgeHandler("bottom"), leftHandlers = makeEdgeHandler("left"), handleZChange = q2(
       (v3) => onChange({ property: "z-index", value: `${v3}` }),
       [onChange]
-    ), handleXScrub = q2(
-      (v3) => onScrub?.({ property: "left", value: `${v3}px` }),
-      [onScrub]
-    ), handleYScrub = q2(
-      (v3) => onScrub?.({ property: "top", value: `${v3}px` }),
-      [onScrub]
-    ), handleXScrubEnd = q2(
-      (v3) => onScrubEnd?.({ property: "left", value: `${v3}px` }),
-      [onScrubEnd]
-    ), handleYScrubEnd = q2(
-      (v3) => onScrubEnd?.({ property: "top", value: `${v3}px` }),
-      [onScrubEnd]
     ), rotateNum = values.rotate === "none" ? 0 : parseFloat(values.rotate), isFlippedH = parseFloat(values.scaleX) < 0, isFlippedV = parseFloat(values.scaleY) < 0, handleRotateChange = q2(
       (v3) => onChange({ property: "rotate", value: `${v3}deg` }),
       [onChange]
@@ -8725,7 +8914,10 @@ var CortexEditor = (() => {
     }, [isFlippedH, values.scaleX, values.scaleY, onChange]), handleFlipV = q2(() => {
       let parsed = parseFloat(values.scaleY), magnitude = Number.isNaN(parsed) ? 1 : Math.abs(parsed), newY = isFlippedV ? magnitude : -magnitude;
       onChange({ property: "scale", value: `${values.scaleX} ${newY}` });
-    }, [isFlippedV, values.scaleX, values.scaleY, onChange]), leftNum = parseFloat(values.left), topNum = parseFloat(values.top), xValue = isStatic || isNaN(leftNum) ? 0 : leftNum, yValue = isStatic || isNaN(topNum) ? 0 : topNum, zValue = parseFloat(values.zIndex) || 0, isSticky = values.position === "sticky", isFixed = values.position === "fixed", xTooltip = isSticky ? "Stick at left" : isFixed ? "Left from viewport" : "Left offset", yTooltip = isSticky ? "Stick at top" : isFixed ? "Top from viewport" : "Top offset";
+    }, [isFlippedV, values.scaleX, values.scaleY, onChange]), edgeNum = (raw) => {
+      let n3 = parseFloat(raw);
+      return isNaN(n3) ? 0 : n3;
+    }, topNum = edgeNum(values.top), rightNum = edgeNum(values.right), bottomNum = edgeNum(values.bottom), leftNum = edgeNum(values.left), zValue = parseFloat(values.zIndex) || 0, edgeUnit = (raw) => isNaN(parseFloat(raw)) ? "auto" : "px", isSticky = values.position === "sticky", isFixed = values.position === "fixed", isAbsolute = values.position === "absolute", offsetMode = isStatic ? "Set position to relative, absolute, fixed, or sticky to use offsets" : isSticky ? "Stick when scrolled past this distance from the edge" : isFixed ? "Distance from the viewport edge" : isAbsolute ? "Distance from the containing block edge" : "Nudge from normal flow", edgeTooltip = (edge) => isStatic ? offsetMode : `${edge.charAt(0).toUpperCase() + edge.slice(1)} \u2014 ${offsetMode}`;
     return /* @__PURE__ */ u4("div", { class: "cortex-position-section", "data-section-id": "position", children: [
       /* @__PURE__ */ u4("div", { class: "cortex-position-section__group", children: /* @__PURE__ */ u4(
         PositionDropdown,
@@ -8734,19 +8926,20 @@ var CortexEditor = (() => {
           onChange: handlePositionMode
         }
       ) }),
-      /* @__PURE__ */ u4(SelfAlignmentBlock, { onChange }),
+      /* @__PURE__ */ u4(SelfAlignmentBlock, { values, onChange }),
       /* @__PURE__ */ u4(
         "div",
         {
-          class: `cortex-position-section__xy-row${isStatic ? " cortex-position-section__xy-row--disabled" : ""}${isDimmed(dimmedProperties, "left", "top") ? " cortex-control--dimmed" : ""}`,
-          "data-tooltip": isStatic ? STATIC_POSITION_TOOLTIP : void 0,
+          class: `cortex-position-section__xy-row${isDimmed(dimmedProperties, "left", "top", "right", "bottom") ? " cortex-control--dimmed" : ""}`,
           children: [
-            /* @__PURE__ */ u4(NumericInput, { value: xValue, unit: isStatic ? "auto" : "px", prefix: "X", tooltip: isStatic ? STATIC_POSITION_TOOLTIP : xTooltip, disabled: isStatic, tokenFamily: "spacing", onChange: handleXChange, onScrub: handleXScrub, onScrubEnd: handleXScrubEnd, stale }),
-            /* @__PURE__ */ u4(NumericInput, { value: yValue, unit: isStatic ? "auto" : "px", prefix: "Y", tooltip: isStatic ? STATIC_POSITION_TOOLTIP : yTooltip, disabled: isStatic, tokenFamily: "spacing", onChange: handleYChange, onScrub: handleYScrub, onScrubEnd: handleYScrubEnd, stale }),
-            /* @__PURE__ */ u4(NumericInput, { value: zValue, prefix: "Z", tooltip: "Z-index", onChange: handleZChange, stale })
+            /* @__PURE__ */ u4(NumericInput, { value: topNum, unit: isStatic ? "auto" : edgeUnit(values.top), prefix: "T", tooltip: edgeTooltip("top"), disabled: isStatic, tokenFamily: "spacing", onChange: topHandlers.onChange, onScrub: topHandlers.onScrub, onScrubEnd: topHandlers.onScrubEnd, stale }),
+            /* @__PURE__ */ u4(NumericInput, { value: rightNum, unit: isStatic ? "auto" : edgeUnit(values.right), prefix: "R", tooltip: edgeTooltip("right"), disabled: isStatic, tokenFamily: "spacing", onChange: rightHandlers.onChange, onScrub: rightHandlers.onScrub, onScrubEnd: rightHandlers.onScrubEnd, stale }),
+            /* @__PURE__ */ u4(NumericInput, { value: bottomNum, unit: isStatic ? "auto" : edgeUnit(values.bottom), prefix: "B", tooltip: edgeTooltip("bottom"), disabled: isStatic, tokenFamily: "spacing", onChange: bottomHandlers.onChange, onScrub: bottomHandlers.onScrub, onScrubEnd: bottomHandlers.onScrubEnd, stale }),
+            /* @__PURE__ */ u4(NumericInput, { value: leftNum, unit: isStatic ? "auto" : edgeUnit(values.left), prefix: "L", tooltip: edgeTooltip("left"), disabled: isStatic, tokenFamily: "spacing", onChange: leftHandlers.onChange, onScrub: leftHandlers.onScrub, onScrubEnd: leftHandlers.onScrubEnd, stale })
           ]
         }
       ),
+      /* @__PURE__ */ u4("div", { class: "cortex-position-section__z-row", children: /* @__PURE__ */ u4(NumericInput, { value: zValue, prefix: "Z", tooltip: "Z-index \u2014 stacking order", onChange: handleZChange, stale }) }),
       /* @__PURE__ */ u4("div", { class: `cortex-position-section__rotate-row${isDimmed(dimmedProperties, "rotate", "scale") ? " cortex-control--dimmed" : ""}`, children: [
         /* @__PURE__ */ u4(
           NumericInput,
@@ -9370,6 +9563,8 @@ var CortexEditor = (() => {
     "position",
     "left",
     "top",
+    "right",
+    "bottom",
     "z-index",
     "rotate",
     "scale",
@@ -9429,7 +9624,12 @@ var CortexEditor = (() => {
       effects: parseEffectsValues(cs),
       position: parsePositionValues(cs),
       appearance: parseAppearanceValues(cs)
-    };
+    }, layoutParent = pseudo ? element : element.parentElement;
+    if (layoutParent) {
+      let parentCs = getComputedStyle(layoutParent);
+      parsed.position.parentDisplay = parentCs.display ?? "block", parsed.position.parentFlexDirection = parentCs.flexDirection ?? "row", parsed.layout.parentDisplay = parentCs.display ?? "block";
+    }
+    parsed.layout.tagName = pseudo ? "" : element.tagName.toLowerCase();
     for (let [property, field] of [
       ["border-width", "borderWidth"],
       ["border-top-width", "borderTopWidth"],
@@ -9460,128 +9660,6 @@ var CortexEditor = (() => {
       mixed.size === 0 && (mixed = void 0);
     }
     return { computedStyles: parsed, dimmedProperties: dimmed, mixedProperties: mixed };
-  }
-
-  // src/browser/hooks/useEditStagingBuffer.ts
-  var MAX_ENTRIES = 500, DEBOUNCE_MS = 150, STORAGE_KEY = "staging-buffer", encoder2 = new TextEncoder(), SOURCE_SHAPE = /^[^"]+:\d+:\d+$/;
-  function isPendingEdit(v3) {
-    if (typeof v3 != "object" || v3 === null) return !1;
-    let o4 = v3;
-    if (typeof o4.intentId != "string" || typeof o4.source != "string" || typeof o4.property != "string" || typeof o4.value != "string" || typeof o4.previousValue != "string" || typeof o4.timestamp != "number")
-      return !1;
-    let hasPreviewSource = isPreviewSource(o4.source);
-    if (encoder2.encode(o4.source).length > 1024 || !SOURCE_SHAPE.test(o4.source) && !hasPreviewSource || o4.pseudo !== void 0 && o4.pseudo !== "::before" && o4.pseudo !== "::after" || o4.scope !== void 0 && o4.scope !== "instance" && o4.scope !== "all" || o4.applyMode !== void 0 && o4.applyMode !== "direct" && o4.applyMode !== "agent-resolve" || (o4.applyMode === "agent-resolve" || hasPreviewSource) && o4.sourceResolutionHint === void 0) return !1;
-    if (o4.sourceResolutionHint !== void 0) {
-      if (typeof o4.sourceResolutionHint != "object" || o4.sourceResolutionHint === null) return !1;
-      let hint = o4.sourceResolutionHint;
-      if (!isSourceHintField(hint.tagName, { required: !0 }) || !isSourceHintField(hint.textPreview) || !isSourceHintField(hint.domSelector, { required: !0 }) || hint.className !== void 0 && !isSourceHintField(hint.className) || hint.id !== void 0 && !isSourceHintField(hint.id)) return !1;
-    }
-    return !(o4.instanceSources !== void 0 && (!Array.isArray(o4.instanceSources) || !o4.instanceSources.every((s3) => typeof s3 == "string")));
-  }
-  function isSourceHintField(value, options) {
-    return typeof value != "string" || options?.required && value.length === 0 ? !1 : encoder2.encode(value).length <= 512;
-  }
-  function isUnknownArray(v3) {
-    return Array.isArray(v3);
-  }
-  function compositeKey(edit) {
-    return `${edit.source}\0${edit.property}\0${edit.pseudo ?? ""}`;
-  }
-  function defaultReadSourceValue(el, property, pseudo) {
-    let inlineValue = pseudo ? "" : el.style?.getPropertyValue(property).trim() ?? "";
-    return inlineValue !== "" ? inlineValue : getComputedStyle(el, pseudo ?? void 0).getPropertyValue(property).trim();
-  }
-  function useEditStagingBuffer(emitter) {
-    let bufferRef = A2(/* @__PURE__ */ new Map()), debounceTimerRef = A2(null), initRef = A2(!1), emitterRef = A2(emitter);
-    emitterRef.current = emitter;
-    let [version, bumpVersion] = d2(0), bumpRef = A2(() => bumpVersion((v3) => v3 + 1));
-    if (!initRef.current) {
-      initRef.current = !0;
-      let stored = cortexStorage.get(STORAGE_KEY, [], isUnknownArray), dropped = 0;
-      for (let entry of stored)
-        isPendingEdit(entry) ? bufferRef.current.set(compositeKey(entry), entry) : dropped++;
-      dropped > 0 && console.warn(
-        `[cortex] Staging buffer rehydrated with ${bufferRef.current.size} valid entries; ${dropped} dropped (schema mismatch)`
-      ), bufferRef.current.size > 0 && emitter && emitter.syncFullState(Array.from(bufferRef.current.values()));
-    }
-    let persistFailedRef = A2(!1), persistNow = q2(() => {
-      let ok = cortexStorage.set(STORAGE_KEY, Array.from(bufferRef.current.values()));
-      !ok && !persistFailedRef.current ? (persistFailedRef.current = !0, console.warn(
-        "[cortex] Staging buffer persistence failed (localStorage quota or private mode); pending edits live only in memory and will be lost on reload."
-      )) : ok && persistFailedRef.current && (persistFailedRef.current = !1);
-    }, []), schedulePersist = q2(() => {
-      debounceTimerRef.current !== null && clearTimeout(debounceTimerRef.current), debounceTimerRef.current = setTimeout(() => {
-        debounceTimerRef.current = null, persistNow();
-      }, DEBOUNCE_MS);
-    }, [persistNow]), flush = q2(() => {
-      debounceTimerRef.current !== null && (clearTimeout(debounceTimerRef.current), debounceTimerRef.current = null, persistNow());
-    }, [persistNow]);
-    _2(() => () => {
-      flush();
-    }, [flush]);
-    let append = q2((edit) => {
-      let key = compositeKey(edit);
-      bufferRef.current.has(key) && bufferRef.current.delete(key), bufferRef.current.set(key, edit);
-      let evictedIntentId = null;
-      if (bufferRef.current.size > MAX_ENTRIES) {
-        let oldest = bufferRef.current.entries().next();
-        if (!oldest.done) {
-          let [firstKey, evicted] = oldest.value;
-          bufferRef.current.delete(firstKey), evictedIntentId = evicted.intentId, console.warn(
-            "[cortex] Staging buffer evicted oldest intent (max 500):",
-            evicted.source,
-            evicted.property
-          );
-        }
-      }
-      emitterRef.current?.syncAdd(edit), evictedIntentId !== null && emitterRef.current?.syncRemove([evictedIntentId]), bumpRef.current(), schedulePersist();
-    }, [schedulePersist]), remove = q2((intentIds) => {
-      let idSet = new Set(intentIds), toDeleteKeys = [];
-      for (let [key, edit] of bufferRef.current.entries())
-        idSet.has(edit.intentId) && toDeleteKeys.push(key);
-      for (let key of toDeleteKeys)
-        bufferRef.current.delete(key);
-      emitterRef.current?.syncRemove(intentIds), toDeleteKeys.length > 0 && bumpRef.current(), schedulePersist();
-    }, [schedulePersist]), list = q2(() => Array.from(bufferRef.current.values()), []), clear2 = q2(() => {
-      bufferRef.current.clear(), debounceTimerRef.current !== null && (clearTimeout(debounceTimerRef.current), debounceTimerRef.current = null), emitterRef.current?.syncClear(), bumpRef.current(), persistNow();
-    }, [persistNow]), size2 = q2(() => bufferRef.current.size, []), reconcile = q2((changedFiles, readSourceValue = defaultReadSourceValue) => {
-      if (changedFiles.length === 0) return { divergent: [] };
-      let changedSet = new Set(changedFiles), divergent = [], elBySource = null;
-      for (let edit of bufferRef.current.values()) {
-        if (!changedSet.has(stripLineCol(edit.source))) continue;
-        if (elBySource === null) {
-          elBySource = /* @__PURE__ */ new Map();
-          for (let el2 of deepQuerySelectorAll("[data-cortex-source]")) {
-            let s3 = el2.getAttribute("data-cortex-source");
-            s3 !== null && !elBySource.has(s3) && elBySource.set(s3, el2);
-          }
-        }
-        let el = elBySource.get(edit.source);
-        if (!el) {
-          divergent.push(edit);
-          continue;
-        }
-        let pseudo = edit.pseudo ?? null;
-        readSourceValue(el, edit.property, pseudo).trim() !== edit.previousValue.trim() && divergent.push(edit);
-      }
-      return { divergent };
-    }, []), handleRef = A2({
-      append,
-      remove,
-      list,
-      clear: clear2,
-      size: size2,
-      reconcile
-    });
-    return T2(() => ({ ...handleRef.current, version }), [version]);
-  }
-  function createPanelSyncEmitter(channel) {
-    return {
-      syncAdd: (edit) => channel.send({ type: "staged-edit-add", edit, token: "" }),
-      syncRemove: (intentIds) => channel.send({ type: "staged-edit-remove", intentIds: [...intentIds], token: "" }),
-      syncClear: () => channel.send({ type: "staged-edit-clear", token: "" }),
-      syncFullState: (edits) => channel.send({ type: "staged-edits-sync", edits: [...edits], token: "" })
-    };
   }
 
   // src/browser/components/StagingDriftBanner.tsx
@@ -9790,21 +9868,15 @@ var CortexEditor = (() => {
     staleSources,
     stageEditRef,
     commitEditRef,
-    bufferListRef
+    buffer: bufferProp,
+    applyError: applyErrorProp = null,
+    onSetApplyError
   }) {
-    let element = selectedElements[0] ?? null, [isEntering, setIsEntering] = d2(!0), bodyRef = A2(null), prevElementRef = A2(null), scrubPreviousRef = A2(/* @__PURE__ */ new Map()), lastCommitValueRef = A2(/* @__PURE__ */ new Map()), commitPendingRef = A2(!1), syncEmitterRef = A2(null);
-    syncEmitterRef.current === null && channel && (syncEmitterRef.current = createPanelSyncEmitter(channel));
-    let resolvedSpacingTokens = spacingTokens ?? [], buffer = useEditStagingBuffer(syncEmitterRef.current ?? void 0);
-    y2(() => {
-      if (channel)
-        return channel.onMessage((msg) => {
-          if (msg.type === "staged-edits-discard") {
-            let ids = msg.intentIds;
-            buffer.remove(ids);
-          }
-        });
-    }, [channel, buffer]);
-    let [intentDriftCount, setIntentDriftCount] = d2(0), [applyError, setApplyError] = d2(null), onApply = q2(async () => {
+    let element = selectedElements[0] ?? null, [isEntering, setIsEntering] = d2(!0), bodyRef = A2(null), prevElementRef = A2(null), scrubPreviousRef = A2(/* @__PURE__ */ new Map()), lastCommitValueRef = A2(/* @__PURE__ */ new Map()), commitPendingRef = A2(!1), resolvedSpacingTokens = spacingTokens ?? [], buffer = bufferProp;
+    if (!buffer)
+      throw new Error("[cortex] Panel requires `buffer` prop \u2014 hoisted from CortexApp");
+    let [intentDriftCount, setIntentDriftCount] = d2(0), applyError = applyErrorProp, setApplyError = onSetApplyError ?? ((_v) => {
+    }), onApply = q2(async () => {
       if (!channel)
         throw new Error("No cortex channel available \u2014 Apply not delivered. Reload the page or check that the cortex MCP is connected.");
       setApplyError(null), await channel.sendAndAck({ type: "staged-edits-ready", count: buffer.size() });
@@ -10092,15 +10164,7 @@ var CortexEditor = (() => {
         }), () => {
           commitEditRef.current = null;
         };
-    }, [commitEditRef, applyOverride]), y2(() => {
-      if (bufferListRef)
-        return bufferListRef.current = {
-          list: () => buffer.list(),
-          size: () => buffer.size()
-        }, () => {
-          bufferListRef.current = null;
-        };
-    }, [bufferListRef, buffer]);
+    }, [commitEditRef, applyOverride]);
     let formatCompoundDescription = (opts) => {
       let parts = [];
       return opts.remove && parts.push(`-${opts.remove}`), opts.add && parts.push(`+${opts.add}`), opts.inlineSets?.length && parts.push(`set(${opts.inlineSets.length})`), opts.inlineRemoves?.length && parts.push(`rm(${opts.inlineRemoves.length})`), parts.join(" ");
@@ -10260,7 +10324,7 @@ var CortexEditor = (() => {
       setBorderWidths("1px"), applyOverride("border-style", "solid", !1), applyOverride("border-color", "#000000", !1), commitScrub();
     }, [setBorderWidths, applyOverride, commitScrub]), handleBorderRemove = q2(() => {
       setBorderWidths("0px"), commitScrub();
-    }, [setBorderWidths, commitScrub]), handleShadowAdd = q2(() => {
+    }, [setBorderWidths, commitScrub]), handleEffectAdd = q2(() => {
       applyOverride("box-shadow", addShadow(computedStyles.effects.boxShadow), !0);
     }, [computedStyles.effects.boxShadow, applyOverride]), handleSelectParent = q2(() => {
       element && element.parentElement && element.parentElement !== document.documentElement && onSelectElement(element.parentElement);
@@ -10273,77 +10337,7 @@ var CortexEditor = (() => {
       isEntering && "cortex-panel--entering",
       isSnapping && "cortex-panel--snapping"
     ].filter(Boolean).join(" ");
-    if (!element)
-      return /* @__PURE__ */ u4(
-        "div",
-        {
-          class: panelClasses,
-          style: { transform: `translate(${position.x}px, ${position.y}px)`, width: `${PANEL_WIDTH}px` },
-          children: [
-            /* @__PURE__ */ u4(
-              PanelHeader,
-              {
-                tagName: "",
-                componentName: "Cortex",
-                sourceFile: null,
-                sourceLine: null,
-                filePath: null,
-                onClose,
-                onPointerDown: panelPointerDown,
-                onPointerMove: panelPointerMove,
-                onPointerUp: panelPointerUp,
-                onPointerCancel: panelPointerCancel,
-                bufferSize: buffer.size(),
-                onApply,
-                onApplyError: handleApplyError
-              }
-            ),
-            /* @__PURE__ */ u4("div", { class: "cortex-panel__body", children: [
-              applyError && /* @__PURE__ */ u4("div", { class: "cortex-apply-error", role: "alert", children: [
-                /* @__PURE__ */ u4("span", { children: applyError }),
-                /* @__PURE__ */ u4(
-                  "button",
-                  {
-                    type: "button",
-                    onClick: () => setApplyError(null),
-                    class: "cortex-apply-error__dismiss",
-                    "aria-label": "Dismiss apply error",
-                    children: /* @__PURE__ */ u4(X, { size: 14 })
-                  }
-                )
-              ] }),
-              /* @__PURE__ */ u4(
-                StagingDriftBanner,
-                {
-                  intentDriftCount,
-                  staleOverrideCount,
-                  onIntentRefresh: () => {
-                    if (hmrChangedFiles.length > 0) {
-                      let result = buffer.reconcile(
-                        hmrChangedFiles,
-                        overrideManager.readSourceValue.bind(overrideManager)
-                      );
-                      setIntentDriftCount(result.divergent.length);
-                    }
-                  },
-                  onStaleRefresh: () => window.location.reload(),
-                  onDismiss: () => {
-                  }
-                }
-              ),
-              /* @__PURE__ */ u4("div", { class: "cortex-panel__empty", children: [
-                /* @__PURE__ */ u4("p", { class: "cortex-panel__empty-action", children: "Click any element to start editing" }),
-                /* @__PURE__ */ u4("p", { class: "cortex-panel__empty-hint", children: "Changes write to your source files" }),
-                /* @__PURE__ */ u4("p", { class: "cortex-panel__empty-shortcut", children: [
-                  formatShortcut("$mod+Shift+Period"),
-                  " to toggle"
-                ] })
-              ] })
-            ] }),
-            /* @__PURE__ */ u4(ConnectionStatusFooter, { status: connectionStatus })
-          ]
-        }
-      );
+    if (!element) return null;
     let sourceInfo = parseCortexSource(element), tagName = element.tagName.toLowerCase(), componentName = sourceInfo?.componentName ?? null, sourceFile = sourceInfo?.fileName ?? null, sourceLine = sourceInfo?.line ?? null, filePath = sourceInfo?.filePath ?? null, isLibrary = isLibraryComponent(element), ancestor = isLibrary ? findUserAncestor(element) : null, hasParent = element.parentElement !== null && element.parentElement !== document.documentElement, hasChildren = element.children.length > 0, showTypography = hasTypographyContent(element), showPosition = !(sharedInfo && editScope === "all"), elementSource = element.getAttribute("data-cortex-source") ?? "", elementSourceIsStale = elementSource !== "" && (staleSources?.has(elementSource) ?? !1);
     return /* @__PURE__ */ u4(SpacingTokensContext.Provider, { value: resolvedSpacingTokens, children: /* @__PURE__ */ u4(
       "div",
@@ -10376,7 +10370,8 @@ var CortexEditor = (() => {
               ancestorLine: ancestor?.source.line ?? null,
               bufferSize: buffer.size(),
               onApply,
-              onApplyError: handleApplyError
+              onApplyError: handleApplyError,
+              applyError
             }
           ),
           editErrors && element?.getAttribute("data-cortex-source") && /* @__PURE__ */ u4(
@@ -10679,7 +10674,7 @@ var CortexEditor = (() => {
               {
                 label: "Effects",
                 groupId: "effects",
-                headerAction: /* @__PURE__ */ u4(IconButton, { icon: /* @__PURE__ */ u4(Plus, { size: 14 }), ariaLabel: "Add effect", tooltip: "Add shadow effect", onClick: handleShadowAdd }),
+                headerAction: /* @__PURE__ */ u4(IconButton, { icon: /* @__PURE__ */ u4(Plus, { size: 14 }), ariaLabel: "Add effect", tooltip: "Add effect", onClick: handleEffectAdd }),
                 children: /* @__PURE__ */ u4(
                   EffectsSection,
                   {
@@ -10690,7 +10685,8 @@ var CortexEditor = (() => {
                     swatches,
                     dimmedProperties,
                     mixedProperties
-                  }
+                  },
+                  `${element.tagName}|${element.id}|${element.getAttribute("data-cortex-source") ?? ""}`
                 )
               }
             )
@@ -10756,7 +10752,7 @@ var CortexEditor = (() => {
     let vw = window.innerWidth, vh = window.innerHeight, maxX = Math.max(TOOLBAR_MARGIN, vw - TOOLBAR_LENGTH - TOOLBAR_MARGIN), maxY = Math.max(TOOLBAR_MARGIN, vh - TOOLBAR_LENGTH - TOOLBAR_MARGIN);
     return edge === "top" ? { x: clamp4(offset3, TOOLBAR_MARGIN, maxX), y: TOOLBAR_MARGIN } : edge === "bottom" ? { x: clamp4(offset3, TOOLBAR_MARGIN, maxX), y: Math.max(TOOLBAR_MARGIN, vh - TOOLBAR_THICKNESS - TOOLBAR_MARGIN) } : edge === "left" ? { x: TOOLBAR_MARGIN, y: clamp4(offset3, TOOLBAR_MARGIN, maxY) } : { x: Math.max(TOOLBAR_MARGIN, vw - TOOLBAR_THICKNESS - TOOLBAR_MARGIN), y: clamp4(offset3, TOOLBAR_MARGIN, maxY) };
   }
-  function getDefaultPosition() {
+  function getDefaultPosition2() {
     if (typeof window > "u") return { position: { x: 0, y: 0 }, edge: "bottom" };
     let storedEdge = cortexStorage.get("toolbar-edge", null, (v3) => isValidEdge(v3)), storedPos = cortexStorage.get("toolbar-position", null, (v3) => isValidPosition(v3));
     if (storedEdge !== null && storedPos !== null)
@@ -10777,7 +10773,7 @@ var CortexEditor = (() => {
   }
   function useToolbarDock() {
     let initRef = A2(null);
-    initRef.current || (initRef.current = getDefaultPosition());
+    initRef.current || (initRef.current = getDefaultPosition2());
     let [position, setPositionState] = d2(initRef.current.position), [edge, setEdge] = d2(initRef.current.edge), [isSnapping, setIsSnapping] = d2(!1), positionRef = A2(initRef.current.position), edgeRef = A2(initRef.current.edge), snapTimerRef = A2(null), setPosition = q2((pos) => {
       positionRef.current = pos, setPositionState(pos);
     }, []), snap = q2(() => {
@@ -10804,13 +10800,22 @@ var CortexEditor = (() => {
     };
   }
 
+  // src/browser/format-shortcut.ts
+  var isMac = typeof navigator < "u" && /Mac|iPod|iPhone|iPad/.test(navigator.platform), MODIFIER_DISPLAY = isMac ? { $mod: "\u2318", Shift: "\u21E7", Alt: "\u2325" } : { $mod: "Ctrl", Shift: "Shift", Alt: "Alt" }, KEY_DISPLAY = {
+    Period: ".",
+    Comma: ",",
+    Slash: "/",
+    Minus: "-",
+    Equal: "="
+  };
+  function formatShortcut(binding) {
+    return binding.split("+").map((p3) => MODIFIER_DISPLAY[p3] ?? KEY_DISPLAY[p3] ?? p3.replace("Key", "")).join(isMac ? "" : "+");
+  }
+
   // src/browser/components/Toolbar.tsx
   function Toolbar({
-    activityCount,
-    onClose,
     commentMode,
-    onCommentMode,
-    onActivityToggle
+    onCommentMode
   }) {
     let { position, isHorizontal, isSnapping, setPosition, snap } = useToolbarDock(), { handlePointerDown: dragPointerDown, handlePointerMove, handlePointerUp, handlePointerCancel } = useDrag({
       onDrag(x3, y3) {
@@ -10846,18 +10851,6 @@ var CortexEditor = (() => {
         onPointerCancel: handlePointerCancel,
         children: [
           /* @__PURE__ */ u4("div", { class: "cortex-toolbar__grip", role: "presentation", children: /* @__PURE__ */ u4(GripVertical, { size: 16 }) }),
-          activityCount > 0 && /* @__PURE__ */ u4(
-            "button",
-            {
-              type: "button",
-              class: "cortex-toolbar__badge",
-              onClick: onActivityToggle,
-              "aria-label": `${activityCount} ${activityCount === 1 ? "change" : "changes"}`,
-              "data-tooltip": `${activityCount} ${activityCount === 1 ? "change" : "changes"}`,
-              "data-tooltip-placement": tooltipPlacement,
-              children: activityCount
-            }
-          ),
           /* @__PURE__ */ u4("div", { class: "cortex-toolbar__modes", ref: modesRef, role: "radiogroup", "aria-label": "Editor mode", children: [
             /* @__PURE__ */ u4("div", { class: "cortex-toolbar__modes-indicator", style: { transform: indicatorTransform } }),
             /* @__PURE__ */ u4(
@@ -10890,21 +10883,7 @@ var CortexEditor = (() => {
                 children: /* @__PURE__ */ u4(MessageSquare, { size: 16 })
               }
             )
-          ] }),
-          /* @__PURE__ */ u4("div", { class: "cortex-toolbar__divider" }),
-          /* @__PURE__ */ u4(
-            "button",
-            {
-              type: "button",
-              class: "cortex-toolbar__btn cortex-toolbar__btn--close",
-              "data-action": "close",
-              onClick: onClose,
-              "aria-label": "Close Cortex",
-              "data-tooltip": "Close Cortex",
-              "data-tooltip-placement": tooltipPlacement,
-              children: /* @__PURE__ */ u4(X, { size: 16 })
-            }
-          )
+          ] })
         ]
       }
     );
@@ -11061,42 +11040,6 @@ var CortexEditor = (() => {
     ] });
   }
 
-  // src/browser/components/ActivityLog.tsx
-  function formatTime(timestamp) {
-    let d3 = new Date(timestamp);
-    return `${d3.getHours().toString().padStart(2, "0")}:${d3.getMinutes().toString().padStart(2, "0")}`;
-  }
-  function entryIcon(type) {
-    switch (type) {
-      case "edit":
-        return "\u270E";
-      case "comment":
-        return "\u{1F4AC}";
-      case "status-change":
-        return "\u2192";
-      default:
-        return "\u2022";
-    }
-  }
-  function ActivityLog({ entries, visible, onClose }) {
-    if (!visible) return null;
-    let display = entries.slice(-100).reverse();
-    return /* @__PURE__ */ u4("div", { class: "cortex-activity-log", children: [
-      /* @__PURE__ */ u4("div", { class: "cortex-activity-log__header", children: [
-        /* @__PURE__ */ u4("span", { children: "Activity" }),
-        /* @__PURE__ */ u4("button", { type: "button", class: "cortex-activity-log__close", onClick: onClose, children: "\u2715" })
-      ] }),
-      /* @__PURE__ */ u4("div", { class: "cortex-activity-log__list", children: [
-        display.length === 0 && /* @__PURE__ */ u4("div", { class: "cortex-activity-log__empty", children: "No activity yet" }),
-        display.map((entry) => /* @__PURE__ */ u4("div", { class: "cortex-activity-log__entry", children: [
-          /* @__PURE__ */ u4("span", { class: "cortex-activity-log__icon", children: entryIcon(entry.type) }),
-          /* @__PURE__ */ u4("span", { class: "cortex-activity-log__desc", children: entry.description }),
-          /* @__PURE__ */ u4("span", { class: "cortex-activity-log__time", children: formatTime(entry.timestamp) })
-        ] }, entry.id))
-      ] })
-    ] });
-  }
-
   // src/browser/components/ErrorToast.tsx
   function ErrorToast({ channel }) {
     let [toasts, setToasts] = d2([]), timers = A2(/* @__PURE__ */ new Map());
@@ -11199,6 +11142,62 @@ var CortexEditor = (() => {
                     flexShrink: 0
                   },
                   "aria-label": "Dismiss capability notice",
+                  children: "x"
+                }
+              )
+            ]
+          }
+        )
+      }
+    );
+  }
+
+  // src/browser/components/InactiveTabBanner.tsx
+  function InactiveTabBanner({ message }) {
+    let [dismissedMessage, setDismissedMessage] = d2(null);
+    return y2(() => {
+      message === null && setDismissedMessage(null);
+    }, [message]), !message || message === dismissedMessage ? null : /* @__PURE__ */ u4(
+      "div",
+      {
+        role: "status",
+        "aria-live": "polite",
+        style: {
+          padding: "8px",
+          pointerEvents: "auto"
+        },
+        children: /* @__PURE__ */ u4(
+          "div",
+          {
+            style: {
+              padding: "10px 12px",
+              borderRadius: "4px",
+              fontSize: "12px",
+              lineHeight: "1.4",
+              background: "#fef3c7",
+              color: "#92400e",
+              border: "1px solid #fcd34d",
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "flex-start",
+              gap: "8px"
+            },
+            children: [
+              /* @__PURE__ */ u4("div", { children: message }),
+              /* @__PURE__ */ u4(
+                "button",
+                {
+                  onClick: () => setDismissedMessage(message),
+                  style: {
+                    background: "none",
+                    border: "none",
+                    cursor: "pointer",
+                    color: "#92400e",
+                    fontSize: "14px",
+                    padding: "0",
+                    flexShrink: 0
+                  },
+                  "aria-label": "Dismiss inactive-tab notice",
                   children: "x"
                 }
               )
@@ -11692,6 +11691,85 @@ var CortexEditor = (() => {
     return query ? doc.defaultView?.matchMedia?.(query).matches ?? !1 : !1;
   }
 
+  // src/browser/hooks/useEditStagingBuffer.ts
+  var MAX_ENTRIES = 500;
+  function compositeKey(edit) {
+    return `${edit.source}\0${edit.property}\0${edit.pseudo ?? ""}`;
+  }
+  function defaultReadSourceValue(el, property, pseudo) {
+    let inlineValue = pseudo ? "" : el.style?.getPropertyValue(property).trim() ?? "";
+    return inlineValue !== "" ? inlineValue : getComputedStyle(el, pseudo ?? void 0).getPropertyValue(property).trim();
+  }
+  function useEditStagingBuffer(emitter) {
+    let bufferRef = A2(/* @__PURE__ */ new Map()), initRef = A2(!1), emitterRef = A2(emitter);
+    emitterRef.current = emitter;
+    let [version, bumpVersion] = d2(0), bumpRef = A2(() => bumpVersion((v3) => v3 + 1));
+    initRef.current || (initRef.current = !0);
+    let append = q2((edit) => {
+      let key = compositeKey(edit);
+      bufferRef.current.has(key) && bufferRef.current.delete(key), bufferRef.current.set(key, edit);
+      let evictedIntentId = null;
+      if (bufferRef.current.size > MAX_ENTRIES) {
+        let oldest = bufferRef.current.entries().next();
+        if (!oldest.done) {
+          let [firstKey, evicted] = oldest.value;
+          bufferRef.current.delete(firstKey), evictedIntentId = evicted.intentId, console.warn(
+            "[cortex] Staging buffer evicted oldest intent (max 500):",
+            evicted.source,
+            evicted.property
+          );
+        }
+      }
+      emitterRef.current?.syncAdd(edit), evictedIntentId !== null && emitterRef.current?.syncRemove([evictedIntentId]), bumpRef.current();
+    }, []), remove = q2((intentIds) => {
+      let idSet = new Set(intentIds), toDeleteKeys = [];
+      for (let [key, edit] of bufferRef.current.entries())
+        idSet.has(edit.intentId) && toDeleteKeys.push(key);
+      for (let key of toDeleteKeys)
+        bufferRef.current.delete(key);
+      emitterRef.current?.syncRemove(intentIds), toDeleteKeys.length > 0 && bumpRef.current();
+    }, []), list = q2(() => Array.from(bufferRef.current.values()), []), clear2 = q2(() => {
+      bufferRef.current.clear(), emitterRef.current?.syncClear(), bumpRef.current();
+    }, []), size2 = q2(() => bufferRef.current.size, []), reconcile = q2((changedFiles, readSourceValue = defaultReadSourceValue) => {
+      if (changedFiles.length === 0) return { divergent: [] };
+      let changedSet = new Set(changedFiles), divergent = [], elBySource = null;
+      for (let edit of bufferRef.current.values()) {
+        if (!changedSet.has(stripLineCol(edit.source))) continue;
+        if (elBySource === null) {
+          elBySource = /* @__PURE__ */ new Map();
+          for (let el2 of deepQuerySelectorAll("[data-cortex-source]")) {
+            let s3 = el2.getAttribute("data-cortex-source");
+            s3 !== null && !elBySource.has(s3) && elBySource.set(s3, el2);
+          }
+        }
+        let el = elBySource.get(edit.source);
+        if (!el) {
+          divergent.push(edit);
+          continue;
+        }
+        let pseudo = edit.pseudo ?? null;
+        readSourceValue(el, edit.property, pseudo).trim() !== edit.previousValue.trim() && divergent.push(edit);
+      }
+      return { divergent };
+    }, []), handleRef = A2({
+      append,
+      remove,
+      list,
+      clear: clear2,
+      size: size2,
+      reconcile
+    });
+    return T2(() => ({ ...handleRef.current, version }), [version]);
+  }
+  function createPanelSyncEmitter(channel) {
+    return {
+      syncAdd: (edit) => channel.send({ type: "staged-edit-add", edit, token: "" }),
+      syncRemove: (intentIds) => channel.send({ type: "staged-edit-remove", intentIds: [...intentIds], token: "" }),
+      syncClear: () => channel.send({ type: "staged-edit-clear", token: "" }),
+      syncFullState: (edits) => channel.send({ type: "staged-edits-sync", edits: [...edits], token: "" })
+    };
+  }
+
   // src/browser/components/CortexApp.tsx
   function sameColorChipSources(prev, next) {
     if (!prev || prev.length !== next.length) return !1;
@@ -11705,7 +11783,7 @@ var CortexEditor = (() => {
     return !!(record.target instanceof Element ? record.target : record.target.parentElement)?.closest("[data-cortex-host]");
   }
   function CortexApp({ channel, shadowRoot: shadowRoot2, initialActive }) {
-    let [hoveredElement, setHoveredElement] = d2(null), [selectedElements, setSelectedElementsState] = d2([]), selectedElement = selectedElements[0] ?? null, [hmrAppliedVersion, setHmrAppliedVersion] = d2(0), [hmrEventVersion, setHmrEventVersion] = d2(0), [swatches, setSwatches] = d2(void 0), [textComponents, setTextComponents] = d2(void 0), [colorChips, setColorChips] = d2(void 0), colorChipThemeRef = A2(void 0), [spacingTokens, setSpacingTokens] = d2(void 0), [activeState, setActiveState] = d2("default"), [availableStates, setAvailableStates] = d2(void 0), [hasBefore, setHasBefore] = d2(!1), [hasAfter, setHasAfter] = d2(!1), [hoverEnabled, setHoverEnabled] = d2(!0), overrideRef = A2(null), commandStackRef = A2(null), flushCommitRef = A2(null), undoInProgressRef = A2(!1), undoGenRef = A2(0), [annotations, setAnnotations] = d2(/* @__PURE__ */ new Map()), [agentConnected, setAgentConnected] = d2(!1), [connectionStatus, setConnectionStatus] = d2({ status: "connected" }), [activityEntries, setActivityEntries] = d2([]), [staleOverrideCount, setStaleOverrideCount] = d2(0), [staleSources, setStaleSources] = d2(/* @__PURE__ */ new Set()), [hmrChangedFiles, setHmrChangedFiles] = d2([]), [commentMode, setCommentMode] = d2(!1), [showActivity, setShowActivity] = d2(!1), [capabilitySystems, setCapabilitySystems] = d2([]), editDispatchRef = A2(/* @__PURE__ */ new Map()), [editErrors, setEditErrors] = d2(/* @__PURE__ */ new Map()), clearEditError = q2((key) => {
+    let [hoveredElement, setHoveredElement] = d2(null), [selectedElements, setSelectedElementsState] = d2([]), selectedElement = selectedElements[0] ?? null, [hmrAppliedVersion, setHmrAppliedVersion] = d2(0), [hmrEventVersion, setHmrEventVersion] = d2(0), [swatches, setSwatches] = d2(void 0), [textComponents, setTextComponents] = d2(void 0), [colorChips, setColorChips] = d2(void 0), colorChipThemeRef = A2(void 0), [spacingTokens, setSpacingTokens] = d2(void 0), [activeState, setActiveState] = d2("default"), [availableStates, setAvailableStates] = d2(void 0), [hasBefore, setHasBefore] = d2(!1), [hasAfter, setHasAfter] = d2(!1), [hoverEnabled, setHoverEnabled] = d2(!0), overrideRef = A2(null), commandStackRef = A2(null), flushCommitRef = A2(null), undoInProgressRef = A2(!1), undoGenRef = A2(0), [annotations, setAnnotations] = d2(/* @__PURE__ */ new Map()), [agentConnected, setAgentConnected] = d2(!1), [connectionStatus, setConnectionStatus] = d2({ status: "connected" }), [staleOverrideCount, setStaleOverrideCount] = d2(0), [staleSources, setStaleSources] = d2(/* @__PURE__ */ new Set()), [hmrChangedFiles, setHmrChangedFiles] = d2([]), [commentMode, setCommentMode] = d2(!1), [capabilitySystems, setCapabilitySystems] = d2([]), [inactiveTabMessage, setInactiveTabMessage] = d2(null), editDispatchRef = A2(/* @__PURE__ */ new Map()), [editErrors, setEditErrors] = d2(/* @__PURE__ */ new Map()), [applyError, setApplyError] = d2(null), clearEditError = q2((key) => {
       if (setEditErrors((prev) => {
         if (!prev.has(key)) return prev;
         let next = new Map(prev);
@@ -11716,9 +11794,11 @@ var CortexEditor = (() => {
       }
     }, []), commentModeRef = A2(!1);
     commentModeRef.current = commentMode;
-    let [activityCount, setActivityCount] = d2(0), [active, setActive] = d2(initialActive ?? !1), selectionRef = A2(null), selectedElementRef = A2(null);
+    let [active, setActive] = d2(initialActive ?? !1), selectionRef = A2(null), selectedElementRef = A2(null);
     selectedElementRef.current = selectedElement;
-    let selectionMetadataRef = A2([]), hmrAppliedVersionRef = A2(0), handleExitRef = A2(null), editDispatchHandlerRef = A2(null), stageEditRef = A2(null), commitEditRef = A2(null), bufferListRef = A2(null), dispatchRef = A2(null), reducerStateRef = A2({
+    let selectionMetadataRef = A2([]), hmrAppliedVersionRef = A2(0), handleExitRef = A2(null), editDispatchHandlerRef = A2(null), stageEditRef = A2(null), commitEditRef = A2(null), appSyncEmitterRef = A2(null);
+    appSyncEmitterRef.current === null && channel && (appSyncEmitterRef.current = createPanelSyncEmitter(channel));
+    let buffer = useEditStagingBuffer(appSyncEmitterRef.current ?? void 0), bufferVersionRef = A2(0), lastSessionIdRef = A2(null), dispatchRef = A2(null), reducerStateRef = A2({
       ...initialCortexAppReducerState,
       active: initialActive ?? !1
     });
@@ -11729,15 +11809,18 @@ var CortexEditor = (() => {
       if (!chips) return;
       let next = markPageColorChips(chips);
       setColorChips((prev) => sameColorChipSources(prev, next) ? prev : next);
-    }, []), { position: panelPosition, isSnapping: panelSnapping, setPosition: setPanelPosition, snap: panelSnap } = useSnapToEdge(), { handlePointerDown: panelPointerDown, handlePointerMove: panelPointerMove, handlePointerUp: panelPointerUp, handlePointerCancel: panelPointerCancel } = useDrag({
+    }, []), { position: panelPosition, isSnapping: panelSnapping, setPosition: setPanelPosition, snap: panelSnap, reset: panelReset } = useSnapToEdge(), { handlePointerDown: panelPointerDown, handlePointerMove: panelPointerMove, handlePointerUp: panelPointerUp, handlePointerCancel: panelPointerCancel } = useDrag({
       onDrag(x3, y3) {
         setPanelPosition({ x: x3, y: y3 });
       },
       onDragEnd() {
         panelSnap();
       }
-    });
-    useCanvasZoom(!1);
+    }), prevSelectedCountRef = A2(selectedElements.length);
+    y2(() => {
+      let prev = prevSelectedCountRef.current;
+      prevSelectedCountRef.current = selectedElements.length, prev > 0 && selectedElements.length === 0 && panelReset();
+    }, [selectedElements.length, panelReset]), useCanvasZoom(!1);
     let setSelection = q2((elements, action = "replace") => {
       let expanded = expandSharedSource(elements);
       setSelectedElementsState((prev) => {
@@ -11761,7 +11844,7 @@ var CortexEditor = (() => {
       ), debugFlag = !!window.__CORTEX_DEBUG_OVERRIDES__;
       selectionHandle.setDesignMode(!1), selectionRef.current = selectionHandle;
       let applyReducerState = (next, prev) => {
-        next.active !== prev.active && setActive(next.active), next.swatches !== prev.swatches && setSwatches(next.swatches), next.textComponents !== prev.textComponents && setTextComponents(next.textComponents), next.colorChips !== prev.colorChips && (colorChipThemeRef.current = next.colorChips, setColorChips(next.colorChips ? markPageColorChips(next.colorChips) : next.colorChips)), next.spacingTokens !== prev.spacingTokens && setSpacingTokens(next.spacingTokens), next.capabilitySystems !== prev.capabilitySystems && setCapabilitySystems(next.capabilitySystems), next.activityCount !== prev.activityCount && setActivityCount(next.activityCount), next.editErrors !== prev.editErrors && setEditErrors(next.editErrors), next.annotations !== prev.annotations && setAnnotations(next.annotations), next.agentConnected !== prev.agentConnected && setAgentConnected(next.agentConnected), next.activityEntries !== prev.activityEntries && setActivityEntries(next.activityEntries);
+        next.active !== prev.active && setActive(next.active), next.swatches !== prev.swatches && setSwatches(next.swatches), next.textComponents !== prev.textComponents && setTextComponents(next.textComponents), next.colorChips !== prev.colorChips && (colorChipThemeRef.current = next.colorChips, setColorChips(next.colorChips ? markPageColorChips(next.colorChips) : next.colorChips)), next.spacingTokens !== prev.spacingTokens && setSpacingTokens(next.spacingTokens), next.capabilitySystems !== prev.capabilitySystems && setCapabilitySystems(next.capabilitySystems), next.editErrors !== prev.editErrors && setEditErrors(next.editErrors), next.annotations !== prev.annotations && setAnnotations(next.annotations), next.agentConnected !== prev.agentConnected && setAgentConnected(next.agentConnected);
       }, runEffect = (effect) => {
         if (!disposed)
           switch (effect.type) {
@@ -11797,47 +11880,93 @@ var CortexEditor = (() => {
       let popDispatchEntry = (editId) => {
         let entry = editDispatchRef.current.get(editId);
         return entry && editDispatchRef.current.delete(editId), entry;
+      }, reconcileOnConnect = () => {
+        let override = overrideRef.current;
+        if (!override || buffer.size() === 0) return;
+        let elBySource = /* @__PURE__ */ new Map();
+        for (let el of deepQuerySelectorAll("[data-cortex-source]")) {
+          let src = el.getAttribute("data-cortex-source");
+          src !== null && !elBySource.has(src) && elBySource.set(src, el);
+        }
+        let convergedIds = [];
+        for (let edit of buffer.list()) {
+          let el = elBySource.get(edit.source);
+          if (!el) continue;
+          let pseudo = edit.pseudo ?? null;
+          override.readSourceValue(el, edit.property, pseudo).trim() === edit.value.trim() && convergedIds.push(edit.intentId);
+        }
+        convergedIds.length > 0 && buffer.remove(convergedIds);
       }, unsubscribe = channel.onMessage((msg) => {
-        if (msg.type === "edit_status") {
-          msg.status === "done" ? dispatch({ type: "edit_status", status: "done", editId: msg.editId, dispatch: popDispatchEntry(msg.editId) }) : msg.status === "failed" && dispatch({ type: "edit_status", status: "failed", editId: msg.editId, reason: msg.reason, dispatch: popDispatchEntry(msg.editId) });
-          return;
-        }
-        if (msg.type === "hmr-applied") {
-          overrideRef.current?.onHMRApplied();
-          let rawFiles = msg.files, files = Array.isArray(rawFiles) && rawFiles.every((f5) => typeof f5 == "string") ? rawFiles : void 0;
-          setHmrEventVersion((v3) => v3 + 1);
-          let shouldRefresh = shouldRefreshOnHMR(files, selectedElementRef.current);
-          shouldRefresh && setHmrAppliedVersion((v3) => v3 + 1), setHmrChangedFiles(files ?? []);
-          let attemptRefreshPageColorChips = () => {
-            disposed || refreshPageColorChips();
-          };
-          attemptRefreshPageColorChips(), requestAnimationFrame(() => requestAnimationFrame(attemptRefreshPageColorChips)), setTimeout(attemptRefreshPageColorChips, 100), setTimeout(attemptRefreshPageColorChips, 250);
-          let attemptReResolve = () => {
-            if (!disposed)
-              try {
-                let current = selectedElementRef.current, meta = selectionMetadataRef.current[0] ?? null;
-                if (!current || !meta) return;
-                let resolved = reResolveSelection(meta);
-                if (resolved !== current) {
-                  setSelectionWithMetadata(resolved);
-                  return;
+        if (!disposed) {
+          if (msg.type === "edit_status") {
+            msg.status === "done" ? dispatch({ type: "edit_status", status: "done", editId: msg.editId, dispatch: popDispatchEntry(msg.editId) }) : msg.status === "failed" && dispatch({ type: "edit_status", status: "failed", editId: msg.editId, reason: msg.reason, dispatch: popDispatchEntry(msg.editId) });
+            return;
+          }
+          if (msg.type === "hmr-applied") {
+            overrideRef.current?.onHMRApplied();
+            let rawFiles = msg.files, files = Array.isArray(rawFiles) && rawFiles.every((f5) => typeof f5 == "string") ? rawFiles : void 0;
+            setHmrEventVersion((v3) => v3 + 1);
+            let shouldRefresh = shouldRefreshOnHMR(files, selectedElementRef.current);
+            shouldRefresh && setHmrAppliedVersion((v3) => v3 + 1), setHmrChangedFiles(files ?? []);
+            let attemptRefreshPageColorChips = () => {
+              disposed || refreshPageColorChips();
+            };
+            attemptRefreshPageColorChips(), requestAnimationFrame(() => requestAnimationFrame(attemptRefreshPageColorChips)), setTimeout(attemptRefreshPageColorChips, 100), setTimeout(attemptRefreshPageColorChips, 250);
+            let attemptReResolve = () => {
+              if (!disposed)
+                try {
+                  let current = selectedElementRef.current, meta = selectionMetadataRef.current[0] ?? null;
+                  if (!current || !meta) return;
+                  let resolved = reResolveSelection(meta);
+                  if (resolved !== current) {
+                    setSelectionWithMetadata(resolved);
+                    return;
+                  }
+                  if (resolved) {
+                    let newMeta = captureSelectionMetadata(resolved), indexShifted = newMeta.index !== meta.index, updatedMeta = [...selectionMetadataRef.current];
+                    updatedMeta[0] = newMeta, selectionMetadataRef.current = updatedMeta, indexShifted && setHmrAppliedVersion((v3) => v3 + 1);
+                  }
+                } catch (err) {
+                  console.warn("[cortex] reResolveSelection failed", err), setSelectionWithMetadata(null);
                 }
-                if (resolved) {
-                  let newMeta = captureSelectionMetadata(resolved), indexShifted = newMeta.index !== meta.index, updatedMeta = [...selectionMetadataRef.current];
-                  updatedMeta[0] = newMeta, selectionMetadataRef.current = updatedMeta, indexShifted && setHmrAppliedVersion((v3) => v3 + 1);
-                }
-              } catch (err) {
-                console.warn("[cortex] reResolveSelection failed", err), setSelectionWithMetadata(null);
+            };
+            shouldRefresh && (attemptReResolve(), requestAnimationFrame(() => requestAnimationFrame(attemptReResolve)), setTimeout(attemptReResolve, 100), setTimeout(attemptReResolve, 250));
+            return;
+          }
+          if (msg.type !== "error") {
+            if (msg.type === "staged-edits-discard") {
+              buffer.remove(msg.intentIds);
+              return;
+            }
+            if (msg.type !== "staged-edits-acked") {
+              if (msg.type === "source-edit-failed") {
+                setApplyError(msg.reason);
+                return;
               }
-          };
-          shouldRefresh && (attemptReResolve(), requestAnimationFrame(() => requestAnimationFrame(attemptReResolve)), setTimeout(attemptReResolve, 100), setTimeout(attemptReResolve, 250));
-          return;
+              if (msg.type === "mcp-session-hello") {
+                lastSessionIdRef.current === null ? (lastSessionIdRef.current = msg.sessionId, reconcileOnConnect()) : lastSessionIdRef.current !== msg.sessionId ? (buffer.clear(), setApplyError(null), lastSessionIdRef.current = msg.sessionId) : reconcileOnConnect();
+                return;
+              }
+              if (msg.type === "cortex/active-changed") {
+                let tabId = window.__cortex_tab_id__;
+                if (msg.targetTabId && msg.targetTabId !== tabId) return;
+                window.__cortex_active_cache__ && (window.__cortex_active_cache__.active = msg.active), msg.active && setInactiveTabMessage(null), dispatch({ type: "set-active", active: msg.active });
+                return;
+              }
+              if (msg.type === "cortex/inactive-tab") {
+                let tabId = window.__cortex_tab_id__;
+                if (msg.targetTabId !== tabId) return;
+                console.warn("[cortex]", msg.message), setInactiveTabMessage(msg.message);
+                return;
+              }
+              dispatch(msg);
+            }
+          }
         }
-        msg.type !== "error" && msg.type !== "staged-edits-discard" && msg.type !== "staged-edits-acked" && dispatch(msg);
       });
-      channel.send({ type: "init", sessionId: window.__CORTEX_SESSION_ID__ });
+      channel.send({ type: "init", sessionId: window.__CORTEX_SESSION_ID__, tabId: window.__cortex_tab_id__ });
       let wasDisconnected = !1, reconnectedTimer, unsubStatus = channel.onConnectionChange((state) => {
-        state.status === "connected" && wasDisconnected ? (setConnectionStatus({ status: "reconnected" }), reconnectedTimer !== void 0 && clearTimeout(reconnectedTimer), reconnectedTimer = setTimeout(() => {
+        state.status === "connected" && wasDisconnected ? (appSyncEmitterRef.current?.syncClear(), appSyncEmitterRef.current?.syncFullState(buffer.list()), setConnectionStatus({ status: "reconnected" }), reconnectedTimer !== void 0 && clearTimeout(reconnectedTimer), reconnectedTimer = setTimeout(() => {
           setConnectionStatus({ status: "connected" }), reconnectedTimer = void 0;
         }, 2e3), wasDisconnected = !1) : ((state.status === "reconnecting" || state.status === "disconnected") && (wasDisconnected = !0), setConnectionStatus(state), reconnectedTimer !== void 0 && (clearTimeout(reconnectedTimer), reconnectedTimer = void 0));
       }), unsubDivergence = onDivergence((d3) => dispatch({ type: "divergence", diagnostic: d3 }));
@@ -11885,9 +12014,7 @@ var CortexEditor = (() => {
           }
         }
       }
-    }, [selectedElement, availableStates]), handleCommentMode = q2(() => setCommentMode((m3) => !m3), []), handleActivityToggle = q2(() => {
-      setShowActivity((prev) => (prev || (setActivityCount(0), reducerStateRef.current = { ...reducerStateRef.current, activityCount: 0 }), !prev));
-    }, []), handleCommentReply = q2((annotationId, text) => {
+    }, [selectedElement, availableStates]), handleCommentMode = q2(() => setCommentMode((m3) => !m3), []), handleCommentReply = q2((annotationId, text) => {
       channel.send({ type: "comment-reply", annotationId, text });
     }, [channel]), handleSelectElement = q2(
       (el) => setSelectionWithMetadata(el),
@@ -11939,6 +12066,7 @@ var CortexEditor = (() => {
               setSelectionWithMetadata(null), e4.stopPropagation(), e4.preventDefault();
               return;
             }
+            handleClose(), e4.stopPropagation(), e4.preventDefault();
           }
         }
       }
@@ -11999,6 +12127,7 @@ var CortexEditor = (() => {
       /* @__PURE__ */ u4("div", { style: { position: "absolute", top: 0, left: 0, right: 0, zIndex: 9998, pointerEvents: "none", display: "flex", flexDirection: "column" }, children: [
         /* @__PURE__ */ u4(NoAnnotationsBanner, {}),
         /* @__PURE__ */ u4(CapabilityBanner, { systems: capabilitySystems }),
+        /* @__PURE__ */ u4(InactiveTabBanner, { message: inactiveTabMessage }),
         /* @__PURE__ */ u4(ErrorToast, { channel })
       ] }),
       /* @__PURE__ */ u4(TooltipLayer, { shadowRoot: shadowRoot2 }),
@@ -12024,7 +12153,7 @@ var CortexEditor = (() => {
           },
           idx
         )),
-        overrideRef.current && /* @__PURE__ */ u4(
+        overrideRef.current && selectedElements.length > 0 && /* @__PURE__ */ u4(
           Panel,
           {
             selectedElements,
@@ -12033,7 +12162,6 @@ var CortexEditor = (() => {
             flushCommitRef,
             stageEditRef: void 0,
             commitEditRef: void 0,
-            bufferListRef: void 0,
             undoInProgressRef,
             onClose: handleClose,
             onSelectElement: handleSelectElement,
@@ -12063,17 +12191,17 @@ var CortexEditor = (() => {
             hmrEventVersion,
             hmrChangedFiles,
             staleOverrideCount,
-            staleSources
+            staleSources,
+            buffer,
+            applyError,
+            onSetApplyError: setApplyError
           }
         ),
         /* @__PURE__ */ u4(
           Toolbar,
           {
-            activityCount,
-            onClose: handleClose,
             commentMode,
-            onCommentMode: handleCommentMode,
-            onActivityToggle: handleActivityToggle
+            onCommentMode: handleCommentMode
           }
         ),
         /* @__PURE__ */ u4(
@@ -12083,14 +12211,6 @@ var CortexEditor = (() => {
             commentMode,
             channel,
             onReply: handleCommentReply
-          }
-        ),
-        /* @__PURE__ */ u4(
-          ActivityLog,
-          {
-            entries: activityEntries,
-            visible: showActivity,
-            onClose: handleActivityToggle
           }
         )
       ] })
@@ -12807,29 +12927,6 @@ var CortexEditor = (() => {
   background: var(--cx-ink-faint);
   border-radius: 3px;
 }
-.cortex-panel__empty {
-  padding: var(--cx-sp-7) var(--cx-sp-6);
-  text-align: center;
-  display: flex;
-  flex-direction: column;
-  gap: var(--cx-sp-3);
-}
-
-.cortex-panel__empty-action {
-  color: var(--cx-ink-secondary);
-  font-size: var(--cx-text-md);
-}
-
-.cortex-panel__empty-hint {
-  color: var(--cx-ink-tertiary);
-  font-size: var(--cx-text-sm);
-}
-
-.cortex-panel__empty-shortcut {
-  color: var(--cx-ink-ghost);
-  font-size: var(--cx-text-xs);
-  font-family: var(--cx-mono);
-}
 
 .cortex-panel__scope {
   display: flex;
@@ -13103,6 +13200,13 @@ var CortexEditor = (() => {
 
 .cortex-panel-header:active {
   cursor: grabbing;
+}
+
+/* With pseudo tabs present, they form the header's last row \u2014 drop the
+   header's bottom padding so the tabs sit flush against its border-bottom,
+   the single divider the active-tab underline rides on. */
+.cortex-panel-header:has(.cortex-pseudo-tabs) {
+  padding-bottom: 0;
 }
 
 .cortex-panel-header__info {
@@ -13928,6 +14032,17 @@ var CortexEditor = (() => {
   cursor: not-allowed;
 }
 
+/* Per-option disable (e.g. \`display: inline\` when parent is flex/grid).
+   Visible at reduced opacity so the user sees the option exists but can
+   tell it isn't currently usable; tooltip explains why. Click handler
+   no-ops via the disabled prop, but cursor cue matters for hover. */
+.cortex-segmented__option--disabled,
+.cortex-segmented__option--disabled:hover:not(.cortex-segmented__option--active) {
+  color: var(--cx-ink-tertiary);
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
 .cortex-segmented--sm .cortex-segmented__option {
   height: 22px;
   padding: 0 var(--cx-sp-3);
@@ -14066,8 +14181,8 @@ var CortexEditor = (() => {
   cursor: pointer;
 }
 
-.cortex-dropdown__option:hover,
-.cortex-dropdown__option--active {
+.cortex-dropdown__option:not(.cortex-dropdown__option--disabled):hover,
+.cortex-dropdown__option--active:not(.cortex-dropdown__option--disabled) {
   background: var(--cx-well);
   color: var(--cx-ink);
 }
@@ -14075,6 +14190,13 @@ var CortexEditor = (() => {
 .cortex-dropdown__option--selected {
   font-weight: var(--cx-weight-value);
   color: var(--cx-select);
+}
+
+/* Disabled options (e.g. a singleton effect type already used by another row):
+   greyed out, no pointer affordance, no hover/active highlight. */
+.cortex-dropdown__option--disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
 }
 
 .cortex-dropdown__empty {
@@ -14422,6 +14544,14 @@ var CortexEditor = (() => {
   gap: var(--cx-sp-2);
 }
 
+/* Numeric inputs are flex containers that collapse to content width on
+   their own \u2014 stretch them to fill the field so paired rows render at
+   uniform widths (weight vs size, line-height vs letter-spacing). */
+.cortex-typography-section__field > .cortex-numeric-input {
+  flex: 1;
+  min-width: 0;
+}
+
 /* Trailing icon buttons (T for typography link, SwatchBook for color link) */
 .cortex-typography-section__t-button,
 .cortex-typography-section__swatchbook-button {
@@ -14458,9 +14588,17 @@ var CortexEditor = (() => {
   gap: var(--cx-sp-3);
 }
 
-.cortex-typography-section__align-row > .cortex-segmented-control {
+/* SegmentedControl renders class \`cortex-segmented\` (not \`-control\`) \u2014
+   the two align controls split the row 50/50. */
+.cortex-typography-section__align-row > .cortex-segmented {
   flex: 1;
   min-width: 0;
+}
+
+/* size="sm" options default to flex:0 (content width); stretch them so
+   the three icons fill each 50% control evenly. */
+.cortex-typography-section__align-row .cortex-segmented__option {
+  flex: 1;
 }
 
 /* \u2500\u2500 TextComponentPicker popover \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500 */
@@ -14651,14 +14789,15 @@ var CortexEditor = (() => {
 }
 
 .cortex-color-input__hex {
-  /* Equal flex share with opacity (\`flex: 1\` below). Previously 2 (hex
-     dominant), but once BorderSection grew a second trailing button the
-     2:1 bias left opacity below its ~80px min-content floor and it
-     collapsed to zero width. 1:1 gives both slots a comfortable allocation
-     in single- AND double-trailing layouts without needing a scoped
-     min-width override on opacity. Hex at ~92px (Border 2-trailing) still
-     fits the size={9} input with "#ffffff" + padding with room to spare. */
-  flex: 1;
+  /* Capped flex-basis at 88px (no-grow, shrinks if needed). After
+     BorderSection grew to THREE trailing buttons (token chip + eye
+     toggle + remove), the previous 1:1 equal flex split squeezed
+     opacity below its ~80px min-content floor \u2014 the prefix icon +
+     "100" + "%" got clipped behind the row's right edge. Capping hex
+     at 88px (size={9} input fits "#ffffff" comfortably plus padding)
+     and letting opacity take the rest via flex:1 guarantees opacity
+     stays readable regardless of trailing-slot count. */
+  flex: 0 1 88px;
   height: 28px;
   padding: 0 var(--cx-sp-4);
   background: var(--cx-well);
@@ -14888,16 +15027,20 @@ var CortexEditor = (() => {
   gap: var(--cx-sp-6);
 }
 
-.cortex-effects-section__shadows {
+.cortex-effects-section__effects {
   display: flex;
   flex-direction: column;
-  gap: var(--cx-sp-6);
+  gap: var(--cx-sp-4);
 }
 
 .cortex-effects-section__row {
   display: flex;
   flex-direction: column;
   gap: var(--cx-sp-3);
+  /* Reserve space below the row when auto-scrolling new rows into view via
+     scrollIntoView({ block: 'end' }) \u2014 without this, the row hugs the panel
+     bottom edge and the user has to scroll a bit more to see it comfortably. */
+  scroll-margin-bottom: var(--cx-sp-5);
 }
 
 .cortex-effects-section__row-header {
@@ -14949,12 +15092,6 @@ var CortexEditor = (() => {
 .cortex-effects-section__grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: var(--cx-sp-3);
-}
-
-.cortex-effects-section__blur-controls {
-  display: flex;
-  flex-direction: column;
   gap: var(--cx-sp-3);
 }
 
@@ -15069,11 +15206,12 @@ var CortexEditor = (() => {
 
 /* \u2500\u2500 Pseudo tabs (in panel) \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500 */
 
+/* No own border-bottom \u2014 the panel header's border-bottom is the single
+   divider. Tabs overlap onto it via margin-bottom below so the active
+   underline rides the divider instead of stacking a second line. */
 .cortex-pseudo-tabs {
   display: flex;
   flex-basis: 100%;
-  border-bottom: 1px solid var(--cx-rule);
-  padding: 0 12px;
   margin-top: -2px;
 }
 
@@ -15084,6 +15222,9 @@ var CortexEditor = (() => {
   padding: 5px 10px;
   border: none;
   border-bottom: 2px solid transparent;
+  /* Overlap the header's 1px border-bottom so the active underline merges
+     with the divider rather than sitting above it. */
+  margin-bottom: -1px;
   background: transparent;
   color: var(--cx-ink-tertiary);
   cursor: pointer;
@@ -15211,46 +15352,6 @@ var CortexEditor = (() => {
   outline-color: var(--cx-select-muted);
 }
 
-.cortex-toolbar__btn--close {
-  color: var(--cx-ink-faint);
-}
-
-.cortex-toolbar__btn--close:hover {
-  background: var(--cx-destructive-surface);
-  color: var(--cx-destructive);
-}
-
-.cortex-toolbar__badge {
-  font-size: var(--cx-text-sm);
-  font-weight: var(--cx-weight-value);
-  font-family: var(--cx-mono);
-  font-variant-numeric: tabular-nums;
-  color: var(--cx-ink);
-  padding: 0 var(--cx-sp-4);
-  height: 28px;
-  line-height: 28px;
-  background: var(--cx-well);
-  border-radius: var(--cx-radius-sm);
-  white-space: nowrap;
-  border: none;
-  cursor: pointer;
-  transition: background 150ms ease-out, transform 100ms ease-out;
-}
-
-.cortex-toolbar__badge:hover {
-  background: var(--cx-btn-hover);
-}
-
-.cortex-toolbar__badge:active {
-  background: var(--cx-well-active);
-  transform: scale(0.97);
-}
-
-.cortex-toolbar__badge:focus-visible {
-  outline: 2px solid var(--cx-select-muted);
-  outline-offset: 1px;
-}
-
 /* Mode switcher \u2014 segmented select/comment */
 .cortex-toolbar__modes {
   display: flex;
@@ -15319,12 +15420,6 @@ var CortexEditor = (() => {
   outline-color: var(--cx-select-muted);
 }
 
-.cortex-toolbar__divider {
-  width: 1px;
-  height: 24px;
-  background: var(--cx-rule);
-  flex-shrink: 0;
-}
 
 /* \u2500\u2500 Comment Thread \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500 */
 
@@ -15646,17 +15741,26 @@ var CortexEditor = (() => {
 }
 
 .cortex-position-section__xy-row {
-  display: flex;
+  /* 2x2 grid for T/R/B/L offsets. Single flex row squashed each input
+     to ~60px in the 280px panel; multi-digit values + 'auto' chip then
+     overflowed. 2 columns gives each input ~140px which fits "R 6 auto"
+     comfortably. Order T-R-B-L visits the cells row-major: T R / B L. */
+  display: grid;
+  grid-template-columns: 1fr 1fr;
   gap: var(--cx-sp-2);
 }
 
 .cortex-position-section__xy-row > .cortex-numeric-input {
-  flex: 1;
   min-width: 0;
 }
 
-.cortex-position-section__xy-row > .cortex-numeric-input:last-child {
+/* Z-index row: standalone narrow input on the left, no flex:1 sibling
+   to stretch it. Explicit modifier class so we don't rely on
+   structural :last-child selectors that previously broke when the
+   xy-row gained R + B inputs (T/R/B/L all need flex:1). */
+.cortex-position-section__z-row > .cortex-numeric-input {
   flex: 0 0 56px;
+  min-width: 0;
 }
 
 .cortex-position-section__xy-row--disabled {
@@ -16794,11 +16898,14 @@ button.cortex-token-chip__body:focus-visible {
       attributes: !0,
       attributeFilter: ["class", "data-theme", "data-mode"]
     }), typeof window.__cortex_send__ == "function" ? activeChannel = createViteChannel() : (console.warn("[cortex] __cortex_send__ not found \u2014 using WebSocket fallback. If you are using the Vite plugin, remove any manual <script> tags for cortex-browser.js from your index.html."), activeChannel = createWebSocketChannel());
-    let initialActive = document.documentElement.hasAttribute("data-cortex-active");
-    J(
+    let initialActive = window.__cortex_pending_set_active__?.active ?? document.documentElement.hasAttribute("data-cortex-active");
+    if (J(
       /* @__PURE__ */ u4(CortexApp, { channel: activeChannel, shadowRoot, initialActive }),
       rootElement
-    ), window.__cortex_pending_toggle__ && delete window.__cortex_pending_toggle__;
+    ), window.__cortex_pending_toggle__ && delete window.__cortex_pending_toggle__, window.__cortex_pending_set_active__) {
+      let pending = window.__cortex_pending_set_active__;
+      delete window.__cortex_pending_set_active__, typeof window.__cortex_send__ == "function" && window.__cortex_send__(pending);
+    }
   }
   function _resetForTesting() {
     rootElement && J(null, rootElement), activeChannel?.dispose?.(), activeChannel = null, themeMediaQuery?.removeEventListener("change", applyTheme), themeMediaQuery = null, themeObserver?.disconnect(), themeObserver = null, currentTheme = null, hostElement?.remove(), hostElement = null, shadowRoot = null, rootElement = null, _setCortexHost(null, null), document.querySelector("[data-cortex-fonts]")?.remove(), _clearPreferenceChangeHandler();
