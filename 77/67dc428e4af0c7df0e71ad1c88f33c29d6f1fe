@@ -1,0 +1,28 @@
+cortex-editor/tests/adapters/next.test.ts
+  s_40b8969158f157::t_ccb8da1c010151 322
+  s_40b8969158f157::t_076c939e9f46b7 235-263
+  s_40b8969158f157::t_5753cfb94bcbd4 1
+  s_40b8969158f157::t_b4c8f58f816dee 319-321,323-379
+cortex-editor/src/adapters/next.ts
+  s_40b8969158f157::t_b53d0ebfea502b 347-353
+  s_40b8969158f157::t_33cb1ab15acec3 406-408
+  s_40b8969158f157::t_b8e26d9d9dd39b 203-211
+  s_40b8969158f157::t_cbf439e6a50f97 249-251,261-270
+  s_40b8969158f157::t_e2d3c643717496 221-222
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.14",
+  "base_commit_sha": "7767dc428e4af0c7df0e71ad1c88f33c29d6f1fe",
+  "prompts": {},
+  "sessions": {
+    "s_40b8969158f157": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9196dbf3-ee8b-461c-a234-015f4756753a",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "dklzf <213919963+dklzf@users.noreply.github.com>"
+    }
+  }
+}

@@ -1,0 +1,61 @@
+cortex-editor/README.md
+  s_e149370edac404::t_391297cc5c9653 7,9-15,22-35,37-43,45-47,49-52,58,63,67,77
+  s_e149370edac404::t_af12efa91969ff 3,5,36,44,48,54-56,75,81
+README.md
+  s_e149370edac404::t_ef8f645bad4595 19-26,29-30,32-38,40-46,48-56,58-66,68,70,72-74,76-84,86,88-90,92,94-100,104-106
+  s_e149370edac404::t_179856e75ad9de 27-28,31,39,47,57,67,69,71,75,85,87,91,93,101-103,294,296,298,352
+  s_e149370edac404::t_5836cb11805b8a 1
+.gitignore
+  s_e149370edac404::t_b2a31cf9dc7222 44-48
+cortex-editor/package.json
+  s_e149370edac404::t_a347abebec940b 4
+cortex-editor/src/adapters/vite.ts
+  s_e149370edac404::t_d04b43887f25c7 1135
+  s_e149370edac404::t_8013a2d2e084f7 1532
+  s_e149370edac404::t_4a1971c181927f 21
+cortex-editor/src/core/edit-pipeline.ts
+  s_e149370edac404::t_62ed51ca00bc6e 376,378-380,382-390,394,396-404,411
+  s_e149370edac404::t_1b5068baa9afa7 1410
+  s_e149370edac404::t_ede37088012b77 358-375,377,381,391-393,395,405-410,412-413
+  s_e149370edac404::t_4fc5079508fa88 1
+cortex-editor/src/adapters/shared-server-constants.ts
+  s_e149370edac404::t_4b62bbdfec95d1 10,16-33
+cortex-editor/tests/core/edit-pipeline.path-confinement.test.ts
+  s_e149370edac404::t_6358b64c486e9d 1-92
+cortex-editor/tests/adapters/shared-server-constants.test.ts
+  s_e149370edac404::t_5c24111678674e 72-112
+  s_e149370edac404::t_0f0064260c4b16 9
+cortex-editor/src/adapters/webpack.ts
+  s_e149370edac404::t_8c8df6c0c38d03 819
+  s_e149370edac404::t_eca34dcac2beeb 858
+  s_e149370edac404::t_f1a51b7a313dfa 1017
+  s_e149370edac404::t_2a2dd740dc973d 35
+cortex-editor/src/browser/channel.ts
+  s_40b8969158f157::t_76bd6f903194d9 385-401
+cortex-editor/tests/integration/channel-source-invariants.test.ts
+  s_40b8969158f157::t_bcac5505126b98 61-67,69-80
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.8",
+  "base_commit_sha": "e42533802a9bd32c0e186a93c39a337f7deb05ed",
+  "prompts": {},
+  "sessions": {
+    "s_40b8969158f157": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9196dbf3-ee8b-461c-a234-015f4756753a",
+        "model": "claude-fable-5"
+      },
+      "human_author": "dklzf <213919963+dklzf@users.noreply.github.com>"
+    },
+    "s_e149370edac404": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "4ebdef96-b790-4995-aa78-abaa802d962e",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "dklzf <213919963+dklzf@users.noreply.github.com>"
+    }
+  }
+}

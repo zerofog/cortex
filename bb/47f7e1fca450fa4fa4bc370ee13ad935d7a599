@@ -1,0 +1,21 @@
+cortex-editor/src/adapters/webpack.ts
+  s_40b8969158f157::t_362334a7e64aa6 439-449
+cortex-editor/tests/adapters/next-dev-scripts.test.ts
+  s_40b8969158f157::t_4d2c9d6320b0d8 50-60
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.14",
+  "base_commit_sha": "bb47f7e1fca450fa4fa4bc370ee13ad935d7a599",
+  "prompts": {},
+  "sessions": {
+    "s_40b8969158f157": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9196dbf3-ee8b-461c-a234-015f4756753a",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "dklzf <213919963+dklzf@users.noreply.github.com>"
+    }
+  }
+}

@@ -1,0 +1,21 @@
+cortex-editor/package.json
+  s_40b8969158f157::t_d59f420529102d 3
+cortex-editor/src/version.ts
+  s_40b8969158f157::t_33ed91d6bf5d21 4
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.14",
+  "base_commit_sha": "33f4a3623e8090e51232442237c4f5b3b30ef341",
+  "prompts": {},
+  "sessions": {
+    "s_40b8969158f157": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9196dbf3-ee8b-461c-a234-015f4756753a",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "dklzf <213919963+dklzf@users.noreply.github.com>"
+    }
+  }
+}

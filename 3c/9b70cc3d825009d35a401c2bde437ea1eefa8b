@@ -1,0 +1,41 @@
+dev-app-next/app/Counter.tsx
+  s_40b8969158f157::t_6dc0d6ad1f470e 1-11
+dev-app-next/.gitignore
+  s_40b8969158f157::t_bf1d34497c1221 1-5
+cortex-editor/tests/e2e/next-turbopack.spec.ts
+  s_40b8969158f157::t_ab517da2646665 74-77,79-86
+  s_40b8969158f157::t_3a2ce867ce11b8 105-111
+  s_40b8969158f157::t_91a489fe24c723 1-73,88-104,112-150
+  s_40b8969158f157::t_7cf3e2a4699c04 78,87
+dev-app-next/next.config.ts
+  s_40b8969158f157::t_464c2ad2702dbd 1,4-9
+  s_40b8969158f157::t_05c3ee3b1a6de4 2
+  s_40b8969158f157::t_70d9265919bf18 3
+dev-app-next/app/page.tsx
+  s_40b8969158f157::t_c52ebc84d625b0 1-11
+dev-app-next/app/layout.tsx
+  s_40b8969158f157::t_03a4e857c114f5 1-2,6-9
+  s_40b8969158f157::t_81addbb7a2de99 3-5,10-12
+dev-app-next/package.json
+  s_40b8969158f157::t_170c72ce96438e 1-22
+dev-app-next/tsconfig.json
+  s_40b8969158f157::t_0bd1f12101210f 1-41
+dev-app-next/package-lock.json
+  s_40b8969158f157::t_a1910aa303abeb 1-1040
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.14",
+  "base_commit_sha": "3c9b70cc3d825009d35a401c2bde437ea1eefa8b",
+  "prompts": {},
+  "sessions": {
+    "s_40b8969158f157": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9196dbf3-ee8b-461c-a234-015f4756753a",
+        "model": "claude-fable-5"
+      },
+      "human_author": "dklzf <213919963+dklzf@users.noreply.github.com>"
+    }
+  }
+}

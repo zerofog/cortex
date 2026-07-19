@@ -1,0 +1,38 @@
+cortex-editor/src/adapters/next.ts
+  s_40b8969158f157::t_84a4394a485aa4 360-373,376-379
+  s_40b8969158f157::t_4acb62b267ca98 170-173,179-189,191-200,202,207,209,211
+  s_40b8969158f157::t_2ce32e772b6a0a 2,5-10
+  s_40b8969158f157::t_63f9230ef84a16 279-301,304,307-323,325
+cortex-editor/tests/adapters/next-rsc-import-weight.test.ts
+  s_40b8969158f157::t_89a3b8c0c9d44a 1-39
+cortex-editor/src/adapters/webpack.ts
+  s_40b8969158f157::t_8fd55a8bb74633 73-75
+  s_40b8969158f157::t_856f8a4485cf04 386-390
+  s_40b8969158f157::t_cb430cf1d2ff11 406,412
+  s_40b8969158f157::t_a95599f39ccec8 42
+cortex-editor/tests/adapters/next.test.ts
+  s_40b8969158f157::t_4ff9deb640dace 396,398-406,413-415,420-424
+  s_40b8969158f157::t_0d7dfd390aec20 10-15
+  s_40b8969158f157::t_3928b1ddd657b4 455,467-470
+  s_40b8969158f157::t_62678c03284c79 270,276,278-279,285
+  s_40b8969158f157::t_7b1251630392fc 218,226,228-229,231-232
+  s_40b8969158f157::t_e763e86e9a43d3 163,169,174,185
+cortex-editor/src/adapters/injection-snippet.ts
+  s_40b8969158f157::t_d881c050680581 21-37
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.14",
+  "base_commit_sha": "25f8465f6aef0c378bb6ebcead72d90002cfbb92",
+  "prompts": {},
+  "sessions": {
+    "s_40b8969158f157": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9196dbf3-ee8b-461c-a234-015f4756753a",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "dklzf <213919963+dklzf@users.noreply.github.com>"
+    }
+  }
+}
