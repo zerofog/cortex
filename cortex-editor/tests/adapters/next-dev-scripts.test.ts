@@ -47,6 +47,17 @@ describe('CortexDevScripts', () => {
     expect(body).toContain('http://localhost:4321/@cortex/browser.js')
   })
 
+  it('self-removes its own <script> node so the inlined token text does not stay resident in the DOM (3A)', () => {
+    // The bootstrap inlines window.__CORTEX_TOKEN__=... as literal text. Even
+    // though the browser bundle captures+deletes the window global on boot, the
+    // token text lingers in this script node's textContent where a late
+    // same-origin script could read it back. The snippet must delete its own
+    // DOM node at the end of execution to shrink that exposure window.
+    writeDiscovery()
+    const body = scriptBody(CortexDevScripts({ projectRoot: root }))
+    expect(body).toContain('document.currentScript.remove()')
+  })
+
   it('renders null and warns once when discovery files are missing', () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
 

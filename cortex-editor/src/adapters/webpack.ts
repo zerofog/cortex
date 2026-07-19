@@ -436,6 +436,17 @@ if (!document.querySelector('[data-cortex-host]')) {
   __cortexScript.onerror = function() { console.error('[cortex] Failed to load browser UI.'); };
   document.head.appendChild(__cortexScript);
 }
+// Security follow-up (review): remove this script's OWN DOM node now that the
+// bootstrap globals above are set. The token was inlined as literal text
+// (window.__CORTEX_TOKEN__=...); the browser bundle reads it off the window
+// GLOBAL (which persists) and captures+deletes it on boot — see channel.ts.
+// Deleting the node keeps that token text from staying resident in the live
+// DOM where a late same-origin script could read it back via textContent.
+// Residual limitation: a script racing DURING boot — before this line runs —
+// can still observe the window global; same posture as the shipped adapters.
+// A full fix (never exposing the token as a readable global) is a separate
+// cross-adapter security ticket.
+if (document.currentScript) { document.currentScript.remove(); }
 `
 }
 
