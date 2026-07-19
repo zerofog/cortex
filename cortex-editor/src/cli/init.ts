@@ -645,6 +645,23 @@ function layoutRendersCortexDevScripts(sourceFile: SourceFile): boolean {
   )
 }
 
+/** True when the layout opens with a `'use client'` or `'use server'` directive
+ *  prologue. CortexDevScripts transitively imports server-only Node modules
+ *  (fs/path), so importing it into a client-component graph makes Next FAIL
+ *  compilation — the codemod must bail rather than inject an unusable import. */
+function hasClientOrServerDirective(sourceFile: SourceFile): boolean {
+  for (const statement of sourceFile.getStatements()) {
+    if (statement.getKind() !== SyntaxKind.ExpressionStatement) break
+    const expression = statement.asKindOrThrow(SyntaxKind.ExpressionStatement).getExpression()
+    const kind = expression.getKind()
+    if (kind !== SyntaxKind.StringLiteral && kind !== SyntaxKind.NoSubstitutionTemplateLiteral) break
+    // getText() includes the quotes/backticks; slice them off to compare values.
+    const value = expression.getText().slice(1, -1)
+    if (value === 'use client' || value === 'use server') return true
+  }
+  return false
+}
+
 /** The opening tag of the first `<body>` host element, located via the AST so a
  *  `>` inside an attribute expression (`className={n > 2 ? …}`) cannot truncate
  *  the match and a commented-out `<body>` is never mistaken for the real one. */
@@ -664,7 +681,8 @@ export function injectDevScriptsIntoLayout(cwd: string):
   | { status: 'inserted'; layoutPath: string }
   | { status: 'already'; layoutPath: string }
   | { status: 'not-found' }
-  | { status: 'no-body-tag'; layoutPath: string } {
+  | { status: 'no-body-tag'; layoutPath: string }
+  | { status: 'client-layout-unsupported'; layoutPath: string } {
   const candidates = [
     path.join('app', 'layout.tsx'),
     path.join('app', 'layout.jsx'),
@@ -684,6 +702,11 @@ export function injectDevScriptsIntoLayout(cwd: string):
   // recognized — a `.js` App Router layout still contains JSX that the plain
   // TypeScript scanner would otherwise reject.
   const sourceFile = createConfigSourceFile('layout.tsx', content)
+
+  // A 'use client'/'use server' root layout would pull the server-only
+  // CortexDevScripts into a client-component graph, breaking Next's build. Bail
+  // without modifying the file — the user must render it from a server layout.
+  if (hasClientOrServerDirective(sourceFile)) return { status: 'client-layout-unsupported', layoutPath }
 
   if (layoutRendersCortexDevScripts(sourceFile)) return { status: 'already', layoutPath }
 
@@ -878,6 +901,12 @@ export async function runInit(
       case 'no-body-tag':
         console.warn(
           `  ${path.relative(cwd, layoutResult.layoutPath)}: no <body> tag found - add <CortexDevScripts /> (from cortex-editor/next) inside <body> manually`
+        )
+        break
+      case 'client-layout-unsupported':
+        console.warn(
+          `  ${path.relative(cwd, layoutResult.layoutPath)}: root layout is a client component ('use client') - ` +
+          'CortexDevScripts is server-only. Add <CortexDevScripts /> to a server layout, or render it from a server component.'
         )
         break
     }

@@ -1725,35 +1725,34 @@ describe('injectDevScriptsIntoLayout', () => {
     }
   })
 
-  it("keeps a leading 'use client' directive first and inserts the import after it", () => {
-    const layout = [
-      "'use client'",
-      '',
-      'export default function RootLayout({ children }: { children: React.ReactNode }) {',
-      '  return (',
-      '    <html lang="en">',
-      '      <body>{children}</body>',
-      '    </html>',
-      '  )',
-      '}',
-      '',
-    ].join('\n')
-    const dir = makeTmpProject({ 'app/layout.tsx': layout })
-    try {
-      const result = injectDevScriptsIntoLayout(dir)
-      expect(result.status).toBe('inserted')
-      const content = fs.readFileSync(path.join(dir, 'app', 'layout.tsx'), 'utf8')
-      // The directive must remain the very first statement or Next drops it.
-      expect(content.startsWith("'use client'")).toBe(true)
-      // The import lands after the directive, never above it.
-      const directiveIdx = content.indexOf("'use client'")
-      const importIdx = content.indexOf('import { CortexDevScripts }')
-      expect(importIdx).toBeGreaterThan(directiveIdx)
-      expect(content).toContain('<CortexDevScripts />')
-    } finally {
-      cleanup(dir)
+  it.each([['use client'], ['use server']] as const)(
+    "rejects a '%s' root layout and leaves it byte-for-byte unchanged",
+    (directive) => {
+      const layout = [
+        `'${directive}'`,
+        '',
+        'export default function RootLayout({ children }: { children: React.ReactNode }) {',
+        '  return (',
+        '    <html lang="en">',
+        '      <body>{children}</body>',
+        '    </html>',
+        '  )',
+        '}',
+        '',
+      ].join('\n')
+      const dir = makeTmpProject({ 'app/layout.tsx': layout })
+      try {
+        const result = injectDevScriptsIntoLayout(dir)
+        // CortexDevScripts transitively imports server-only fs/path; importing it
+        // into a client-component graph makes Next FAIL compilation. Bail without
+        // touching the file.
+        expect(result.status).toBe('client-layout-unsupported')
+        expect(fs.readFileSync(path.join(dir, 'app', 'layout.tsx'), 'utf8')).toBe(layout)
+      } finally {
+        cleanup(dir)
+      }
     }
-  })
+  )
 
   it('inserts when CortexDevScripts appears only in a comment (not a rendered element)', () => {
     const layout = [
