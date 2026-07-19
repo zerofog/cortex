@@ -390,6 +390,16 @@ function buildWrappedConfig(nextConfig: NextConfig, options: CortexNextOptions, 
 
     // Turbopack path — `next dev` default since Next 16. The webpack() hook
     // below is never called there; these rules are the equivalent entry point.
+    //
+    // KNOWN LIMITATION (3G, documented — do not "fix"): the runtimeId threaded
+    // here is BEST-EFFORT under Turbopack. The next-source-loader runs in a
+    // separate Turbopack worker process, so its module-global `disabledRuntimes`
+    // Set is never the one markRuntimeDisabled() mutates in THIS (dev-server)
+    // process — the ZF0-1851 lock-refusal gate cannot disable loader transforms
+    // across the Turbopack worker boundary (a lock-refused second `next dev`
+    // degrades to attributes-without-editor). The threading IS kept because it
+    // still works for the single-process webpack path. See
+    // thoughts/shared/research/2026-07-18-nextjs-analysis-review-addendum.md.
     turbopack: withCortexTurbopack(nextConfig.turbopack, options, runtimeId),
 
     webpack(config: WebpackConfig, context: WebpackContext) {

@@ -99,6 +99,12 @@ export default function cortexSourceLoader(this: LoaderContext, source: string) 
       this.callback(null, source)
     }
   } catch (err) {
+    // 3H (documented tradeoff, deliberate): the loader instruments BOTH the
+    // server and client compilations (the isServer skip was removed for
+    // hydration consistency — see the withCortex webpack-hook comment in
+    // next.ts), so a mishandled server-only file surfaces here as a build error
+    // rather than silently diverging SSR/client attribution. Failing loud is the
+    // intended behavior — the developer sees the exact file and reason.
     const message = err instanceof Error ? err.message : String(err)
     this.callback(new Error(`[cortex] Source transform failed for ${this.resourcePath}: ${message}`))
   }
