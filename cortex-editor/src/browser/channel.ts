@@ -382,5 +382,22 @@ export function createWebSocketChannel(options?: WebSocketChannelOptions): Corte
       queue.length = 0
     },
   }
+
+  // The injection snippet's keyboard handler needs a live path into this
+  // channel for toggle presses. In the Vite flow the snippet closure-captures
+  // the server-injected __cortex_send__ primitive before the channel
+  // tombstones it; in the WS-fallback flow no primitive exists at snippet
+  // time, so presses land in window.__cortex_pending_set_active__ and the
+  // bundle's boot drain (browser/index.tsx) forwards them through
+  // window.__cortex_send__ — which nothing defined here until now. Expose a
+  // NARROW bridge that forwards ONLY cortex/set-active: a page-XSS caller can
+  // toggle the editor shell with it, nothing more — the auth token stays
+  // closure-held and is stamped inside send() (ZF0-1326 posture unchanged).
+  window.__cortex_send__ = (msg: unknown): void => {
+    if (typeof msg === 'object' && msg !== null && (msg as { type?: unknown }).type === 'cortex/set-active') {
+      wsChannel.send(msg as BrowserToServer)
+    }
+  }
+
   return wsChannel
 }

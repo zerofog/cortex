@@ -58,13 +58,26 @@ describe('channel.ts source-level invariants (ZF0-1326 Task 1)', () => {
     expect(matches.length).toBe(4)
   })
 
-  it('contains exactly 2 references to `window.__cortex_send__` (capture + delete in createViteChannel only — WebSocket channel uses native WebSocket, not the HMR primitive)', () => {
-    // Vite channel: capture (line 35) + delete (line 37) = 2
-    // WS channel: 0 references (uses native WebSocket, not the HMR primitive)
-    // Total: 2. A regression that re-reads window.__cortex_send__ at
-    // send time bumps the count to 3+.
+  it('contains exactly 3 references to `window.__cortex_send__` (capture + delete in createViteChannel, activation-bridge ASSIGNMENT in createWebSocketChannel)', () => {
+    // Vite channel: capture + delete = 2
+    // WS channel: 1 ASSIGNMENT installing the narrow cortex/set-active
+    //   bridge for the injection snippet's keyboard handler (Next/webpack
+    //   standalone-bridge flow — see channel.ts comment).
+    // Total: 3. A regression that re-READS window.__cortex_send__ at
+    // send time bumps the count to 4+.
     const matches = code.match(/window\.__cortex_send__/g) ?? []
-    expect(matches.length).toBe(2)
+    expect(matches.length).toBe(3)
+  })
+
+  it('the WebSocket channel reference to `window.__cortex_send__` is an assignment, never a read', () => {
+    // The ZF0-1326 property this file guards: nothing may READ the HMR send
+    // primitive off window after capture. The WS activation bridge writes a
+    // new function onto window; every non-delete reference must therefore be
+    // followed by `=` (assignment), except the single Vite capture.
+    const nonDeleteRefs = [...code.matchAll(/window\.__cortex_send__(?!\s*=)/g)]
+    // Exactly two non-assignment references remain: the Vite capture read and
+    // the delete statement's operand.
+    expect(nonDeleteRefs.length).toBe(2)
   })
 
   it('contains the delete statements that the tombstone semantic depends on', () => {
