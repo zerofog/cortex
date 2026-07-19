@@ -136,6 +136,30 @@ function withCortexTurbopack(
  *  `next` is an optional peer and this module must load without it. */
 const PHASE_DEVELOPMENT_SERVER = 'phase-development-server'
 
+/** True when THIS process is the Next dev server evaluating next.config.
+ *
+ *  `next dev` does NOT set NEXT_PHASE in the environment at config-eval time
+ *  (verified empirically on Next 16.2: NEXT_PHASE is only passed as the argument
+ *  to the phase-FUNCTION config form). We avoid the phase-function form on
+ *  purpose — it would make withCortex return a function, which breaks
+ *  composition with wrappers that spread the config (withBundleAnalyzer(...),
+ *  withPWA(...)). The reliable eval-time signal the dev server DOES set is the
+ *  internal `__NEXT_DEV_SERVER=1`; NEXT_PHASE is also accepted so the unit tests
+ *  (which stub it) and any Next build that does export it still work. The
+ *  production early-return in withCortex short-circuits before this is consulted,
+ *  so a stray var cannot start the bridge during `next build`.
+ *
+ *  Reliance note: `__NEXT_DEV_SERVER` is a private Next internal. If a future
+ *  Next renames it, cortex would go inert on `next dev` (the exact failure this
+ *  whole effort fixed) — so this predicate is the first thing to check when a
+ *  Next upgrade breaks activation. Tracked for the re-review as a fragility. */
+function isNextDevServer(): boolean {
+  return (
+    process.env.__NEXT_DEV_SERVER === '1' ||
+    process.env.NEXT_PHASE === PHASE_DEVELOPMENT_SERVER
+  )
+}
+
 interface BridgeHandle {
   /** ZF0-1851: per-runtime id threaded into the source-loader options so the
    *  loader's isRuntimeDisabled gate can key on THIS bridge. Read off the bridge
@@ -242,21 +266,20 @@ export function withCortex(nextConfig: NextConfig = {}, options: CortexNextOptio
   // withCortex must ALWAYS return a plain object so it composes with wrappers
   // that spread the result — withBundleAnalyzer(withCortex(cfg)), withPWA(...):
   // spreading a function yields {} and silently drops the entire config. Gate
-  // the bridge on the phase via the environment instead of the return shape.
-  // Next sets NEXT_PHASE when it evaluates next.config; only the dev-server
-  // phase owns the bridge. start() is fire-and-forget (it already swallows/logs
-  // its own errors) so config return stays synchronous — the .cortex/ discovery
-  // files being ready before first render is best-effort (<CortexDevScripts/>
-  // renders null + warns when they are absent).
+  // the bridge on a reliable dev-server signal (isNextDevServer) instead of the
+  // return shape. start() is fire-and-forget (it already swallows/logs its own
+  // errors) so config return stays synchronous — the .cortex/ discovery files
+  // being ready before first render is best-effort (<CortexDevScripts/> renders
+  // null + warns when they are absent).
   // Construct the bridge synchronously here (not just inside startBridge) so its
   // runtimeId is available to the loader options built below. Both loader entry
   // points must carry the SAME id the bridge was given so the ZF0-1851
   // lock-refusal gate (source-loader isRuntimeDisabled) can key on it — a second
   // `next dev` that loses the .cortex/ lock then goes inert instead of injecting
-  // the other server's port/token. Non-dev phases start no bridge, so there is
-  // no lock to refuse and runtimeId is left undefined.
+  // the other server's port/token. Non-dev-server processes start no bridge, so
+  // there is no lock to refuse and runtimeId is left undefined.
   let runtimeId: string | undefined
-  if (process.env.NEXT_PHASE === PHASE_DEVELOPMENT_SERVER) {
+  if (isNextDevServer()) {
     runtimeId = ensureBridge(options).runtimeId
     startBridge().catch(() => {})
   }

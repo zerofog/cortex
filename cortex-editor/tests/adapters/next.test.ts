@@ -164,6 +164,21 @@ describe('withCortex bridge lifecycle', () => {
     expect(start).toHaveBeenCalledOnce()
   })
 
+  it('starts the bridge when __NEXT_DEV_SERVER=1 (the signal real `next dev` sets)', () => {
+    // NEXT_PHASE is NOT set in the environment at config-eval time under a real
+    // `next dev` (verified on Next 16.2) — the dev server sets __NEXT_DEV_SERVER
+    // instead. This is the signal the e2e depends on; without it the bridge
+    // never starts, no discovery files are written, and activation dead-ends.
+    const start = vi.fn(async () => {})
+    _setBridgeFactoryForTesting(() => ({ start, dispose: vi.fn(async () => {}), runtimeId: 'rt-1' }))
+    vi.stubEnv('__NEXT_DEV_SERVER', '1')
+    // NEXT_PHASE deliberately unset — __NEXT_DEV_SERVER alone must suffice.
+
+    withCortex({})
+
+    expect(start).toHaveBeenCalledOnce()
+  })
+
   it('does not start the bridge for a non-dev phase, but still returns a full config', () => {
     const start = vi.fn(async () => {})
     const factory = vi.fn(() => ({ start, dispose: vi.fn(async () => {}), runtimeId: 'rt-1' }))
@@ -179,10 +194,12 @@ describe('withCortex bridge lifecycle', () => {
     expect(config.serverExternalPackages).toContain('cortex-editor')
   })
 
-  it('does not start the bridge when NEXT_PHASE is unset', () => {
+  it('does not start the bridge when no dev-server signal is present', () => {
     const start = vi.fn(async () => {})
     _setBridgeFactoryForTesting(() => ({ start, dispose: vi.fn(async () => {}), runtimeId: 'rt-1' }))
-    // NEXT_PHASE deliberately not stubbed
+    // Neither dev-server signal present.
+    vi.stubEnv('NEXT_PHASE', '')
+    vi.stubEnv('__NEXT_DEV_SERVER', '')
 
     const config = withCortex({})
 
