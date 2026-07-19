@@ -1,0 +1,21 @@
+cortex-editor/tests/adapters/next.test.ts
+  s_40b8969158f157::t_a1ae27da84b4ab 240-257
+cortex-editor/src/adapters/next.ts
+  s_40b8969158f157::t_d576dc7ea5b772 215-233,245
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.14",
+  "base_commit_sha": "e4b8289bc37ab516cfc69057ccc8590c71f155f8",
+  "prompts": {},
+  "sessions": {
+    "s_40b8969158f157": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9196dbf3-ee8b-461c-a234-015f4756753a",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "dklzf <213919963+dklzf@users.noreply.github.com>"
+    }
+  }
+}
