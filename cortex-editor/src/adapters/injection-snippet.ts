@@ -111,16 +111,25 @@ if (!document.querySelector('[data-cortex-host]')) {
   __cortexScript.onerror = function() { console.error('[cortex] Failed to load browser UI.'); };
   document.head.appendChild(__cortexScript);
 }
-// Security follow-up (review): remove this script's OWN DOM node now that the
-// bootstrap globals above are set. The token was inlined as literal text
-// (window.__CORTEX_TOKEN__=...); the browser bundle reads it off the window
-// GLOBAL (which persists) and captures+deletes it on boot — see channel.ts.
-// Deleting the node keeps that token text from staying resident in the live
-// DOM where a late same-origin script could read it back via textContent.
-// Residual limitation: a script racing DURING boot — before this line runs —
-// can still observe the window global; same posture as the shipped adapters.
-// A full fix (never exposing the token as a readable global) is a separate
-// cross-adapter security ticket.
-if (document.currentScript) { document.currentScript.remove(); }
 `
 }
+
+// KNOWN LIMITATION — token in inline markup (review finding, deliberately not
+// "fixed" by self-removal). The token is inlined as literal text
+// (window.__CORTEX_TOKEN__=...). The browser bundle reads it off the window
+// GLOBAL and captures+deletes that global on boot (channel.ts, ZF0-1326), but
+// the token text still lingers in this script node where a late same-origin
+// script could read it back via textContent — the same posture as the shipped
+// webpack/Vite adapters (createManualInjectionSnippet inlines it too).
+//
+// Self-removing the node (document.currentScript.remove()) was tried and
+// REVERTED: <CortexDevScripts/> renders this <script> through a React server
+// component, so the node is part of the SSR tree React hydrates. Removing it
+// during SSR-parse execution makes the hydrated DOM disagree with the server
+// HTML → React regenerates the whole tree, the browser-bundle <script> never
+// runs, and the editor never boots. The security gain (shrinking an
+// already-narrow window) was not worth breaking activation on every page.
+//
+// A real fix requires never exposing the token as a readable bearer credential
+// on a same-origin page (any fetch endpoint is equally readable by an XSS), so
+// it is a cross-adapter security-design change tracked as a separate ticket.

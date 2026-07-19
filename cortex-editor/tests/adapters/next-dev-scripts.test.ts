@@ -47,15 +47,16 @@ describe('CortexDevScripts', () => {
     expect(body).toContain('http://localhost:4321/@cortex/browser.js')
   })
 
-  it('self-removes its own <script> node so the inlined token text does not stay resident in the DOM (3A)', () => {
-    // The bootstrap inlines window.__CORTEX_TOKEN__=... as literal text. Even
-    // though the browser bundle captures+deletes the window global on boot, the
-    // token text lingers in this script node's textContent where a late
-    // same-origin script could read it back. The snippet must delete its own
-    // DOM node at the end of execution to shrink that exposure window.
+  it('does NOT self-remove its own <script> node (would break React hydration)', () => {
+    // Self-removal was tried to shrink the token-in-markup exposure window, but
+    // <CortexDevScripts/> renders this script through a React server component:
+    // removing the SSR'd node during parse makes the hydrated DOM disagree with
+    // the server HTML, React regenerates the tree, and the browser bundle never
+    // boots. The token-in-markup limitation is documented instead (see
+    // injection-snippet.ts). Guards against a well-meaning re-introduction.
     writeDiscovery()
     const body = scriptBody(CortexDevScripts({ projectRoot: root }))
-    expect(body).toContain('document.currentScript.remove()')
+    expect(body).not.toContain('currentScript.remove')
   })
 
   it('renders null and warns once when discovery files are missing', () => {
