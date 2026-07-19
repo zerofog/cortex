@@ -1,0 +1,25 @@
+cortex-editor/tests/cli/init.test.ts
+  s_40b8969158f157::t_0392573751ed85 1650-1697
+  s_40b8969158f157::t_82be0d5738708b 5
+  s_40b8969158f157::t_5e6f32fc9f5bde 1698
+cortex-editor/src/cli/init.ts
+  s_40b8969158f157::t_c09b336e4aff0a 814-834
+  s_40b8969158f157::t_4319f7f3da4791 627-661
+  s_40b8969158f157::t_0feb10899d9cd3 835
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.14",
+  "base_commit_sha": "d2d451b67b7e91febe416561576cf2279dfbb5ee",
+  "prompts": {},
+  "sessions": {
+    "s_40b8969158f157": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9196dbf3-ee8b-461c-a234-015f4756753a",
+        "model": "claude-fable-5"
+      },
+      "human_author": "dklzf <213919963+dklzf@users.noreply.github.com>"
+    }
+  }
+}
