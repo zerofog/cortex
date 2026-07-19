@@ -19,12 +19,16 @@ interface InjectionFile {
   toggleShortcut?: unknown
 }
 
-// Once-per-process warning so a missing bridge doesn't spam every render.
-let warnedMissingBridge = false
+// Once-per-REASON warning so a missing bridge doesn't spam every render — but a
+// transient first-render "could not read discovery files" must NOT permanently
+// suppress a later, genuinely different diagnostic (malformed / torn read /
+// missing session id). Keying on the reason string keeps each distinct cause
+// visible exactly once.
+const warnedReasons = new Set<string>()
 
 function warnOnce(reason: string): null {
-  if (!warnedMissingBridge) {
-    warnedMissingBridge = true
+  if (!warnedReasons.has(reason)) {
+    warnedReasons.add(reason)
     console.warn(
       `[cortex] <CortexDevScripts/> is inactive: ${reason}. ` +
       'Is withCortex() wrapping next.config, and is this `next dev` (not build/start)?'
@@ -33,9 +37,9 @@ function warnOnce(reason: string): null {
   return null
 }
 
-/** Test-only reset for the once-per-process warning. @internal */
+/** Test-only reset for the once-per-reason warnings. @internal */
 export function _resetDevScriptsWarningForTesting(): void {
-  warnedMissingBridge = false
+  warnedReasons.clear()
 }
 
 /**

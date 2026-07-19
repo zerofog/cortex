@@ -69,6 +69,22 @@ describe('CortexDevScripts', () => {
     expect(warn.mock.calls[0]![0]).toContain('<CortexDevScripts/> is inactive')
   })
 
+  it('warns once per distinct reason so a later diagnostic is not masked (3C)', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+
+    // Reason 1: discovery files missing entirely (transient first-render state).
+    expect(CortexDevScripts({ projectRoot: root })).toBeNull()
+    expect(CortexDevScripts({ projectRoot: root })).toBeNull()
+    expect(warn).toHaveBeenCalledTimes(1)
+
+    // Reason 2: files now present but malformed — a genuinely different cause. A
+    // single-boolean latch would suppress this, hiding the real diagnostic.
+    writeDiscovery({ port: 'not-a-port' })
+    expect(CortexDevScripts({ projectRoot: root })).toBeNull()
+    expect(warn).toHaveBeenCalledTimes(2)
+    expect(warn.mock.calls[1]![0]).toContain('malformed')
+  })
+
   it('renders null on a malformed port file', () => {
     vi.spyOn(console, 'warn').mockImplementation(() => {})
     writeDiscovery({ port: 'not-a-port' })
