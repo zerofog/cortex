@@ -212,6 +212,25 @@ function installSignalHandlers(): void {
   }
 }
 
+/** Validate the toggle shortcut defensively. validateToggleShortcut THROWS on a
+ *  malformed shortcut; letting that propagate out of withCortex during
+ *  next.config evaluation would abort `next dev` with a stack trace — the exact
+ *  opposite of the adapter's resilience contract (startBridge deliberately
+ *  swallows port/EACCES so cortex "must not take down the user's dev server").
+ *  So a bad shortcut degrades to the default with a visible warning instead. */
+function resolveToggleShortcut(input: string | undefined): string {
+  const candidate = input ?? DEFAULT_TOGGLE_SHORTCUT
+  try {
+    return validateToggleShortcut(candidate)
+  } catch {
+    console.warn(
+      `[cortex] Invalid toggleShortcut ${JSON.stringify(candidate)} — falling back to the default ` +
+      `${DEFAULT_TOGGLE_SHORTCUT}. Expected tinykeys syntax like "$mod+Shift+Period".`,
+    )
+    return DEFAULT_TOGGLE_SHORTCUT
+  }
+}
+
 /** Construct the singleton bridge (idempotent) and return it so its runtimeId
  *  can be threaded into the loader options synchronously, before start()
  *  resolves. Kept separate from startBridge() because the loader options are
@@ -223,7 +242,7 @@ function ensureBridge(options: CortexNextOptions): BridgeHandle {
       root: options.projectRoot ?? process.cwd(),
       mode: 'development',
       port: options.port,
-      toggleShortcut: validateToggleShortcut(options.toggleShortcut ?? DEFAULT_TOGGLE_SHORTCUT),
+      toggleShortcut: resolveToggleShortcut(options.toggleShortcut),
     })
     installSignalHandlers()
   }

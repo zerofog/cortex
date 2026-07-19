@@ -237,6 +237,24 @@ describe('withCortex bridge lifecycle', () => {
     expect(error).toHaveBeenCalledWith(expect.stringContaining('Bridge failed to start'), 'EADDRINUSE')
   })
 
+  it('degrades to the default toggle shortcut instead of aborting when the shortcut is invalid', () => {
+    // validateToggleShortcut THROWS on a bad shortcut; if that propagates out of
+    // withCortex during next.config evaluation, `next dev` aborts with a stack
+    // trace. The adapter's resilience contract (startBridge swallows port/EACCES)
+    // must extend here: warn, fall back to the default, never take down dev.
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const factory = vi.fn(() => ({ start: vi.fn(async () => {}), dispose: vi.fn(async () => {}), runtimeId: 'rt-1' }))
+    _setBridgeFactoryForTesting(factory)
+    vi.stubEnv('NEXT_PHASE', DEV_PHASE)
+
+    const config = withCortex({}, { toggleShortcut: 'Cmd+.' })
+
+    expect(typeof config).toBe('object')
+    expect(config.webpack).toBeTypeOf('function')
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('Invalid toggleShortcut'))
+    expect(factory).toHaveBeenCalledWith(expect.objectContaining({ toggleShortcut: '$mod+Shift+Period' }))
+  })
+
   it('passes port, toggleShortcut, and projectRoot through to the bridge', () => {
     const factory = vi.fn(() => ({ start: vi.fn(async () => {}), dispose: vi.fn(async () => {}), runtimeId: 'rt-1' }))
     _setBridgeFactoryForTesting(factory)
