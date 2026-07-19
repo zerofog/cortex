@@ -1,0 +1,64 @@
+cortex-editor/src/adapters/next-dev-scripts.ts
+  s_40b8969158f157::t_42880891c05bf2 1-91
+cortex-editor/tests/adapters/next.test.ts
+  s_40b8969158f157::t_c0aaa3baed9087 108-111,118
+  s_40b8969158f157::t_56f864bc2c5fa2 197-202,206-208,211-218,220-222,224-227,230-236,239-245,249-250,253-255,257,261,263-264,266-267,272-276,280-283,285-286,289-291,293-294,296-298
+  s_40b8969158f157::t_69cf1a8bb81dd8 248,252
+  s_40b8969158f157::t_0233fc9ce5cb9b 2,4-6,8-20,33-34,49-50,60,67,77,84-85,95-96,107,112,121-122,132-194,203-205,209-210,219,223,228-229,237-238,246-247,251,256,258-260,262,265,268-271,277-279,284,287-288,292,295
+  s_40b8969158f157::t_0c827ca26fdfff 195-196,299
+cortex-editor/tests/adapters/next-dev-scripts.test.ts
+  s_40b8969158f157::t_cb8c30debae241 1-79
+cortex-editor/package.json
+  s_40b8969158f157::t_637e3f5150c51a 101,108,118-119
+  s_40b8969158f157::t_3412d589e075c9 116,128
+  s_40b8969158f157::t_62f9741a87e1d7 129-130
+cortex-editor/src/adapters/webpack.ts
+  s_40b8969158f157::t_679b2fd830236b 439
+  s_40b8969158f157::t_9c490882f390cc 680-693
+  s_40b8969158f157::t_11cd5087121fd1 60
+  s_40b8969158f157::t_43f94ccd1ede32 279
+  s_40b8969158f157::t_13f12a9019ccd0 63
+  s_40b8969158f157::t_959cb072fb9c16 253
+  s_40b8969158f157::t_9cf22524621f9e 356-362,365
+  s_40b8969158f157::t_d9526b652f80b2 465-477
+  s_40b8969158f157::t_828fdc196afb9d 694
+cortex-editor/src/core/session.ts
+  s_40b8969158f157::t_a5aef756a2044d 80-81
+  s_40b8969158f157::t_1ab4c8e0b8172b 215
+cortex-editor/src/adapters/next.ts
+  s_40b8969158f157::t_84b30d2234bafa 58-62
+  s_40b8969158f157::t_46daa2b061e320 17
+  s_40b8969158f157::t_410e7f6f5984e6 4-6
+  s_40b8969158f157::t_aae8f6ec3d7f93 16,21-29,33-34,52-57,75-120,212-215,222-228,235
+  s_40b8969158f157::t_2a1a4e29aa2ab8 203-211
+  s_40b8969158f157::t_6180dd72cc40ea 19,121,123-181,184-199
+  s_40b8969158f157::t_0b9d33c544f863 18,20,122
+cortex-editor/tests/adapters/next-source-loader.test.ts
+  s_40b8969158f157::t_3943053a04f829 9-11,14-17
+  s_40b8969158f157::t_58e8887db314ae 64-89
+  s_40b8969158f157::t_c0c31355bd9c3d 90
+cortex-editor/src/adapters/source-loader.ts
+  s_40b8969158f157::t_2f2536b6f421be 2
+  s_40b8969158f157::t_cea309dec3e87c 77-82
+  s_40b8969158f157::t_b2f7ace63fb593 83-86
+cortex-editor/tsup.config.ts
+  s_40b8969158f157::t_951b7da6d2cf4b 10
+cortex-editor/package-lock.json
+  s_40b8969158f157::t_7b139ebbc18dc9 3,9-10,12,28,35,1103-1112,1687-1693,3040-3049
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.14",
+  "base_commit_sha": "4925dea3ddb0a72de4130e478db0b1bf6cf0e278",
+  "prompts": {},
+  "sessions": {
+    "s_40b8969158f157": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9196dbf3-ee8b-461c-a234-015f4756753a",
+        "model": "claude-fable-5"
+      },
+      "human_author": "dklzf <213919963+dklzf@users.noreply.github.com>"
+    }
+  }
+}
