@@ -383,3 +383,33 @@ describe('withCortex loader runtimeId threading (ZF0-1851)', () => {
     expect(rule.use[0]!.options).not.toHaveProperty('runtimeId')
   })
 })
+
+describe('withCortex termination signal handling', () => {
+  const DEV_PHASE = 'phase-development-server'
+
+  // Adding a SIGINT/SIGTERM listener suppresses Node's default die-on-signal, so
+  // the handler MUST re-raise termination itself — otherwise the first Ctrl+C in
+  // a programmatic dev server (next({ dev: true }) with no other handler) only
+  // disposes and the process survives until a second press.
+  it.each([
+    ['SIGINT', 130],
+    ['SIGTERM', 143],
+  ] as const)('disposes the bridge then exits on %s (code %i)', (signal, code) => {
+    const dispose = vi.fn(async () => {})
+    _setBridgeFactoryForTesting(() => ({ start: vi.fn(async () => {}), dispose, runtimeId: 'rt-1' }))
+    vi.stubEnv('NEXT_PHASE', DEV_PHASE)
+
+    const exit = vi.spyOn(process, 'exit').mockImplementation(((c?: number) => {
+      throw new Error(`exit:${c}`)
+    }) as never)
+
+    const before = process.listeners(signal)
+    withCortex({})
+    const added = process.listeners(signal).filter((l) => !before.includes(l))
+    expect(added).toHaveLength(1)
+
+    expect(() => (added[0] as () => void)()).toThrow(`exit:${code}`)
+    expect(dispose).toHaveBeenCalledOnce()
+    expect(exit).toHaveBeenCalledWith(code)
+  })
+})

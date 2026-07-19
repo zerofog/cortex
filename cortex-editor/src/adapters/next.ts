@@ -150,12 +150,42 @@ type BridgeFactory = (opts: { root: string; mode: string; port?: number; toggleS
 let bridgeFactory: BridgeFactory = (opts) => new CortexWebpackRuntime(opts)
 let bridge: BridgeHandle | null = null
 let signalHandlersInstalled = false
+let registeredSignalHandlers: Array<[NodeJS.Signals, () => void]> = []
 
 /** Swap the bridge implementation and reset singleton state. Pass null to
  *  restore the real CortexWebpackRuntime. @internal */
 export function _setBridgeFactoryForTesting(factory: BridgeFactory | null): void {
   bridgeFactory = factory ?? ((opts) => new CortexWebpackRuntime(opts))
   bridge = null
+  // Detach any signal handlers a prior test installed so each test starts from a
+  // clean process, and so no re-raising handler is left registered to exit the
+  // vitest process on a real signal during the run. Inert in production (this is
+  // never called there).
+  for (const [signal, handler] of registeredSignalHandlers) process.removeListener(signal, handler)
+  registeredSignalHandlers = []
+  signalHandlersInstalled = false
+}
+
+/** Dispose the bridge, then re-raise default termination. Registering a
+ *  SIGINT/SIGTERM listener suppresses Node's default die-on-signal, so without an
+ *  explicit exit the first Ctrl+C in a programmatic dev server (next({dev:true})
+ *  with no other handler) would only kick dispose and leave the process alive
+ *  until a second press. Dispose is async and best-effort — we do not block exit
+ *  on it (a hard exit leaves the .cortex/ lock behind; staleness detection
+ *  recovers it on next start). Exit with the conventional 128+signal code. */
+function handleTerminationSignal(signal: 'SIGINT' | 'SIGTERM'): void {
+  bridge?.dispose().catch(() => {})
+  process.exit(signal === 'SIGINT' ? 130 : 143)
+}
+
+function installSignalHandlers(): void {
+  if (signalHandlersInstalled) return
+  signalHandlersInstalled = true
+  for (const signal of ['SIGINT', 'SIGTERM'] as const) {
+    const handler = () => handleTerminationSignal(signal)
+    registeredSignalHandlers.push([signal, handler])
+    process.once(signal, handler)
+  }
 }
 
 /** Construct the singleton bridge (idempotent) and return it so its runtimeId
@@ -171,15 +201,7 @@ function ensureBridge(options: CortexNextOptions): BridgeHandle {
       port: options.port,
       toggleShortcut: validateToggleShortcut(options.toggleShortcut ?? DEFAULT_TOGGLE_SHORTCUT),
     })
-    if (!signalHandlersInstalled) {
-      signalHandlersInstalled = true
-      // Best-effort cleanup on Ctrl+C / kill. Next installs its own handlers
-      // that exit the process; these run alongside. A hard kill leaves the
-      // .cortex/ lock behind — its staleness detection recovers on next start.
-      const disposeBridge = () => { bridge?.dispose().catch(() => {}) }
-      process.once('SIGINT', disposeBridge)
-      process.once('SIGTERM', disposeBridge)
-    }
+    installSignalHandlers()
   }
   return bridge
 }
