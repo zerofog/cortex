@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi, type MockInstance } from 'vitest'
 import { withCortex, _setBridgeFactoryForTesting, type NextConfig } from '../../src/adapters/next.js'
 
 // withCortex always returns a plain NextConfig object now (fix 2A) — never a
@@ -232,6 +232,35 @@ describe('withCortex bridge lifecycle', () => {
     expect(start).toHaveBeenCalledTimes(2)
   })
 
+  it('shares ONE runtimeId between the bridge and the loader options across repeated evaluations', async () => {
+    // Regression: runtimeId was generated per withCortex() call while the bridge
+    // is memoized, so a second evaluation handed the loaders a fresh id while the
+    // bridge kept the first — defeating the ZF0-1851 lock-refusal gate. The id
+    // must be memoized alongside the bridge.
+    let factoryRuntimeId: string | undefined
+    const factory = vi.fn((opts: { runtimeId: string }) => {
+      factoryRuntimeId = opts.runtimeId
+      return { start: vi.fn(async () => {}), dispose: vi.fn(async () => {}), runtimeId: opts.runtimeId }
+    })
+    _setBridgeFactoryForTesting(factory)
+    vi.stubEnv('NEXT_PHASE', DEV_PHASE)
+
+    const loaderRuntimeId = (config: NextConfig): unknown =>
+      (config.turbopack as { rules: Record<string, { loaders: Array<{ options: Record<string, unknown> }> }> })
+        .rules['*.tsx']!.loaders[0]!.options.runtimeId
+
+    const config1 = withCortex({})
+    const config2 = withCortex({})
+    await flushAsync()
+
+    expect(factory).toHaveBeenCalledOnce()
+    expect(factoryRuntimeId).toBeTruthy()
+    // Both evaluations' loader options carry the SAME id, and it matches the
+    // bridge's.
+    expect(loaderRuntimeId(config1)).toBe(factoryRuntimeId)
+    expect(loaderRuntimeId(config2)).toBe(factoryRuntimeId)
+  })
+
   it('does not throw out of config building when the bridge fails to start', async () => {
     const error = vi.spyOn(console, 'error').mockImplementation(() => {})
     _setBridgeFactoryForTesting(() => ({
@@ -284,6 +313,67 @@ describe('withCortex bridge lifecycle', () => {
       toggleShortcut: '$mod+Shift+Comma',
       runtimeId: expect.any(String),
     })
+  })
+})
+
+describe('withCortex termination handling', () => {
+  const DEV_PHASE = 'phase-development-server'
+  let onceHandlers: Partial<Record<string, () => void>>
+  let killSpy: MockInstance
+
+  beforeEach(() => {
+    onceHandlers = {}
+    // Capture the SIGINT/SIGTERM handlers cortex installs, without letting them
+    // reach the real process. process.kill is spied to a no-op so a re-raise
+    // never terminates the vitest process.
+    vi.spyOn(process, 'once').mockImplementation(((sig: string, handler: () => void) => {
+      if (sig === 'SIGINT' || sig === 'SIGTERM') onceHandlers[sig] = handler
+      return process
+    }) as typeof process.once)
+    vi.spyOn(process, 'removeListener').mockReturnValue(process)
+    killSpy = vi.spyOn(process, 'kill').mockReturnValue(true as never)
+  })
+
+  afterEach(() => {
+    vi.unstubAllEnvs()
+    vi.restoreAllMocks()
+    _setBridgeFactoryForTesting(null)
+  })
+
+  it('re-raises the signal only when cortex is the last handler', () => {
+    _setBridgeFactoryForTesting(() => ({ start: vi.fn(async () => {}), dispose: vi.fn(async () => {}), runtimeId: 'rt-1' }))
+    vi.stubEnv('NEXT_PHASE', DEV_PHASE)
+    withCortex({})
+
+    // Peers remain → do NOT re-raise (they already received the original signal).
+    vi.spyOn(process, 'listenerCount').mockReturnValue(1)
+    onceHandlers['SIGINT']!()
+    expect(killSpy).not.toHaveBeenCalled()
+
+    // No peers remain → re-raise so Node's default termination runs.
+    vi.spyOn(process, 'listenerCount').mockReturnValue(0)
+    onceHandlers['SIGTERM']!()
+    expect(killSpy).toHaveBeenCalledWith(process.pid, 'SIGTERM')
+  })
+
+  it('disposes rather than starts a bridge whose async construction was in flight at termination', async () => {
+    vi.spyOn(process, 'listenerCount').mockReturnValue(1) // suppress re-raise
+    const start = vi.fn(async () => {})
+    const dispose = vi.fn(async () => {})
+    let resolveFactory!: (h: { start: typeof start; dispose: typeof dispose; runtimeId: string }) => void
+    // Async factory we hold open to simulate the lazy-import window.
+    _setBridgeFactoryForTesting(() => new Promise((res) => { resolveFactory = res }))
+    vi.stubEnv('NEXT_PHASE', DEV_PHASE)
+
+    withCortex({})
+    // Signal fires while construction is still pending (bridge is null here).
+    onceHandlers['SIGINT']!()
+    // Construction now resolves — must dispose, not start.
+    resolveFactory({ start, dispose, runtimeId: 'rt-1' })
+    await new Promise((r) => setTimeout(r, 0))
+
+    expect(start).not.toHaveBeenCalled()
+    expect(dispose).toHaveBeenCalledOnce()
   })
 })
 

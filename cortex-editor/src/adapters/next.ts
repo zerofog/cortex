@@ -200,6 +200,15 @@ async function defaultBridgeFactory(opts: BridgeFactoryOptions): Promise<BridgeH
 let bridgeFactory: BridgeFactory = defaultBridgeFactory
 let bridge: BridgeHandle | null = null
 let bridgeStartup: Promise<BridgeHandle | null> | null = null
+/** Memoized alongside the bridge: the ONE runtimeId shared by the bridge and the
+ *  loader options. Generated once and reused on every later dev-server evaluation
+ *  — regenerating per call would hand the loaders a fresh id while the memoized
+ *  bridge keeps the first, defeating the ZF0-1851 lock-refusal gate. */
+let bridgeRuntimeId: string | null = null
+/** Set when a termination signal arrives. Read by startBridge so a bridge whose
+ *  async construction was in flight when the signal fired is disposed instead of
+ *  started — otherwise it would boot a server during graceful shutdown. */
+let terminating = false
 let signalHandlersInstalled = false
 let registeredSignalHandlers: Array<[NodeJS.Signals, () => void]> = []
 
@@ -209,6 +218,8 @@ export function _setBridgeFactoryForTesting(factory: BridgeFactory | null): void
   bridgeFactory = factory ?? defaultBridgeFactory
   bridge = null
   bridgeStartup = null
+  bridgeRuntimeId = null
+  terminating = false
   // Detach any signal handlers a prior test installed so each test starts from a
   // clean process, and so no re-raising handler is left registered to exit the
   // vitest process on a real signal during the run. Inert in production (this is
@@ -235,6 +246,9 @@ export function _setBridgeFactoryForTesting(factory: BridgeFactory | null): void
  *  signal leaves the .cortex/ lock behind; staleness detection recovers it on
  *  next start). */
 function handleTerminationSignal(signal: 'SIGINT' | 'SIGTERM'): void {
+  // Flag first so a bridge still under async construction (startBridge awaiting
+  // the lazy import) is disposed rather than started — see startBridge.
+  terminating = true
   bridge?.dispose().catch(() => {})
   // Remove our own listener(s) for this signal so the re-raise below reaches the
   // default/next handler instead of looping back into us. (process.once does not
@@ -244,7 +258,16 @@ function handleTerminationSignal(signal: 'SIGINT' | 'SIGTERM'): void {
     if (sig === signal) process.removeListener(signal, handler)
   }
   registeredSignalHandlers = registeredSignalHandlers.filter(([sig]) => sig !== signal)
-  process.kill(process.pid, signal)
+  // Re-raise ONLY when no other handler remains. Peer handlers (Next's own
+  // graceful-shutdown handler, a user's) already received the ORIGINAL signal in
+  // this same dispatch, so re-raising would deliver it to them a second time —
+  // potentially escalating a graceful shutdown into a forced one. We re-raise
+  // solely to cover the case where cortex was the ONLY listener (a programmatic
+  // dev server), where suppressing Node's default die-on-signal would otherwise
+  // hang the process until a second Ctrl+C.
+  if (process.listenerCount(signal) === 0) {
+    process.kill(process.pid, signal)
+  }
 }
 
 function installSignalHandlers(): void {
@@ -321,6 +344,13 @@ async function startBridge(
     return
   }
   if (!handle) return
+  // A termination signal may have fired during the async construction above
+  // (the lazy import + factory). Starting now would boot a server mid-shutdown;
+  // dispose what we constructed instead.
+  if (terminating) {
+    handle.dispose().catch(() => {})
+    return
+  }
   try {
     await handle.start()
   } catch (err) {
@@ -373,7 +403,9 @@ export function withCortex(nextConfig: NextConfig = {}, options: CortexNextOptio
   // immediately, regardless of when the async bridge construction resolves.
   let runtimeId: string | undefined
   if (isNextDevServer()) {
-    runtimeId = randomUUID()
+    // Memoize the id: a later dev-server evaluation must reuse it so the loader
+    // options and the (already-memoized) bridge keep ONE shared id.
+    runtimeId = bridgeRuntimeId ??= randomUUID()
     const toggleShortcut = resolveToggleShortcut(options.toggleShortcut)
     installSignalHandlers()
     void startBridge(options, runtimeId, toggleShortcut)
