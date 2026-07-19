@@ -8,6 +8,8 @@ import {
   SyntaxKind,
   ts,
   type Expression,
+  type JsxOpeningElement,
+  type JsxSelfClosingElement,
   type Node,
   type ObjectLiteralExpression,
   type SourceFile,
@@ -169,7 +171,13 @@ function hasNamedRequire(sourceFile: SourceFile, functionName: string, moduleSpe
   })
 }
 
-function getCommonJSHelperInsertIndex(sourceFile: SourceFile): number {
+/**
+ * Index of the first statement after any leading directive prologue
+ * (`'use client'`, `'use server'`, CommonJS `"use strict"`). Statements must be
+ * inserted here, not at 0: prepending above a directive demotes it off line 1,
+ * so it stops being a directive prologue and silently loses effect.
+ */
+function getInsertIndexAfterDirectives(sourceFile: SourceFile): number {
   const statements = sourceFile.getStatements()
   let insertIndex = 0
 
@@ -207,7 +215,7 @@ function ensureHelperBinding(
     })
   } else {
     sourceFile.insertStatements(
-      getCommonJSHelperInsertIndex(sourceFile),
+      getInsertIndexAfterDirectives(sourceFile),
       `const { ${functionName} } = require("${moduleSpecifier}")\n`
     )
   }
@@ -624,10 +632,34 @@ function writeNextConfig(cwd: string): string {
   return nextConfigPath
 }
 
+/** True when the layout already renders a `<CortexDevScripts>` JSX element
+ *  (opening or self-closing). Idempotency keys on the rendered element — not a
+ *  substring — so a mention in a comment or a bare import never counts as
+ *  "already present". */
+function layoutRendersCortexDevScripts(sourceFile: SourceFile): boolean {
+  const namesCortex = (node: JsxOpeningElement | JsxSelfClosingElement): boolean =>
+    node.getTagNameNode().getText() === 'CortexDevScripts'
+  return (
+    sourceFile.getDescendantsOfKind(SyntaxKind.JsxOpeningElement).some(namesCortex) ||
+    sourceFile.getDescendantsOfKind(SyntaxKind.JsxSelfClosingElement).some(namesCortex)
+  )
+}
+
+/** The opening tag of the first `<body>` host element, located via the AST so a
+ *  `>` inside an attribute expression (`className={n > 2 ? …}`) cannot truncate
+ *  the match and a commented-out `<body>` is never mistaken for the real one. */
+function findBodyOpeningElement(sourceFile: SourceFile): JsxOpeningElement | undefined {
+  return sourceFile
+    .getDescendantsOfKind(SyntaxKind.JsxOpeningElement)
+    .find(opening => opening.getTagNameNode().getText() === 'body')
+}
+
 /** Insert <CortexDevScripts/> into the App Router root layout. Deliberately
- *  conservative: single unambiguous layout file, plain `<body ...>` tag match,
+ *  conservative: single unambiguous layout file, AST-located `<body>` element,
  *  loud bail-out otherwise — a wrong guess in user JSX is worse than a manual
- *  one-liner. Idempotent via the CortexDevScripts mention check. */
+ *  one-liner. Parses the source with ts-morph (like the config codemods above)
+ *  rather than regex/substring so `>` in attributes, directive prologues, and
+ *  comment mentions are handled correctly. */
 export function injectDevScriptsIntoLayout(cwd: string):
   | { status: 'inserted'; layoutPath: string }
   | { status: 'already'; layoutPath: string }
@@ -648,14 +680,30 @@ export function injectDevScriptsIntoLayout(cwd: string):
   const layoutPath = candidates[0]!
 
   const content = fs.readFileSync(layoutPath, 'utf8')
-  if (content.includes('CortexDevScripts')) return { status: 'already', layoutPath }
+  // Parse as .tsx regardless of the on-disk extension so JSX is always
+  // recognized — a `.js` App Router layout still contains JSX that the plain
+  // TypeScript scanner would otherwise reject.
+  const sourceFile = createConfigSourceFile('layout.tsx', content)
 
-  const bodyOpen = content.match(/<body\b[^>]*>/)
+  if (layoutRendersCortexDevScripts(sourceFile)) return { status: 'already', layoutPath }
+
+  const bodyOpen = findBodyOpeningElement(sourceFile)
   if (!bodyOpen) return { status: 'no-body-tag', layoutPath }
 
-  const withImport = `import { CortexDevScripts } from 'cortex-editor/next'\n${content}`
-  const withElement = withImport.replace(bodyOpen[0], `${bodyOpen[0]}\n        <CortexDevScripts />`)
-  fs.writeFileSync(layoutPath, withElement)
+  // Insert the child at the exact end of the opening tag. The offset comes from
+  // the AST, so a `>` inside an attribute expression can't misplace it.
+  sourceFile.insertText(bodyOpen.getEnd(), '\n        <CortexDevScripts />')
+
+  // Add the import after any directive prologue, and only when it isn't already
+  // imported (re-adding the same named import is a duplicate-identifier error).
+  if (!hasNamedImport(sourceFile, 'CortexDevScripts', 'cortex-editor/next')) {
+    sourceFile.insertStatements(
+      getInsertIndexAfterDirectives(sourceFile),
+      "import { CortexDevScripts } from 'cortex-editor/next'",
+    )
+  }
+
+  fs.writeFileSync(layoutPath, sourceFile.getFullText())
   return { status: 'inserted', layoutPath }
 }
 

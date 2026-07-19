@@ -1695,4 +1695,164 @@ describe('injectDevScriptsIntoLayout', () => {
     expect(injectDevScriptsIntoLayout(dir).status).toBe('no-body-tag')
     expect(fs.readFileSync(path.join(dir, 'app', 'layout.tsx'), 'utf8')).toBe(custom)
   })
+
+  it('inserts correctly when <body> has a > inside an attribute expression', () => {
+    const layout = [
+      'export default function RootLayout(',
+      '  { children, count }: { children: React.ReactNode; count: number },',
+      ') {',
+      '  return (',
+      '    <html lang="en">',
+      "      <body className={count > 2 ? 'a' : 'b'}>{children}</body>",
+      '    </html>',
+      '  )',
+      '}',
+      '',
+    ].join('\n')
+    const dir = makeTmpProject({ 'app/layout.tsx': layout })
+    try {
+      const result = injectDevScriptsIntoLayout(dir)
+      expect(result.status).toBe('inserted')
+      const content = fs.readFileSync(path.join(dir, 'app', 'layout.tsx'), 'utf8')
+      // The element is inserted exactly once...
+      expect((content.match(/<CortexDevScripts/g) ?? []).length).toBe(1)
+      // ...the className attribute survives intact (the old regex split it at `count >`)...
+      expect(content).toContain("className={count > 2 ? 'a' : 'b'}")
+      // ...and the element lands as a child of <body>, not inside the attribute.
+      expect(content).toContain("<body className={count > 2 ? 'a' : 'b'}>\n        <CortexDevScripts />")
+    } finally {
+      cleanup(dir)
+    }
+  })
+
+  it("keeps a leading 'use client' directive first and inserts the import after it", () => {
+    const layout = [
+      "'use client'",
+      '',
+      'export default function RootLayout({ children }: { children: React.ReactNode }) {',
+      '  return (',
+      '    <html lang="en">',
+      '      <body>{children}</body>',
+      '    </html>',
+      '  )',
+      '}',
+      '',
+    ].join('\n')
+    const dir = makeTmpProject({ 'app/layout.tsx': layout })
+    try {
+      const result = injectDevScriptsIntoLayout(dir)
+      expect(result.status).toBe('inserted')
+      const content = fs.readFileSync(path.join(dir, 'app', 'layout.tsx'), 'utf8')
+      // The directive must remain the very first statement or Next drops it.
+      expect(content.startsWith("'use client'")).toBe(true)
+      // The import lands after the directive, never above it.
+      const directiveIdx = content.indexOf("'use client'")
+      const importIdx = content.indexOf('import { CortexDevScripts }')
+      expect(importIdx).toBeGreaterThan(directiveIdx)
+      expect(content).toContain('<CortexDevScripts />')
+    } finally {
+      cleanup(dir)
+    }
+  })
+
+  it('inserts when CortexDevScripts appears only in a comment (not a rendered element)', () => {
+    const layout = [
+      '// TODO: render CortexDevScripts somewhere in here',
+      'export default function RootLayout({ children }: { children: React.ReactNode }) {',
+      '  return (',
+      '    <html lang="en">',
+      '      <body>{children}</body>',
+      '    </html>',
+      '  )',
+      '}',
+      '',
+    ].join('\n')
+    const dir = makeTmpProject({ 'app/layout.tsx': layout })
+    try {
+      const result = injectDevScriptsIntoLayout(dir)
+      expect(result.status).toBe('inserted')
+      const content = fs.readFileSync(path.join(dir, 'app', 'layout.tsx'), 'utf8')
+      expect(content).toContain('<CortexDevScripts />')
+      expect(content).toContain("import { CortexDevScripts } from 'cortex-editor/next'")
+    } finally {
+      cleanup(dir)
+    }
+  })
+
+  it('reports already without rewriting when a real <CortexDevScripts /> element is present', () => {
+    const layout = [
+      "import { CortexDevScripts } from 'cortex-editor/next'",
+      'export default function RootLayout({ children }: { children: React.ReactNode }) {',
+      '  return (',
+      '    <html lang="en">',
+      '      <body>',
+      '        <CortexDevScripts />',
+      '        {children}',
+      '      </body>',
+      '    </html>',
+      '  )',
+      '}',
+      '',
+    ].join('\n')
+    const dir = makeTmpProject({ 'app/layout.tsx': layout })
+    try {
+      const before = fs.readFileSync(path.join(dir, 'app', 'layout.tsx'), 'utf8')
+      const result = injectDevScriptsIntoLayout(dir)
+      expect(result.status).toBe('already')
+      expect(fs.readFileSync(path.join(dir, 'app', 'layout.tsx'), 'utf8')).toBe(before)
+    } finally {
+      cleanup(dir)
+    }
+  })
+
+  it('inserts the element (without duplicating the import) when the import exists but nothing renders it', () => {
+    const layout = [
+      "import { CortexDevScripts } from 'cortex-editor/next'",
+      'export default function RootLayout({ children }: { children: React.ReactNode }) {',
+      '  return (',
+      '    <html lang="en">',
+      '      <body>{children}</body>',
+      '    </html>',
+      '  )',
+      '}',
+      '',
+    ].join('\n')
+    const dir = makeTmpProject({ 'app/layout.tsx': layout })
+    try {
+      const result = injectDevScriptsIntoLayout(dir)
+      expect(result.status).toBe('inserted')
+      const content = fs.readFileSync(path.join(dir, 'app', 'layout.tsx'), 'utf8')
+      expect(content).toContain('<CortexDevScripts />')
+      // The pre-existing import must not be duplicated (a second one is a TS redeclare error).
+      expect((content.match(/import \{ CortexDevScripts \}/g) ?? []).length).toBe(1)
+    } finally {
+      cleanup(dir)
+    }
+  })
+
+  it('targets the real <body>, not a commented-out one earlier in the JSX', () => {
+    const layout = [
+      'export default function RootLayout({ children }: { children: React.ReactNode }) {',
+      '  return (',
+      '    <html lang="en">',
+      '      {/* <body>old shell</body> */}',
+      '      <body className="real">{children}</body>',
+      '    </html>',
+      '  )',
+      '}',
+      '',
+    ].join('\n')
+    const dir = makeTmpProject({ 'app/layout.tsx': layout })
+    try {
+      const result = injectDevScriptsIntoLayout(dir)
+      expect(result.status).toBe('inserted')
+      const content = fs.readFileSync(path.join(dir, 'app', 'layout.tsx'), 'utf8')
+      expect((content.match(/<CortexDevScripts/g) ?? []).length).toBe(1)
+      // The element belongs to the real <body>, not lodged inside the JSX comment.
+      expect(content).toContain('<body className="real">\n        <CortexDevScripts />')
+      expect(content).toContain('{/* <body>old shell</body> */}')
+    } finally {
+      cleanup(dir)
+    }
+  })
 })
