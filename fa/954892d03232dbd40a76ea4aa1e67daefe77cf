@@ -1,0 +1,21 @@
+README.md
+  s_40b8969158f157::t_7382eb50cff381 7,10
+cortex-editor/README.md
+  s_40b8969158f157::t_c985df9ce7304f 56
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.14",
+  "base_commit_sha": "fa954892d03232dbd40a76ea4aa1e67daefe77cf",
+  "prompts": {},
+  "sessions": {
+    "s_40b8969158f157": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9196dbf3-ee8b-461c-a234-015f4756753a",
+        "model": "claude-fable-5"
+      },
+      "human_author": "dklzf <213919963+dklzf@users.noreply.github.com>"
+    }
+  }
+}
