@@ -68,12 +68,27 @@ export function CortexDevScripts(props: CortexDevScriptsProps = {}): ReactElemen
   let port: number
   let token: string
   let injection: InjectionFile
+  let injectionRaw: string
+  let injectionRawAfter: string
   try {
-    port = Number(fs.readFileSync(path.join(cortexDir, 'port'), 'utf8').trim())
+    // Read injection.json FIRST and AGAIN after the token/port so a bridge
+    // restart that rewrites the discovery set mid-render is detected even when
+    // the port is unchanged (the port cross-check below misses a same-port
+    // restart). The two injection.json snapshots differ across the write
+    // window because each restart mints a fresh sessionId. (3J)
+    injectionRaw = fs.readFileSync(path.join(cortexDir, 'injection.json'), 'utf8')
     token = fs.readFileSync(path.join(cortexDir, 'token'), 'utf8').trim()
-    injection = JSON.parse(fs.readFileSync(path.join(cortexDir, 'injection.json'), 'utf8')) as InjectionFile
+    port = Number(fs.readFileSync(path.join(cortexDir, 'port'), 'utf8').trim())
+    injectionRawAfter = fs.readFileSync(path.join(cortexDir, 'injection.json'), 'utf8')
+    injection = JSON.parse(injectionRaw) as InjectionFile
   } catch {
     return warnOnce(`could not read discovery files in ${cortexDir}`)
+  }
+
+  if (injectionRaw !== injectionRawAfter) {
+    return warnOnce(
+      `discovery files in ${cortexDir} changed mid-read (bridge restart) — retrying next render`,
+    )
   }
 
   if (!Number.isInteger(port) || port <= 0 || token.length === 0) {

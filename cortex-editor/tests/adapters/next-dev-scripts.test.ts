@@ -106,6 +106,32 @@ describe('CortexDevScripts', () => {
     expect(warn).toHaveBeenCalledOnce()
   })
 
+  it('renders null on a same-port torn read: injection.json changes between the two reads (3J)', () => {
+    // A bridge restart onto the SAME port rewrites token + injection.json (new
+    // sessionId) while a render straddles the write. The port cross-check can't
+    // see it (port is unchanged), but re-reading injection.json before and after
+    // the token read does: the two snapshots disagree → bail.
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    writeDiscovery({
+      port: '4321',
+      injection: JSON.stringify({ port: 4321, sessionId: 'session-A', toggleShortcut: '$mod+Shift+Period' }),
+    })
+    const genB = JSON.stringify({ port: 4321, sessionId: 'session-B', toggleShortcut: '$mod+Shift+Period' })
+    const realRead = fs.readFileSync
+    let injectionReads = 0
+    vi.spyOn(fs, 'readFileSync').mockImplementation(((p: unknown, ...rest: unknown[]) => {
+      if (typeof p === 'string' && p.endsWith('injection.json')) {
+        injectionReads += 1
+        if (injectionReads >= 2) return genB
+      }
+      return (realRead as (...a: unknown[]) => unknown)(p, ...rest)
+    }) as typeof fs.readFileSync)
+
+    expect(CortexDevScripts({ projectRoot: root })).toBeNull()
+    expect(warn).toHaveBeenCalledOnce()
+    expect(warn.mock.calls[0]![0]).toContain('changed mid-read')
+  })
+
   it('renders normally when the port file and injection.json ports agree (3C)', () => {
     writeDiscovery({
       port: '4321',
