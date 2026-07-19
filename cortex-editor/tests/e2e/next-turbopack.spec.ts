@@ -36,6 +36,17 @@ const BASE_URL = `http://localhost:${PORT}`
 
 const appInstalled = fs.existsSync(path.join(appRoot, 'node_modules', 'next'))
 
+// CI must never silently skip this spec — the "Install Next e2e fixture app"
+// workflow step installs dev-app-next before the e2e run. A skip in CI means
+// that step is missing or failed, which would let a broken Next integration
+// merge unnoticed. Fail loudly there; only allow the skip locally.
+if (process.env.CI && !appInstalled) {
+  throw new Error(
+    'next-turbopack.spec: dev-app-next is not installed in CI — the "Install Next e2e fixture app" ' +
+    'workflow step (npm ci in dev-app-next) is missing or failed.',
+  )
+}
+
 let devServer: ChildProcess | null = null
 let counterOriginal = ''
 
