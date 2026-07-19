@@ -333,6 +333,33 @@ describe('createWebSocketChannel', () => {
     expect('__CORTEX_TOKEN__' in window).toBe(false)
   })
 
+  // 3B — the WS channel installs window.__cortex_send__ as the narrow
+  // cortex/set-active bridge. That global is ALSO the sentinel bootstrap() uses
+  // to detect the Vite adapter (typeof window.__cortex_send__ === 'function').
+  // If it survives dispose(), a re-bootstrap after teardown misdetects the Vite
+  // flow and silently drops init/hello/edit messages. dispose() must clear it.
+  it('dispose() clears the __cortex_send__ activation-bridge sentinel it installed (3B)', () => {
+    delete window.__cortex_send__
+    const channel = createWebSocketChannel({ url: 'ws://test' })
+    // The channel installs the sentinel on create.
+    expect(typeof window.__cortex_send__).toBe('function')
+    channel.dispose!()
+    // own-property absence, not value emptiness — matches the ZF0-1326 posture.
+    expect('__cortex_send__' in window).toBe(false)
+  })
+
+  it('dispose() does not clobber a foreign __cortex_send__ it did not install (3B guard)', () => {
+    const channel = createWebSocketChannel({ url: 'ws://test' })
+    // Simulate a real Vite primitive (or another channel) replacing the sentinel
+    // after this channel installed its bridge. dispose() must only remove the
+    // exact function this channel set, never a foreign one.
+    const foreign = vi.fn()
+    window.__cortex_send__ = foreign
+    channel.dispose!()
+    expect(window.__cortex_send__).toBe(foreign)
+    delete window.__cortex_send__
+  })
+
   it('connected is false until onopen fires', () => {
     const channel = createWebSocketChannel({ url: 'ws://test' })
     expect(channel.connected).toBe(false)
