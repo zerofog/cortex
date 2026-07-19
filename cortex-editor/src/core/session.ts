@@ -77,6 +77,8 @@ export class CortexSession {
   readonly aliveFlags: WeakMap<WebSocket, boolean> = new WeakMap()
   upgradeHandlerRef: ((req: IncomingMessage, socket: Duplex, head: Buffer) => void) | null = null
   portFilePath: string | null = null
+  /** Path to .cortex/injection.json (set by adapter, cleaned up on dispose). */
+  injectionFilePath: string | null = null
   /** Adapter-owned cleanup for pending httpServer lifecycle listeners. */
   listeningCleanup: (() => void) | null = null
 
@@ -210,7 +212,7 @@ export class CortexSession {
 
     // 5. Remove discovery files — ENOENT is expected (file may already be gone).
     //    Other errors (EPERM, EACCES) surface via the errors array.
-    for (const [step, prop] of [['port-file', 'portFilePath'], ['token-file', 'tokenFilePath']] as const) {
+    for (const [step, prop] of [['port-file', 'portFilePath'], ['token-file', 'tokenFilePath'], ['injection-file', 'injectionFilePath']] as const) {
       if (this[prop]) {
         try {
           fs.unlinkSync(this[prop]!)

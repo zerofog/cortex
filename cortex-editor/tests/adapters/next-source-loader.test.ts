@@ -6,10 +6,15 @@ afterEach(() => {
 })
 
 // Create a fake webpack LoaderContext
-function fakeContext(overrides: { resourcePath?: string; projectRoot?: string } = {}) {
+function fakeContext(
+  overrides: { resourcePath?: string; projectRoot?: string; includeNodeModules?: string[] } = {}
+) {
   const ctx = {
     resourcePath: overrides.resourcePath ?? '/project/src/App.tsx',
-    getOptions: () => ({ projectRoot: overrides.projectRoot ?? '/project' }),
+    getOptions: () => ({
+      projectRoot: overrides.projectRoot ?? '/project',
+      ...(overrides.includeNodeModules ? { includeNodeModules: overrides.includeNodeModules } : {}),
+    }),
     callback: vi.fn(),
     cacheable: vi.fn(),
   }
@@ -54,6 +59,33 @@ describe('cortexSourceLoader', () => {
     const code1 = ctx1.callback.mock.calls[0]![1]
     const code2 = ctx2.callback.mock.calls[0]![1]
     expect(code1).toBe(code2)
+  })
+
+  it('passes node_modules sources through unchanged', () => {
+    // Turbopack rules cannot carry a function-valued `exclude`, so this
+    // in-loader check is the only node_modules gate on that path.
+    const ctx = fakeContext({ resourcePath: '/project/node_modules/some-lib/Button.tsx' })
+    const source = 'export default function B() { return <button /> }'
+    cortexSourceLoader.call(ctx, source)
+
+    expect(ctx.callback).toHaveBeenCalledOnce()
+    const [err, code, map] = ctx.callback.mock.calls[0]!
+    expect(err).toBeNull()
+    expect(code).toBe(source)
+    expect(map).toBeUndefined()
+  })
+
+  it('still transforms packages allowlisted via includeNodeModules', () => {
+    const ctx = fakeContext({
+      resourcePath: '/project/node_modules/@acme/ui/Button.tsx',
+      includeNodeModules: ['@acme/ui'],
+    })
+    const source = 'export default function B() { return <button /> }'
+    cortexSourceLoader.call(ctx, source)
+
+    const [err, code] = ctx.callback.mock.calls[0]!
+    expect(err).toBeNull()
+    expect(code).toContain('data-cortex-source=')
   })
 
   it('re-creates transform when projectRoot changes', () => {

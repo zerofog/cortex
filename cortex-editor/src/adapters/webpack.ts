@@ -57,10 +57,10 @@ import {
 } from '../schemas/index.js'
 
 const PLUGIN_NAME = 'CortexWebpackPlugin'
-const CORTEX_BROWSER_PATH = '/@cortex/browser.js'
+export const CORTEX_BROWSER_PATH = '/@cortex/browser.js'
 const CLI_WS_PATH = '/@cortex/ws'
 const BROWSER_WS_PATH = '/cortex'
-const DEFAULT_TOGGLE_SHORTCUT = '$mod+Shift+Period'
+export const DEFAULT_TOGGLE_SHORTCUT = '$mod+Shift+Period'
 const VALID_SHORTCUT = /^\$mod\+(?:Shift\+)?(?:Alt\+)?(?:Key[A-Z]|Digit\d|Period|Comma|Slash|Backslash|BracketLeft|BracketRight|Semicolon|Quote|Backquote|Minus|Equal)$/
 
 // CLI WebSocket bridge constants (ALLOWED_ORIGINS, WRITE_TYPES, HEARTBEAT_INTERVAL,
@@ -250,7 +250,7 @@ interface HtmlWebpackPluginHooks {
   }
 }
 
-interface InjectionState {
+export interface InjectionState {
   port: number
   token: string
   sessionId: string
@@ -276,7 +276,7 @@ function safeJSONForScript(value: unknown): string {
   return JSON.stringify(value).replace(/</g, '\\u003c')
 }
 
-function validateToggleShortcut(shortcut: string): string {
+export function validateToggleShortcut(shortcut: string): string {
   if (!VALID_SHORTCUT.test(shortcut)) {
     throw new Error(
       `[cortex] Invalid toggleShortcut: "${shortcut}". ` +
@@ -353,9 +353,16 @@ function isFixRequestSourceInsideRoot(elementSource: string, root: string): bool
 }
 
 export function createManualInjectionSnippet(state: InjectionState): string {
+  return `<script>${createManualInjectionScriptBody(state)}</script>`
+}
+
+/** The snippet's inner JavaScript, without the <script> wrapper. Consumed by
+ *  <CortexDevScripts/> (next-dev-scripts.ts), which must emit the body through
+ *  React's dangerouslySetInnerHTML on its own <script> element. */
+export function createManualInjectionScriptBody(state: InjectionState): string {
   const config = safeJSONForScript({ toggleShortcut: state.toggleShortcut })
   const scriptUrl = safeJSONForScript(state.browserScriptUrl)
-  return `<script>
+  return `
 window.__cortex_ws_port__=${state.port};
 window.__CORTEX_TOKEN__=${safeJSONForScript(state.token)};
 window.__CORTEX_SESSION_ID__=${safeJSONForScript(state.sessionId)};
@@ -429,7 +436,7 @@ if (!document.querySelector('[data-cortex-host]')) {
   __cortexScript.onerror = function() { console.error('[cortex] Failed to load browser UI.'); };
   document.head.appendChild(__cortexScript);
 }
-</script>`
+`
 }
 
 export function injectWebpackHtml(html: string, state: InjectionState): string {
@@ -455,7 +462,19 @@ function detectNextProject(root: string): boolean {
   }
 }
 
-class CortexWebpackRuntime {
+/**
+ * The standalone cortex bridge: its own loopback HTTP server hosting the
+ * browser bundle, the browser WS channel, the CLI WS channel, and the edit
+ * pipeline — plus the `.cortex/` discovery files (`port`, `token`,
+ * `injection.json`) that the MCP CLI and <CortexDevScripts/> read.
+ *
+ * Despite the name, nothing in here requires webpack: the webpack plugin
+ * drives start()/dispose()/notifyHMR() from compiler hooks, and withCortex()
+ * (next.ts) drives start() from Next's phase-function config with no
+ * bundler hooks at all. Exported for that second consumer; not part of the
+ * public package API surface.
+ */
+export class CortexWebpackRuntime {
   /** Per-runtime id passed to the source-loader so MultiCompiler with one
    *  lock-refused plugin doesn't accidentally disable the other plugin's
    *  transforms. ZF0-1851 — see source-loader-utils.disabledRuntimes. */
@@ -657,6 +676,21 @@ class CortexWebpackRuntime {
       session.tokenFilePath = tokenFilePath
     } catch (err) {
       console.error('[cortex] Could not write token file — CLI authentication will fail:', err instanceof Error ? err.message : err)
+    }
+    // Third discovery file: everything <CortexDevScripts/> needs to build the
+    // injection snippet that isn't derivable from port+token alone. Written
+    // 0600 like the token file (it names a live session id).
+    const injectionFilePath = path.join(cortexDir, 'injection.json')
+    try {
+      fs.writeFileSync(
+        injectionFilePath,
+        JSON.stringify({ port: this.port, sessionId: session.sessionId, toggleShortcut: this.toggleShortcut }),
+        { mode: 0o600 },
+      )
+      fs.chmodSync(injectionFilePath, 0o600)
+      session.injectionFilePath = injectionFilePath
+    } catch (err) {
+      console.warn('[cortex] Could not write injection file — <CortexDevScripts/> will stay inactive:', err instanceof Error ? err.message : err)
     }
   }
 

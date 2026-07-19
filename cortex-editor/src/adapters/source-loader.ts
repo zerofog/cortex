@@ -1,5 +1,5 @@
 import { createSourceTransform } from './source-transform.js'
-import { isRuntimeDisabled } from './source-loader-utils.js'
+import { isRuntimeDisabled, shouldExcludeCortexSource } from './source-loader-utils.js'
 import type { SourceTransformOptions } from './types.js'
 
 export interface SourceLoaderOptions {
@@ -70,6 +70,16 @@ export default function cortexSourceLoader(this: LoaderContext, source: string) 
   // cortexDisabledByLock gate. Per-runtime keying so MultiCompiler with one
   // lock-refused plugin doesn't disable the other's transforms.
   if (isRuntimeDisabled(options.runtimeId)) {
+    this.callback(null, source)
+    return
+  }
+
+  // node_modules exclusion lives IN the loader, not only at rule level: webpack
+  // rules filter via a function-valued `exclude`, but Turbopack rule config must
+  // be serializable, so under `turbopack.rules` this check is the only gate
+  // keeping node_modules sources uninstrumented (honoring includeNodeModules).
+  // Under webpack it is redundant with the rule's exclude — harmless.
+  if (shouldExcludeCortexSource(this.resourcePath, options.includeNodeModules)) {
     this.callback(null, source)
     return
   }
