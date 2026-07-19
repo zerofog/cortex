@@ -1,7 +1,13 @@
 import path from 'path'
+import { randomUUID } from 'node:crypto'
 import { fileURLToPath } from 'url'
 import { shouldExcludeCortexSource } from './source-loader-utils.js'
-import { CortexWebpackRuntime, DEFAULT_TOGGLE_SHORTCUT, validateToggleShortcut } from './webpack.js'
+// Only the LEAF injection-snippet module is imported statically here — it has no
+// heavy deps. webpack.ts (ws, zod, CortexSession, the edit pipeline) is loaded
+// LAZILY inside the bridge factory (see defaultBridgeFactory) so importing this
+// module — e.g. `import { CortexDevScripts } from 'cortex-editor/next'` in a
+// user's root layout — never evaluates the bridge graph in an RSC worker. (3F)
+import { DEFAULT_TOGGLE_SHORTCUT, validateToggleShortcut } from './injection-snippet.js'
 
 export { CortexDevScripts, type CortexDevScriptsProps } from './next-dev-scripts.js'
 
@@ -161,26 +167,48 @@ function isNextDevServer(): boolean {
 }
 
 interface BridgeHandle {
-  /** ZF0-1851: per-runtime id threaded into the source-loader options so the
-   *  loader's isRuntimeDisabled gate can key on THIS bridge. Read off the bridge
-   *  at config-build time (CortexWebpackRuntime exposes it as a readonly field). */
+  /** ZF0-1851: per-runtime id keyed by the source-loader's isRuntimeDisabled
+   *  gate. next.ts generates this id up front and PASSES it into the factory
+   *  (so the same id can be threaded into the loader options synchronously,
+   *  before the async bridge construction resolves); the bridge uses it. */
   readonly runtimeId: string
   start(): Promise<void>
   dispose(): Promise<void>
 }
 
-type BridgeFactory = (opts: { root: string; mode: string; port?: number; toggleShortcut: string }) => BridgeHandle
+interface BridgeFactoryOptions {
+  root: string
+  mode: string
+  port?: number
+  toggleShortcut: string
+  /** Generated in next.ts and passed in so the loader options and the bridge
+   *  share ONE id — the ZF0-1851 lock-refusal gate keys on it. */
+  runtimeId: string
+}
 
-let bridgeFactory: BridgeFactory = (opts) => new CortexWebpackRuntime(opts)
+type BridgeFactory = (opts: BridgeFactoryOptions) => BridgeHandle | Promise<BridgeHandle>
+
+/** Default factory: lazily import webpack.ts so its heavy graph (ws, zod, the
+ *  session/edit pipeline) is only evaluated in the dev-server process that
+ *  actually constructs a bridge — never in an RSC worker that merely imports
+ *  <CortexDevScripts/>. Only reached under the dev-server gate. (3F) */
+async function defaultBridgeFactory(opts: BridgeFactoryOptions): Promise<BridgeHandle> {
+  const { CortexWebpackRuntime } = await import('./webpack.js')
+  return new CortexWebpackRuntime(opts)
+}
+
+let bridgeFactory: BridgeFactory = defaultBridgeFactory
 let bridge: BridgeHandle | null = null
+let bridgeStartup: Promise<BridgeHandle | null> | null = null
 let signalHandlersInstalled = false
 let registeredSignalHandlers: Array<[NodeJS.Signals, () => void]> = []
 
 /** Swap the bridge implementation and reset singleton state. Pass null to
- *  restore the real CortexWebpackRuntime. @internal */
+ *  restore the real lazy-loaded CortexWebpackRuntime. @internal */
 export function _setBridgeFactoryForTesting(factory: BridgeFactory | null): void {
-  bridgeFactory = factory ?? ((opts) => new CortexWebpackRuntime(opts))
+  bridgeFactory = factory ?? defaultBridgeFactory
   bridge = null
+  bridgeStartup = null
   // Detach any signal handlers a prior test installed so each test starts from a
   // clean process, and so no re-raising handler is left registered to exit the
   // vitest process on a real signal during the run. Inert in production (this is
@@ -248,31 +276,53 @@ function resolveToggleShortcut(input: string | undefined): string {
   }
 }
 
-/** Construct the singleton bridge (idempotent) and return it so its runtimeId
- *  can be threaded into the loader options synchronously, before start()
- *  resolves. Kept separate from startBridge() because the loader options are
- *  built as part of the config object that withCortex returns synchronously,
- *  while start() is fire-and-forget. */
-function ensureBridge(options: CortexNextOptions): BridgeHandle {
-  if (!bridge) {
-    bridge = bridgeFactory({
-      root: options.projectRoot ?? process.cwd(),
-      mode: 'development',
-      port: options.port,
-      toggleShortcut: resolveToggleShortcut(options.toggleShortcut),
+/** Construct the singleton bridge exactly once, memoizing the (async) factory
+ *  call so repeated dev-server evaluations of next.config reuse one bridge even
+ *  before the first construction resolves. The factory is async now because the
+ *  default one lazy-imports webpack.ts (3F); the runtimeId is generated up front
+ *  in withCortex and passed in, so the config object can still carry it into the
+ *  loader options SYNCHRONOUSLY without waiting on this. */
+function ensureBridge(
+  options: CortexNextOptions,
+  runtimeId: string,
+  toggleShortcut: string,
+): Promise<BridgeHandle | null> {
+  if (!bridgeStartup) {
+    bridgeStartup = Promise.resolve(
+      bridgeFactory({
+        root: options.projectRoot ?? process.cwd(),
+        mode: 'development',
+        port: options.port,
+        toggleShortcut,
+        runtimeId,
+      }),
+    ).then((constructed) => {
+      bridge = constructed
+      return constructed
     })
-    installSignalHandlers()
   }
-  return bridge
+  return bridgeStartup
 }
 
-async function startBridge(): Promise<void> {
-  if (!bridge) return
-  // start() memoizes; a lock-refused start logs and returns cleanly without
-  // throwing. Anything else (port collision, EACCES) must not take down the
-  // user's dev server — cortex degrades to inert with a visible error.
+/** Fire-and-forget bridge startup. Anything that goes wrong (lazy-import
+ *  failure, port collision, EACCES, lock-refused) must NOT take down the user's
+ *  dev server — cortex degrades to inert with a visible error. start() memoizes;
+ *  a lock-refused start logs and returns cleanly without throwing. */
+async function startBridge(
+  options: CortexNextOptions,
+  runtimeId: string,
+  toggleShortcut: string,
+): Promise<void> {
+  let handle: BridgeHandle | null
   try {
-    await bridge.start()
+    handle = await ensureBridge(options, runtimeId, toggleShortcut)
+  } catch (err) {
+    console.error('[cortex] Bridge failed to construct — editor disabled:', err instanceof Error ? err.message : err)
+    return
+  }
+  if (!handle) return
+  try {
+    await handle.start()
   } catch (err) {
     console.error('[cortex] Bridge failed to start — editor disabled:', err instanceof Error ? err.message : err)
   }
@@ -307,17 +357,26 @@ export function withCortex(nextConfig: NextConfig = {}, options: CortexNextOptio
   // errors) so config return stays synchronous — the .cortex/ discovery files
   // being ready before first render is best-effort (<CortexDevScripts/> renders
   // null + warns when they are absent).
-  // Construct the bridge synchronously here (not just inside startBridge) so its
-  // runtimeId is available to the loader options built below. Both loader entry
-  // points must carry the SAME id the bridge was given so the ZF0-1851
-  // lock-refusal gate (source-loader isRuntimeDisabled) can key on it — a second
-  // `next dev` that loses the .cortex/ lock then goes inert instead of injecting
-  // the other server's port/token. Non-dev-server processes start no bridge, so
-  // there is no lock to refuse and runtimeId is left undefined.
+  //
+  // The bridge is now constructed ASYNCHRONOUSLY (the factory lazy-imports
+  // webpack.ts — 3F), so we can't read runtimeId back off the instance
+  // synchronously. Instead we GENERATE it here and pass it into the factory, and
+  // use the same id for the loader options built below. Both loader entry points
+  // must carry the SAME id the bridge was given so the ZF0-1851 lock-refusal gate
+  // (source-loader isRuntimeDisabled) can key on it — a second `next dev` that
+  // loses the .cortex/ lock then goes inert instead of injecting the other
+  // server's port/token. Non-dev-server processes start no bridge, so there is no
+  // lock to refuse and runtimeId is left undefined.
+  //
+  // Toggle validation + signal-handler install stay SYNCHRONOUS (they don't need
+  // the heavy module) so a bad shortcut warns and signal handlers are armed
+  // immediately, regardless of when the async bridge construction resolves.
   let runtimeId: string | undefined
   if (isNextDevServer()) {
-    runtimeId = ensureBridge(options).runtimeId
-    startBridge().catch(() => {})
+    runtimeId = randomUUID()
+    const toggleShortcut = resolveToggleShortcut(options.toggleShortcut)
+    installSignalHandlers()
+    void startBridge(options, runtimeId, toggleShortcut)
   }
 
   return buildWrappedConfig(nextConfig, options, runtimeId)

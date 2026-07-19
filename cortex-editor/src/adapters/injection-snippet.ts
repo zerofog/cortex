@@ -18,6 +18,23 @@ export const CORTEX_BROWSER_PATH = '/@cortex/browser.js'
 /** Default keyboard shortcut for toggling the editor. */
 export const DEFAULT_TOGGLE_SHORTCUT = '$mod+Shift+Period'
 
+/** tinykeys-shaped shortcut grammar accepted by the editor toggle. Kept in this
+ *  leaf module (with validateToggleShortcut) so next.ts can validate a shortcut
+ *  WITHOUT statically importing webpack.ts's heavy graph. webpack.ts re-exports
+ *  validateToggleShortcut for its own consumers. */
+const VALID_SHORTCUT = /^\$mod\+(?:Shift\+)?(?:Alt\+)?(?:Key[A-Z]|Digit\d|Period|Comma|Slash|Backslash|BracketLeft|BracketRight|Semicolon|Quote|Backquote|Minus|Equal)$/
+
+export function validateToggleShortcut(shortcut: string): string {
+  if (!VALID_SHORTCUT.test(shortcut)) {
+    throw new Error(
+      `[cortex] Invalid toggleShortcut: "${shortcut}". ` +
+      `Expected format: "$mod+[Alt+][Shift+]KeyCode" (e.g., "$mod+Shift+Period"). ` +
+      `See https://developer.mozilla.org/en-US/docs/Web/API/KeyboardEvent/code`,
+    )
+  }
+  return shortcut
+}
+
 export interface InjectionState {
   port: number
   token: string

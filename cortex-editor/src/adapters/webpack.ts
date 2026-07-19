@@ -39,6 +39,7 @@ import {
   CORTEX_BROWSER_PATH,
   DEFAULT_TOGGLE_SHORTCUT,
   createManualInjectionScriptBody,
+  validateToggleShortcut,
   type InjectionState,
 } from './injection-snippet.js'
 import { shouldExcludeCortexSource, markRuntimeDisabled, markRuntimeEnabled } from './source-loader-utils.js'
@@ -65,13 +66,13 @@ import {
 const PLUGIN_NAME = 'CortexWebpackPlugin'
 const CLI_WS_PATH = '/@cortex/ws'
 const BROWSER_WS_PATH = '/cortex'
-const VALID_SHORTCUT = /^\$mod\+(?:Shift\+)?(?:Alt\+)?(?:Key[A-Z]|Digit\d|Period|Comma|Slash|Backslash|BracketLeft|BracketRight|Semicolon|Quote|Backquote|Minus|Equal)$/
 
 // Re-exported from the injection-snippet leaf module so webpack.ts's public
 // surface is unchanged (these used to be defined here). The leaf module carries
 // no heavy imports, letting Next's <CortexDevScripts/> pull the snippet builder
-// without dragging ws/session/pipeline into every RSC process. See 3D.
-export { CORTEX_BROWSER_PATH, DEFAULT_TOGGLE_SHORTCUT, createManualInjectionScriptBody }
+// — and next.ts validate a toggle shortcut — without dragging ws/session/pipeline
+// into every RSC process. See 3D / 3F.
+export { CORTEX_BROWSER_PATH, DEFAULT_TOGGLE_SHORTCUT, createManualInjectionScriptBody, validateToggleShortcut }
 export type { InjectionState }
 
 // CLI WebSocket bridge constants (ALLOWED_ORIGINS, WRITE_TYPES, HEARTBEAT_INTERVAL,
@@ -275,17 +276,6 @@ function resolveSourceLoaderPath(): string {
   return path.join(path.dirname(fileURLToPath(import.meta.url)), 'source-loader.cjs')
 }
 
-export function validateToggleShortcut(shortcut: string): string {
-  if (!VALID_SHORTCUT.test(shortcut)) {
-    throw new Error(
-      `[cortex] Invalid toggleShortcut: "${shortcut}". ` +
-      `Expected format: "$mod+[Alt+][Shift+]KeyCode" (e.g., "$mod+Shift+Period"). ` +
-      `See https://developer.mozilla.org/en-US/docs/Web/API/KeyboardEvent/code`,
-    )
-  }
-  return shortcut
-}
-
 function isLoopbackRequest(req: IncomingMessage): boolean {
   const remote = req.socket.remoteAddress
   return remote === '127.0.0.1' || remote === '::1' || remote === '::ffff:127.0.0.1'
@@ -393,8 +383,11 @@ function detectNextProject(root: string): boolean {
 export class CortexWebpackRuntime {
   /** Per-runtime id passed to the source-loader so MultiCompiler with one
    *  lock-refused plugin doesn't accidentally disable the other plugin's
-   *  transforms. ZF0-1851 — see source-loader-utils.disabledRuntimes. */
-  readonly runtimeId: string = randomUUID()
+   *  transforms. ZF0-1851 — see source-loader-utils.disabledRuntimes. May be
+   *  supplied by the caller (next.ts generates it up front to thread the SAME id
+   *  into the loader options synchronously); defaults to a fresh UUID otherwise
+   *  (the webpack plugin path, which reads it back off the instance). */
+  readonly runtimeId: string
   private readonly root: string
   private readonly mode: string
   private readonly requestedPort?: number
@@ -410,12 +403,13 @@ export class CortexWebpackRuntime {
   private startPromise: Promise<void> | null = null
   private heartbeatTimer: ReturnType<typeof setInterval> | null = null
 
-  constructor(options: { root: string; mode: string; port?: number; toggleShortcut: string; invalidate?: () => void }) {
+  constructor(options: { root: string; mode: string; port?: number; toggleShortcut: string; invalidate?: () => void; runtimeId?: string }) {
     this.root = options.root
     this.mode = options.mode
     this.requestedPort = options.port
     this.toggleShortcut = options.toggleShortcut
     this.invalidate = options.invalidate
+    this.runtimeId = options.runtimeId ?? randomUUID()
     this.browserIIFEPath = resolveBrowserIIFEPath()
   }
 

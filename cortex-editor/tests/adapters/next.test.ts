@@ -7,6 +7,12 @@ async function resolved(config: NextConfig): Promise<NextConfig> {
   return config
 }
 
+// The bridge is constructed ASYNCHRONOUSLY now (the factory lazy-imports
+// webpack.ts — 3F), so factory/start calls land on a later microtask. Flush the
+// microtask + macrotask queues before asserting on them. The config RETURN stays
+// synchronous; only bridge startup is deferred.
+const flushAsync = (): Promise<void> => new Promise((r) => setTimeout(r, 0))
+
 afterEach(() => {
   vi.unstubAllEnvs()
   vi.restoreAllMocks()
@@ -154,17 +160,18 @@ describe('withCortex bridge lifecycle', () => {
     expect(config.webpack).toBeTypeOf('function')
   })
 
-  it('starts the bridge when NEXT_PHASE is the development-server phase', () => {
+  it('starts the bridge when NEXT_PHASE is the development-server phase', async () => {
     const start = vi.fn(async () => {})
     _setBridgeFactoryForTesting(() => ({ start, dispose: vi.fn(async () => {}), runtimeId: 'rt-1' }))
     vi.stubEnv('NEXT_PHASE', DEV_PHASE)
 
     withCortex({})
+    await flushAsync()
 
     expect(start).toHaveBeenCalledOnce()
   })
 
-  it('starts the bridge when __NEXT_DEV_SERVER=1 (the signal real `next dev` sets)', () => {
+  it('starts the bridge when __NEXT_DEV_SERVER=1 (the signal real `next dev` sets)', async () => {
     // NEXT_PHASE is NOT set in the environment at config-eval time under a real
     // `next dev` (verified on Next 16.2) — the dev server sets __NEXT_DEV_SERVER
     // instead. This is the signal the e2e depends on; without it the bridge
@@ -175,6 +182,7 @@ describe('withCortex bridge lifecycle', () => {
     // NEXT_PHASE deliberately unset — __NEXT_DEV_SERVER alone must suffice.
 
     withCortex({})
+    await flushAsync()
 
     expect(start).toHaveBeenCalledOnce()
   })
@@ -207,7 +215,7 @@ describe('withCortex bridge lifecycle', () => {
     expect(config.webpack).toBeTypeOf('function')
   })
 
-  it('reuses one bridge across repeated dev-server evaluations', () => {
+  it('reuses one bridge across repeated dev-server evaluations', async () => {
     const start = vi.fn(async () => {})
     const factory = vi.fn(() => ({ start, dispose: vi.fn(async () => {}), runtimeId: 'rt-1' }))
     _setBridgeFactoryForTesting(factory)
@@ -215,9 +223,13 @@ describe('withCortex bridge lifecycle', () => {
 
     withCortex({})
     withCortex({})
+    await flushAsync()
 
+    // Construction is memoized synchronously (bridgeStartup) so two evaluations
+    // share ONE bridge even before the first construction resolves...
     expect(factory).toHaveBeenCalledOnce()
-    expect(start).toHaveBeenCalledTimes(2) // start() itself memoizes internally
+    // ...but each evaluation still calls start() (which memoizes internally).
+    expect(start).toHaveBeenCalledTimes(2)
   })
 
   it('does not throw out of config building when the bridge fails to start', async () => {
@@ -255,18 +267,22 @@ describe('withCortex bridge lifecycle', () => {
     expect(factory).toHaveBeenCalledWith(expect.objectContaining({ toggleShortcut: '$mod+Shift+Period' }))
   })
 
-  it('passes port, toggleShortcut, and projectRoot through to the bridge', () => {
+  it('passes port, toggleShortcut, and projectRoot through to the bridge', async () => {
     const factory = vi.fn(() => ({ start: vi.fn(async () => {}), dispose: vi.fn(async () => {}), runtimeId: 'rt-1' }))
     _setBridgeFactoryForTesting(factory)
     vi.stubEnv('NEXT_PHASE', DEV_PHASE)
 
     withCortex({}, { port: 4141, toggleShortcut: '$mod+Shift+Comma', projectRoot: '/my/app' })
+    await flushAsync()
 
+    // runtimeId is generated in next.ts and passed into the factory so the loader
+    // options and the bridge share one id (ZF0-1851).
     expect(factory).toHaveBeenCalledWith({
       root: '/my/app',
       mode: 'development',
       port: 4141,
       toggleShortcut: '$mod+Shift+Comma',
+      runtimeId: expect.any(String),
     })
   })
 })
@@ -377,28 +393,35 @@ describe('withCortex turbopack rules', () => {
 describe('withCortex loader runtimeId threading (ZF0-1851)', () => {
   const DEV_PHASE = 'phase-development-server'
 
-  it('threads the running bridge runtimeId into turbopack + webpack loader options', () => {
+  it('threads one generated runtimeId into turbopack + webpack loader options AND the bridge factory', async () => {
     // The lock-refusal gate (source-loader isRuntimeDisabled) keys on runtimeId.
-    // Both loader entry points must carry the SAME id the bridge was given, or a
-    // second `next dev` that loses the .cortex/ lock keeps instrumenting and its
-    // <CortexDevScripts/> injects the other server's port/token (split-brain).
-    _setBridgeFactoryForTesting(() => ({
-      start: vi.fn(async () => {}),
-      dispose: vi.fn(async () => {}),
-      runtimeId: 'rt-abc',
-    }))
+    // next.ts generates ONE id and threads it into both loader entry points AND
+    // the bridge factory (so the bridge uses it), or a second `next dev` that
+    // loses the .cortex/ lock keeps instrumenting and its <CortexDevScripts/>
+    // injects the other server's port/token (split-brain).
+    let capturedRuntimeId: string | undefined
+    _setBridgeFactoryForTesting((opts) => {
+      capturedRuntimeId = opts.runtimeId
+      return { start: vi.fn(async () => {}), dispose: vi.fn(async () => {}), runtimeId: opts.runtimeId }
+    })
     vi.stubEnv('NEXT_PHASE', DEV_PHASE)
 
     const config = withCortex({})
 
     const rules = (config.turbopack as { rules: Record<string, TurbopackRuleForTest> }).rules
     const turbopackItem = rules['*.tsx']!.loaders[0] as { options: Record<string, unknown> }
-    expect(turbopackItem.options.runtimeId).toBe('rt-abc')
+    const loaderRuntimeId = turbopackItem.options.runtimeId
+    expect(typeof loaderRuntimeId).toBe('string')
+    expect((loaderRuntimeId as string).length).toBeGreaterThan(0)
 
     const webpackConfig = { module: { rules: [] as unknown[] } }
     config.webpack!(webpackConfig as any, { dir: '/project', dev: true, isServer: false } as any)
     const rule = webpackConfig.module.rules[0] as { use: Array<{ options: { runtimeId?: string } }> }
-    expect(rule.use[0]!.options.runtimeId).toBe('rt-abc')
+    expect(rule.use[0]!.options.runtimeId).toBe(loaderRuntimeId)
+
+    // The very same id was passed into the bridge factory (async construction).
+    await flushAsync()
+    expect(capturedRuntimeId).toBe(loaderRuntimeId)
   })
 
   it('omits runtimeId from loader options when no bridge is active (non-dev phase)', () => {
@@ -429,7 +452,7 @@ describe('withCortex termination signal handling', () => {
   // re-raises the signal so Node's default (or Next's own handler) proceeds.
   it.each([['SIGINT'], ['SIGTERM']] as const)(
     'disposes then re-raises %s (removing our listener) rather than process.exit',
-    (signal) => {
+    async (signal) => {
       const dispose = vi.fn(async () => {})
       _setBridgeFactoryForTesting(() => ({ start: vi.fn(async () => {}), dispose, runtimeId: 'rt-1' }))
       vi.stubEnv('NEXT_PHASE', DEV_PHASE)
@@ -441,6 +464,10 @@ describe('withCortex termination signal handling', () => {
 
       const before = process.listeners(signal)
       withCortex({})
+      // Signal handlers are installed synchronously, but the bridge is
+      // constructed asynchronously (lazy webpack import) — let it resolve so the
+      // handler's bridge?.dispose() actually reaches the bridge.
+      await flushAsync()
       const added = process.listeners(signal).filter((l) => !before.includes(l))
       expect(added).toHaveLength(1)
 
