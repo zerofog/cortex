@@ -5,7 +5,7 @@ import {
   CORTEX_BROWSER_PATH,
   DEFAULT_TOGGLE_SHORTCUT,
   createManualInjectionScriptBody,
-} from './webpack.js'
+} from './injection-snippet.js'
 
 export interface CortexDevScriptsProps {
   /** Absolute project root containing the `.cortex/` directory. Defaults to

@@ -1,0 +1,126 @@
+/**
+ * Leaf module: the bootstrap injection snippet + the two constants and the type
+ * it needs. Extracted from webpack.ts so the snippet builder can be imported
+ * WITHOUT dragging in webpack.ts's heavy module graph (ws, the session/edit
+ * pipeline, zod). <CortexDevScripts/> (next-dev-scripts.ts) runs in every Next
+ * RSC process that renders the root layout and only needs to emit a <script> —
+ * pulling the whole bridge into that process just to build the string was pure
+ * dead weight.
+ *
+ * This module has NO runtime imports on purpose. Nothing heavier than JSON may
+ * be added here — webpack.ts re-exports these symbols so its public surface is
+ * unchanged, and next-dev-scripts.ts imports straight from here.
+ */
+
+/** Path the standalone bridge serves the browser IIFE bundle from. */
+export const CORTEX_BROWSER_PATH = '/@cortex/browser.js'
+
+/** Default keyboard shortcut for toggling the editor. */
+export const DEFAULT_TOGGLE_SHORTCUT = '$mod+Shift+Period'
+
+export interface InjectionState {
+  port: number
+  token: string
+  sessionId: string
+  browserScriptUrl: string
+  toggleShortcut: string
+}
+
+function safeJSONForScript(value: unknown): string {
+  return JSON.stringify(value).replace(/</g, '\\u003c')
+}
+
+/** The snippet's inner JavaScript, without the <script> wrapper. Consumed by
+ *  <CortexDevScripts/> (next-dev-scripts.ts), which must emit the body through
+ *  React's dangerouslySetInnerHTML on its own <script> element, and by the
+ *  webpack adapter via createManualInjectionSnippet (webpack.ts). */
+export function createManualInjectionScriptBody(state: InjectionState): string {
+  const config = safeJSONForScript({ toggleShortcut: state.toggleShortcut })
+  const scriptUrl = safeJSONForScript(state.browserScriptUrl)
+  return `
+window.__cortex_ws_port__=${state.port};
+window.__CORTEX_TOKEN__=${safeJSONForScript(state.token)};
+window.__CORTEX_SESSION_ID__=${safeJSONForScript(state.sessionId)};
+// Pillar 1: generate a stable per-tab ID at injection time (before any cortex
+// script loads). Used by the single-tab gate and to filter cortex/active-changed
+// broadcasts. Each new page load generates a fresh UUID so a refreshed tab gets
+// a new ID and can take over from the stale one.
+if (!window.__cortex_tab_id__) {
+  Object.defineProperty(window, '__cortex_tab_id__', {
+    value: 'tab-' + (typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).slice(2) + '-' + Date.now()),
+    writable: false, configurable: false,
+  });
+}
+// Pillar 1: cache of the server's last cortex/active-changed for this tab —
+// read by the keyboard handler to decide which state to flip to. Defined as a
+// mutable wrapper object so the channel can write .active after setup without
+// needing to redefine the property.
+if (!Object.prototype.hasOwnProperty.call(window, '__cortex_active_cache__')) {
+  Object.defineProperty(window, '__cortex_active_cache__', {
+    value: { active: false }, writable: false, configurable: false,
+  });
+}
+// Toggle shortcut — capture phase, always active. Pillar 1 rewrite: no DOM
+// mutation here — the reducer's useEffect on active (CortexApp.tsx) is the
+// SINGLE writer of data-cortex-active. Keyboard handler captures __cortex_send__
+// into its OWN closure at injection time (before the channel's capture-and-delete
+// XSS-hardening step), so subsequent keypresses still have a working send even
+// after the channel deletes the window global. Mirrors vite.ts fix for the same
+// ZF0-1881 codex P1.1 regression caught by E2E post-merge.
+if (!Object.prototype.hasOwnProperty.call(window, '__cortex_toggle_registered__')) {
+  Object.defineProperty(window, '__cortex_toggle_registered__', {
+    value: true, writable: false, configurable: false,
+  });
+  var __cortexConfig = ${config};
+  var __cortexParts = __cortexConfig.toggleShortcut.split('+');
+  var __cortexCode = __cortexParts[__cortexParts.length - 1];
+  var __cortexNeedShift = __cortexParts.includes('Shift');
+  var __cortexNeedAlt = __cortexParts.includes('Alt');
+  // Closure-captured send — see vite.ts for the rationale comment.
+  var __cortexKeyboardSend = window.__cortex_send__;
+  window.addEventListener('keydown', function(e) {
+    if (!e.isTrusted) return;
+    var mod = /Mac|iPod|iPhone|iPad/.test(navigator.platform) ? e.metaKey : e.ctrlKey;
+    if (!mod) return;
+    if (__cortexNeedShift && !e.shiftKey) return;
+    if (!__cortexNeedShift && e.shiftKey) return;
+    if (__cortexNeedAlt && !e.altKey) return;
+    if (!__cortexNeedAlt && e.altKey) return;
+    if (e.code !== __cortexCode) return;
+    e.preventDefault();
+    e.stopPropagation();
+    var nextActive = !window.__cortex_active_cache__.active;
+    var msg = {
+      type: 'cortex/set-active',
+      active: nextActive,
+      tabId: window.__cortex_tab_id__,
+    };
+    if (typeof __cortexKeyboardSend === 'function') {
+      __cortexKeyboardSend(msg);
+    } else if (typeof window.__cortex_send__ === 'function') {
+      window.__cortex_send__(msg);
+    } else {
+      // Channel not initialized yet — queue for bootstrap drain.
+      window.__cortex_pending_set_active__ = msg;
+    }
+  }, { capture: true });
+}
+if (!document.querySelector('[data-cortex-host]')) {
+  var __cortexScript = document.createElement('script');
+  __cortexScript.src = ${scriptUrl};
+  __cortexScript.onerror = function() { console.error('[cortex] Failed to load browser UI.'); };
+  document.head.appendChild(__cortexScript);
+}
+// Security follow-up (review): remove this script's OWN DOM node now that the
+// bootstrap globals above are set. The token was inlined as literal text
+// (window.__CORTEX_TOKEN__=...); the browser bundle reads it off the window
+// GLOBAL (which persists) and captures+deletes it on boot — see channel.ts.
+// Deleting the node keeps that token text from staying resident in the live
+// DOM where a late same-origin script could read it back via textContent.
+// Residual limitation: a script racing DURING boot — before this line runs —
+// can still observe the window global; same posture as the shipped adapters.
+// A full fix (never exposing the token as a readable global) is a separate
+// cross-adapter security ticket.
+if (document.currentScript) { document.currentScript.remove(); }
+`
+}
