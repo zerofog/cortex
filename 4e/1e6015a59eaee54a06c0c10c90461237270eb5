@@ -1,0 +1,21 @@
+cortex-editor/src/browser/channel.ts
+  s_40b8969158f157::t_76bd6f903194d9 385-401
+cortex-editor/tests/integration/channel-source-invariants.test.ts
+  s_40b8969158f157::t_bcac5505126b98 61-67,69-80
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.14",
+  "base_commit_sha": "4e1e6015a59eaee54a06c0c10c90461237270eb5",
+  "prompts": {},
+  "sessions": {
+    "s_40b8969158f157": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9196dbf3-ee8b-461c-a234-015f4756753a",
+        "model": "claude-fable-5"
+      },
+      "human_author": "dklzf <213919963+dklzf@users.noreply.github.com>"
+    }
+  }
+}
