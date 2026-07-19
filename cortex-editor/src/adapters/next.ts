@@ -365,8 +365,22 @@ async function startBridge(
  *  — this is also the only way resolution works when cortex-editor is a
  *  symlinked (file:/link:) dependency outside the project root. Applied on BOTH
  *  the production and the dev path so a `next build` of a project that imports
- *  <CortexDevScripts/> still resolves. */
-function mergeCortexServerExternals(existing: string[] | undefined): string[] {
+ *  <CortexDevScripts/> still resolves.
+ *
+ *  Skips the add if the user already lists cortex-editor in transpilePackages:
+ *  Next throws "can't be both in serverExternalPackages and transpilePackages" at
+ *  config load, which would abort `next dev`/`next build`. Their explicit
+ *  transpile choice wins; we warn so the RSC-externalization expectation is clear. */
+function withCortexServerExternals(nextConfig: NextConfig): string[] | undefined {
+  const existing = nextConfig.serverExternalPackages
+  if (Array.isArray(nextConfig.transpilePackages) && nextConfig.transpilePackages.includes('cortex-editor')) {
+    console.warn(
+      '[cortex] cortex-editor is in transpilePackages, so it was NOT added to ' +
+      'serverExternalPackages (Next rejects a package in both). If a Next build ' +
+      'fails resolving the cortex-editor bridge, remove it from transpilePackages.'
+    )
+    return existing
+  }
   return existing?.includes('cortex-editor') ? existing : [...(existing ?? []), 'cortex-editor']
 }
 
@@ -377,7 +391,7 @@ export function withCortex(nextConfig: NextConfig = {}, options: CortexNextOptio
   // resolves at runtime — but add NO turbopack rules, NO webpack hook, and
   // start NO bridge in production.
   if (process.env.NODE_ENV === 'production') {
-    return { ...nextConfig, serverExternalPackages: mergeCortexServerExternals(nextConfig.serverExternalPackages) }
+    return { ...nextConfig, serverExternalPackages: withCortexServerExternals(nextConfig) }
   }
 
   // withCortex must ALWAYS return a plain object so it composes with wrappers
@@ -419,7 +433,7 @@ function buildWrappedConfig(nextConfig: NextConfig, options: CortexNextOptions, 
   return {
     ...nextConfig,
 
-    serverExternalPackages: mergeCortexServerExternals(nextConfig.serverExternalPackages),
+    serverExternalPackages: withCortexServerExternals(nextConfig),
 
     // Turbopack path — `next dev` default since Next 16. The webpack() hook
     // below is never called there; these rules are the equivalent entry point.

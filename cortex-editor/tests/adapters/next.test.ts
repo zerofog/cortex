@@ -97,6 +97,16 @@ describe('withCortex', () => {
     expect(result.serverExternalPackages).toEqual(['cortex-editor', 'sharp'])
   })
 
+  it('does NOT add cortex-editor to serverExternalPackages when it is in transpilePackages (review [4])', () => {
+    // Next rejects a package in both lists, aborting config load. Respect the
+    // user's transpile choice and warn instead of forcing the conflict.
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    vi.stubEnv('NODE_ENV', 'production')
+    const result = withCortex({ transpilePackages: ['cortex-editor'] } as any)
+    expect(result.serverExternalPackages).toBeUndefined()
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('transpilePackages'))
+  })
+
   it('passes projectRoot from context.dir to loader options', async () => {
     const config = await resolved(withCortex({}))
     const webpackConfig = { module: { rules: [] as unknown[] } }

@@ -1819,6 +1819,61 @@ describe('injectDevScriptsIntoLayout', () => {
     }
   })
 
+  it('does not insert a duplicate import when CortexDevScripts is already bound from another module (review [0]/[2])', () => {
+    // The element is rendered and CortexDevScripts is already in scope from a
+    // re-export barrel. Inserting our own import would duplicate the local name
+    // (TS2300). Report 'already' and leave the file untouched.
+    const layout = [
+      "import { CortexDevScripts } from '@/lib/cortex'",
+      'export default function RootLayout({ children }: { children: React.ReactNode }) {',
+      '  return (',
+      '    <html lang="en">',
+      '      <body>',
+      '        <CortexDevScripts />',
+      '        {children}',
+      '      </body>',
+      '    </html>',
+      '  )',
+      '}',
+      '',
+    ].join('\n')
+    const dir = makeTmpProject({ 'app/layout.tsx': layout })
+    try {
+      const before = fs.readFileSync(path.join(dir, 'app', 'layout.tsx'), 'utf8')
+      const result = injectDevScriptsIntoLayout(dir)
+      expect(result.status).toBe('already')
+      expect(fs.readFileSync(path.join(dir, 'app', 'layout.tsx'), 'utf8')).toBe(before)
+    } finally {
+      cleanup(dir)
+    }
+  })
+
+  it('inserts the element but no duplicate import when a barrel binding exists without a rendered element (review [0]/[2])', () => {
+    const layout = [
+      "import { CortexDevScripts } from '@/lib/cortex'",
+      'export default function RootLayout({ children }: { children: React.ReactNode }) {',
+      '  return (',
+      '    <html lang="en">',
+      '      <body>{children}</body>',
+      '    </html>',
+      '  )',
+      '}',
+      '',
+    ].join('\n')
+    const dir = makeTmpProject({ 'app/layout.tsx': layout })
+    try {
+      const result = injectDevScriptsIntoLayout(dir)
+      expect(result.status).toBe('inserted')
+      const content = fs.readFileSync(path.join(dir, 'app', 'layout.tsx'), 'utf8')
+      expect(content).toContain('<CortexDevScripts />')
+      // No second CortexDevScripts import — the barrel binding already resolves it.
+      expect((content.match(/import \{ CortexDevScripts \}/g) ?? []).length).toBe(1)
+      expect(content).not.toContain("from 'cortex-editor/next'")
+    } finally {
+      cleanup(dir)
+    }
+  })
+
   it('reconciles a usable import when the element is present but only an aliased import exists (cubic P1)', () => {
     // Element rendered, but the only import is aliased — the layout would not
     // compile (`CortexDevScripts` is undefined). Reporting 'already' here would

@@ -180,6 +180,21 @@ function hasUsableNamedImport(sourceFile: SourceFile, functionName: string, modu
   )
 }
 
+/** True when `localName` is already bound by ANY import in the file — a named
+ *  import whose effective local name (alias or original) matches, a default, or
+ *  a namespace import. Used to avoid inserting a second `import { CortexDevScripts }`
+ *  when the name is already in scope from a different module (e.g. a re-export
+ *  barrel), which would be a duplicate-identifier (TS2300) compile error. */
+function hasLocalImportBinding(sourceFile: SourceFile, localName: string): boolean {
+  return sourceFile.getImportDeclarations().some(declaration => {
+    if (declaration.getDefaultImport()?.getText() === localName) return true
+    if (declaration.getNamespaceImport()?.getText() === localName) return true
+    return declaration.getNamedImports().some(
+      namedImport => (namedImport.getAliasNode()?.getText() ?? namedImport.getName()) === localName
+    )
+  })
+}
+
 function hasNamedRequire(sourceFile: SourceFile, functionName: string, moduleSpecifier: string): boolean {
   return sourceFile.getVariableDeclarations().some(declaration => {
     const nameNode = declaration.getNameNode()
@@ -701,6 +716,11 @@ const CORTEX_DEV_SCRIPTS_IMPORT = `import { ${CORTEX_DEV_SCRIPTS} } from '${CORT
  *  there is no duplicate-identifier conflict. */
 function ensureCortexDevScriptsImport(sourceFile: SourceFile): void {
   if (hasUsableNamedImport(sourceFile, CORTEX_DEV_SCRIPTS, CORTEX_NEXT_MODULE)) return
+  // The name is already bound from some OTHER module (barrel re-export): the
+  // rendered element resolves via that binding, and adding our import would
+  // duplicate the local identifier. Leave it — an aliased import (CDS) does NOT
+  // bind `CortexDevScripts`, so hasUsableNamedImport handled that case above.
+  if (hasLocalImportBinding(sourceFile, CORTEX_DEV_SCRIPTS)) return
   sourceFile.insertStatements(getInsertIndexAfterDirectives(sourceFile), CORTEX_DEV_SCRIPTS_IMPORT)
 }
 
@@ -759,7 +779,11 @@ export function injectDevScriptsIntoLayout(cwd: string):
     // aliased/missing import does not compile. Reconcile the import before
     // reporting 'already' — otherwise init would claim success on a layout that
     // fails to build. If a usable import already exists, it is genuinely done.
-    if (hasUsableNamedImport(sourceFile, CORTEX_DEV_SCRIPTS, CORTEX_NEXT_MODULE)) {
+    if (
+      hasUsableNamedImport(sourceFile, CORTEX_DEV_SCRIPTS, CORTEX_NEXT_MODULE) ||
+      hasLocalImportBinding(sourceFile, CORTEX_DEV_SCRIPTS)
+    ) {
+      // Element rendered AND a usable binding exists (ours, or a barrel's) — done.
       return { status: 'already', layoutPath }
     }
     ensureCortexDevScriptsImport(sourceFile)

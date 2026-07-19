@@ -31,9 +31,13 @@ const warnedReasons = new Set<string>()
  *  bridge-might-not-be-running case (could-not-read). The other reasons
  *  (malformed / torn / parse-error / missing-session) prove the bridge IS
  *  running and just wrote a bad file, so the setup nudge would misdirect. */
-function warnOnce(reason: string, setupHint = false): null {
-  if (!warnedReasons.has(reason)) {
-    warnedReasons.add(reason)
+function warnOnce(reason: string, setupHint = false, dedupKey: string = reason): null {
+  // Dedup on dedupKey, not the message — reasons that embed variable data (a
+  // torn-read's differing port pair) must key on a STABLE string, or a long-lived
+  // dev-server process facing repeated restarts across ephemeral ports would
+  // accumulate an unbounded set of distinct entries.
+  if (!warnedReasons.has(dedupKey)) {
+    warnedReasons.add(dedupKey)
     console.warn(
       `[cortex] <CortexDevScripts/> is inactive: ${reason}.` +
       (setupHint ? ' Is withCortex() wrapping next.config, and is this `next dev` (not build/start)?' : '')
@@ -121,6 +125,8 @@ export function CortexDevScripts(props: CortexDevScriptsProps = {}): ReactElemen
     return warnOnce(
       `discovery files in ${cortexDir} disagree on port ` +
       `(torn read: port file=${port}, injection.json=${injection.port})`,
+      false,
+      `port-disagree:${cortexDir}`, // stable key — the message embeds variable ports
     )
   }
   const sessionId = typeof injection.sessionId === 'string' ? injection.sessionId : null

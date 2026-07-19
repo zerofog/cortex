@@ -118,6 +118,18 @@ describe('CortexDevScripts', () => {
     expect(warn.mock.calls[1]![0]).not.toContain('withCortex()')
   })
 
+  it('warns once for port-disagreement across DIFFERENT port pairs (stable dedup key, review [1]/[6])', () => {
+    // The message embeds variable ports; if the warn dedup keyed on the message,
+    // repeated restarts onto different ports would grow warnedReasons unbounded.
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    writeDiscovery({ port: '4321', injection: JSON.stringify({ port: 4322, sessionId: 's', toggleShortcut: '$mod+Shift+Period' }) })
+    expect(CortexDevScripts({ projectRoot: root })).toBeNull()
+    writeDiscovery({ port: '5555', injection: JSON.stringify({ port: 6666, sessionId: 's', toggleShortcut: '$mod+Shift+Period' }) })
+    expect(CortexDevScripts({ projectRoot: root })).toBeNull()
+    // Two distinct port pairs, but one stable dedup key → warned exactly once.
+    expect(warn).toHaveBeenCalledOnce()
+  })
+
   it('renders null on a torn discovery read: port file and injection.json disagree on port (3C)', () => {
     // A bridge restart mid-render can pair an old token with a new port/session
     // (three separate reads). injection.json carries the port the token/session
