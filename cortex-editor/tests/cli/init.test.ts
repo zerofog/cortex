@@ -2,7 +2,7 @@ import { describe, it, expect, vi } from 'vitest'
 import fs from 'node:fs'
 import path from 'node:path'
 import os from 'node:os'
-import { runInit } from '../../src/cli/init.js'
+import { injectDevScriptsIntoLayout, runInit } from '../../src/cli/init.js'
 import { detectBundler, detectPackageManager } from '../../src/cli/detect.js'
 
 /** Create a temp directory with optional files pre-seeded. */
@@ -1645,5 +1645,54 @@ describe('cortex init', () => {
     } finally {
       cleanup(dir)
     }
+  })
+})
+
+describe('injectDevScriptsIntoLayout', () => {
+  const LAYOUT = [
+    'export default function RootLayout({ children }: { children: React.ReactNode }) {',
+    '  return (',
+    '    <html lang="en">',
+    '      <body className="antialiased">{children}</body>',
+    '    </html>',
+    '  )',
+    '}',
+    '',
+  ].join('\n')
+
+  it('inserts the import and element inside <body> of app/layout.tsx', () => {
+    const dir = makeTmpProject({ 'app/layout.tsx': LAYOUT })
+    const result = injectDevScriptsIntoLayout(dir)
+    expect(result.status).toBe('inserted')
+    const content = fs.readFileSync(path.join(dir, 'app', 'layout.tsx'), 'utf8')
+    expect(content.startsWith("import { CortexDevScripts } from 'cortex-editor/next'")).toBe(true)
+    expect(content).toContain('<body className="antialiased">\n        <CortexDevScripts />')
+  })
+
+  it('finds src/app/layout.tsx when app/ is nested under src/', () => {
+    const dir = makeTmpProject({ 'src/app/layout.tsx': LAYOUT })
+    const result = injectDevScriptsIntoLayout(dir)
+    expect(result.status).toBe('inserted')
+    expect(fs.readFileSync(path.join(dir, 'src', 'app', 'layout.tsx'), 'utf8')).toContain('<CortexDevScripts />')
+  })
+
+  it('is idempotent — reports already when the component is present', () => {
+    const dir = makeTmpProject({ 'app/layout.tsx': LAYOUT })
+    injectDevScriptsIntoLayout(dir)
+    const afterFirst = fs.readFileSync(path.join(dir, 'app', 'layout.tsx'), 'utf8')
+    expect(injectDevScriptsIntoLayout(dir).status).toBe('already')
+    expect(fs.readFileSync(path.join(dir, 'app', 'layout.tsx'), 'utf8')).toBe(afterFirst)
+  })
+
+  it('reports not-found when no root layout exists', () => {
+    const dir = makeTmpProject({})
+    expect(injectDevScriptsIntoLayout(dir).status).toBe('not-found')
+  })
+
+  it('bails without writing when the layout has no <body> tag', () => {
+    const custom = 'export default function RootLayout() { return null }\n'
+    const dir = makeTmpProject({ 'app/layout.tsx': custom })
+    expect(injectDevScriptsIntoLayout(dir).status).toBe('no-body-tag')
+    expect(fs.readFileSync(path.join(dir, 'app', 'layout.tsx'), 'utf8')).toBe(custom)
   })
 })

@@ -624,6 +624,41 @@ function writeNextConfig(cwd: string): string {
   return nextConfigPath
 }
 
+/** Insert <CortexDevScripts/> into the App Router root layout. Deliberately
+ *  conservative: single unambiguous layout file, plain `<body ...>` tag match,
+ *  loud bail-out otherwise — a wrong guess in user JSX is worse than a manual
+ *  one-liner. Idempotent via the CortexDevScripts mention check. */
+export function injectDevScriptsIntoLayout(cwd: string):
+  | { status: 'inserted'; layoutPath: string }
+  | { status: 'already'; layoutPath: string }
+  | { status: 'not-found' }
+  | { status: 'no-body-tag'; layoutPath: string } {
+  const candidates = [
+    path.join('app', 'layout.tsx'),
+    path.join('app', 'layout.jsx'),
+    path.join('app', 'layout.js'),
+    path.join('src', 'app', 'layout.tsx'),
+    path.join('src', 'app', 'layout.jsx'),
+    path.join('src', 'app', 'layout.js'),
+  ]
+    .map((p) => path.join(cwd, p))
+    .filter((p) => fs.existsSync(p))
+
+  if (candidates.length === 0) return { status: 'not-found' }
+  const layoutPath = candidates[0]!
+
+  const content = fs.readFileSync(layoutPath, 'utf8')
+  if (content.includes('CortexDevScripts')) return { status: 'already', layoutPath }
+
+  const bodyOpen = content.match(/<body\b[^>]*>/)
+  if (!bodyOpen) return { status: 'no-body-tag', layoutPath }
+
+  const withImport = `import { CortexDevScripts } from 'cortex-editor/next'\n${content}`
+  const withElement = withImport.replace(bodyOpen[0], `${bodyOpen[0]}\n        <CortexDevScripts />`)
+  fs.writeFileSync(layoutPath, withElement)
+  return { status: 'inserted', layoutPath }
+}
+
 function selectBundler(
   cwd: string,
   pkg: PackageJson,
@@ -775,6 +810,28 @@ export async function runInit(
           )
         }
       }
+    }
+
+    // Next has no HTML-injection hook, so the editor bootstrap ships as a
+    // <CortexDevScripts/> server component the root layout must render.
+    const layoutResult = injectDevScriptsIntoLayout(cwd)
+    switch (layoutResult.status) {
+      case 'inserted':
+        console.log(`  ${path.relative(cwd, layoutResult.layoutPath)}: <CortexDevScripts /> added to <body>`)
+        break
+      case 'already':
+        console.log(`  ${path.relative(cwd, layoutResult.layoutPath)}: <CortexDevScripts /> already present`)
+        break
+      case 'not-found':
+        console.warn(
+          '  app/layout.tsx not found - add <CortexDevScripts /> (from cortex-editor/next) inside <body> of your root layout'
+        )
+        break
+      case 'no-body-tag':
+        console.warn(
+          `  ${path.relative(cwd, layoutResult.layoutPath)}: no <body> tag found - add <CortexDevScripts /> (from cortex-editor/next) inside <body> manually`
+        )
+        break
     }
   } else if (detectedBundler === 'vite') {
     if (webpackConfigPath && viteConfigPath) {
