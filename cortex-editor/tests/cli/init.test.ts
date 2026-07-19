@@ -1829,6 +1829,35 @@ describe('injectDevScriptsIntoLayout', () => {
     }
   })
 
+  it('adds a usable CortexDevScripts import when only an aliased import exists (3E)', () => {
+    const layout = [
+      "import { CortexDevScripts as CDS } from 'cortex-editor/next'",
+      'export default function RootLayout({ children }: { children: React.ReactNode }) {',
+      '  return (',
+      '    <html lang="en">',
+      '      <body>{children}</body>',
+      '    </html>',
+      '  )',
+      '}',
+      '',
+    ].join('\n')
+    const dir = makeTmpProject({ 'app/layout.tsx': layout })
+    try {
+      const result = injectDevScriptsIntoLayout(dir)
+      expect(result.status).toBe('inserted')
+      const content = fs.readFileSync(path.join(dir, 'app', 'layout.tsx'), 'utf8')
+      // The rendered <CortexDevScripts /> needs a binding by that exact name; the
+      // aliased import (CDS) alone would leave the JSX identifier undefined at
+      // build time. A usable non-aliased import must therefore be added.
+      expect(content).toContain('<CortexDevScripts />')
+      expect(content).toMatch(/import \{ CortexDevScripts \} from ['"]cortex-editor\/next['"]/)
+      // The pre-existing aliased import is preserved, not clobbered.
+      expect(content).toContain('CortexDevScripts as CDS')
+    } finally {
+      cleanup(dir)
+    }
+  })
+
   it('targets the real <body>, not a commented-out one earlier in the JSX', () => {
     const layout = [
       'export default function RootLayout({ children }: { children: React.ReactNode }) {',

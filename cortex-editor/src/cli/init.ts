@@ -161,6 +161,24 @@ function hasNamedImport(sourceFile: SourceFile, functionName: string, moduleSpec
   )
 }
 
+/**
+ * True only when `functionName` is importable under that EXACT local name from
+ * `moduleSpecifier` — i.e. a named import whose local binding is `functionName`
+ * (not an alias like `CortexDevScripts as CDS`). The layout codemod renders a
+ * literal `<CortexDevScripts />`, so an aliased-only import does NOT satisfy the
+ * requirement: `hasNamedImport` reports the import present (getName() returns the
+ * imported name, ignoring the alias), the codemod skips adding a binding, and the
+ * rendered element resolves to an undefined identifier at build time.
+ */
+function hasUsableNamedImport(sourceFile: SourceFile, functionName: string, moduleSpecifier: string): boolean {
+  return sourceFile.getImportDeclarations().some(declaration =>
+    declaration.getModuleSpecifierValue() === moduleSpecifier &&
+    declaration.getNamedImports().some(namedImport =>
+      namedImport.getName() === functionName && !namedImport.getAliasNode()
+    )
+  )
+}
+
 function hasNamedRequire(sourceFile: SourceFile, functionName: string, moduleSpecifier: string): boolean {
   return sourceFile.getVariableDeclarations().some(declaration => {
     const nameNode = declaration.getNameNode()
@@ -717,9 +735,13 @@ export function injectDevScriptsIntoLayout(cwd: string):
   // the AST, so a `>` inside an attribute expression can't misplace it.
   sourceFile.insertText(bodyOpen.getEnd(), '\n        <CortexDevScripts />')
 
-  // Add the import after any directive prologue, and only when it isn't already
-  // imported (re-adding the same named import is a duplicate-identifier error).
-  if (!hasNamedImport(sourceFile, 'CortexDevScripts', 'cortex-editor/next')) {
+  // Add the import after any directive prologue, unless a USABLE (non-aliased)
+  // CortexDevScripts binding already exists. An aliased-only import (e.g.
+  // `CortexDevScripts as CDS`) does not satisfy the rendered `<CortexDevScripts />`
+  // element, so a proper `import { CortexDevScripts }` is still added — the two
+  // imports (aliased + plain) have different local names, so there is no
+  // duplicate-identifier conflict.
+  if (!hasUsableNamedImport(sourceFile, 'CortexDevScripts', 'cortex-editor/next')) {
     sourceFile.insertStatements(
       getInsertIndexAfterDirectives(sourceFile),
       "import { CortexDevScripts } from 'cortex-editor/next'",
