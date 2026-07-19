@@ -1,0 +1,33 @@
+cortex-editor/src/adapters/next.ts
+  s_40b8969158f157::t_7bd57a09c6dbaf 77-81,85-88
+  s_40b8969158f157::t_a8df4a6a66ab31 161-166,184-188
+  s_40b8969158f157::t_37bc8bfbd6fdc4 229-236,238-239,242,245,253
+  s_40b8969158f157::t_ffc494fe341dee 274
+  s_40b8969158f157::t_ad58d96a284d4b 100-104,108
+  s_40b8969158f157::t_ee5e3175ad92b8 140-143
+cortex-editor/tests/adapters/next.test.ts
+  s_40b8969158f157::t_927c5c6ff7c4c5 224
+  s_40b8969158f157::t_5b1b40be047ed4 159
+  s_40b8969158f157::t_6bd6287f6ce0e0 211
+  s_40b8969158f157::t_a5922d02135221 148
+  s_40b8969158f157::t_3ba217fb748849 169
+  s_40b8969158f157::t_8e0ec6ebbbf7cb 341-385
+  s_40b8969158f157::t_a24cc79c0badda 184
+  s_40b8969158f157::t_7be445799fc060 195
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.14",
+  "base_commit_sha": "6bdd18da22cff3c26772040d200b374f6a0f6af2",
+  "prompts": {},
+  "sessions": {
+    "s_40b8969158f157": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9196dbf3-ee8b-461c-a234-015f4756753a",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "dklzf <213919963+dklzf@users.noreply.github.com>"
+    }
+  }
+}
