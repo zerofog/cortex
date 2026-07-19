@@ -14,6 +14,7 @@ export interface CortexDevScriptsProps {
 }
 
 interface InjectionFile {
+  port?: unknown
   sessionId?: unknown
   toggleShortcut?: unknown
 }
@@ -73,6 +74,19 @@ export function CortexDevScripts(props: CortexDevScriptsProps = {}): ReactElemen
 
   if (!Number.isInteger(port) || port <= 0 || token.length === 0) {
     return warnOnce(`discovery files in ${cortexDir} are malformed`)
+  }
+  // Torn-generation guard: the three discovery files are read separately, so a
+  // bridge restart mid-render can pair an old token with a new port/session —
+  // every WS message would then fail the token check. writeDiscoveryFiles
+  // stamps the port into injection.json alongside the sessionId the token
+  // belongs to; if that disagrees with the standalone port file, the reads
+  // straddle a write. Degrade to null (the next render gets a consistent set).
+  // Older bridges that omit the port field skip this cross-check (backward-compat).
+  if (typeof injection.port === 'number' && injection.port !== port) {
+    return warnOnce(
+      `discovery files in ${cortexDir} disagree on port ` +
+      `(torn read: port file=${port}, injection.json=${injection.port})`,
+    )
   }
   const sessionId = typeof injection.sessionId === 'string' ? injection.sessionId : null
   if (!sessionId) {

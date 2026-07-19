@@ -74,6 +74,31 @@ describe('CortexDevScripts', () => {
     expect(CortexDevScripts({ projectRoot: root })).toBeNull()
   })
 
+  it('renders null on a torn discovery read: port file and injection.json disagree on port (3C)', () => {
+    // A bridge restart mid-render can pair an old token with a new port/session
+    // (three separate reads). injection.json carries the port the token/session
+    // belong to; when it disagrees with the standalone port file the set is
+    // torn, so every WS message would fail the token check. Degrade to null so
+    // the next render gets a consistent generation.
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    writeDiscovery({
+      port: '4321',
+      injection: JSON.stringify({ port: 4322, sessionId: 'session-abc', toggleShortcut: '$mod+Shift+Period' }),
+    })
+    expect(CortexDevScripts({ projectRoot: root })).toBeNull()
+    expect(warn).toHaveBeenCalledOnce()
+  })
+
+  it('renders normally when the port file and injection.json ports agree (3C)', () => {
+    writeDiscovery({
+      port: '4321',
+      injection: JSON.stringify({ port: 4321, sessionId: 'session-abc', toggleShortcut: '$mod+Shift+Period' }),
+    })
+    const element = CortexDevScripts({ projectRoot: root })
+    expect(element).not.toBeNull()
+    expect(scriptBody(element)).toContain('window.__cortex_ws_port__=4321')
+  })
+
   it('renders null when injection.json lacks a session id', () => {
     vi.spyOn(console, 'warn').mockImplementation(() => {})
     writeDiscovery({ injection: JSON.stringify({ toggleShortcut: '$mod+Shift+Period' }) })
