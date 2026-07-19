@@ -13,6 +13,7 @@ import {
   type Node,
   type ObjectLiteralExpression,
   type SourceFile,
+  type Statement,
 } from 'ts-morph'
 import {
   NEXT_CONFIG_FILES,
@@ -195,23 +196,25 @@ function hasNamedRequire(sourceFile: SourceFile, functionName: string, moduleSpe
  * inserted here, not at 0: prepending above a directive demotes it off line 1,
  * so it stops being a directive prologue and silently loses effect.
  */
+/** The directive-prologue string value of a leading statement (e.g. `'use client'`,
+ *  `"use strict"`), or null if the statement is not a directive-prologue string
+ *  literal. Shared by getInsertIndexAfterDirectives and hasClientOrServerDirective
+ *  so the "is this a directive prologue statement" rule lives in one place. */
+function directivePrologueValue(statement: Statement): string | null {
+  if (statement.getKind() !== SyntaxKind.ExpressionStatement) return null
+  const expression = statement.asKindOrThrow(SyntaxKind.ExpressionStatement).getExpression()
+  const kind = expression.getKind()
+  if (kind !== SyntaxKind.StringLiteral && kind !== SyntaxKind.NoSubstitutionTemplateLiteral) return null
+  // getText() includes the quotes/backticks; slice them off to get the value.
+  return expression.getText().slice(1, -1)
+}
+
 function getInsertIndexAfterDirectives(sourceFile: SourceFile): number {
   const statements = sourceFile.getStatements()
   let insertIndex = 0
-
-  while (insertIndex < statements.length) {
-    const statement = statements[insertIndex]!
-    if (statement.getKind() !== SyntaxKind.ExpressionStatement) break
-    const expression = statement.asKindOrThrow(SyntaxKind.ExpressionStatement).getExpression()
-    if (
-      expression.getKind() !== SyntaxKind.StringLiteral &&
-      expression.getKind() !== SyntaxKind.NoSubstitutionTemplateLiteral
-    ) {
-      break
-    }
+  while (insertIndex < statements.length && directivePrologueValue(statements[insertIndex]!) !== null) {
     insertIndex++
   }
-
   return insertIndex
 }
 
@@ -669,12 +672,8 @@ function layoutRendersCortexDevScripts(sourceFile: SourceFile): boolean {
  *  compilation — the codemod must bail rather than inject an unusable import. */
 function hasClientOrServerDirective(sourceFile: SourceFile): boolean {
   for (const statement of sourceFile.getStatements()) {
-    if (statement.getKind() !== SyntaxKind.ExpressionStatement) break
-    const expression = statement.asKindOrThrow(SyntaxKind.ExpressionStatement).getExpression()
-    const kind = expression.getKind()
-    if (kind !== SyntaxKind.StringLiteral && kind !== SyntaxKind.NoSubstitutionTemplateLiteral) break
-    // getText() includes the quotes/backticks; slice them off to compare values.
-    const value = expression.getText().slice(1, -1)
+    const value = directivePrologueValue(statement)
+    if (value === null) break // past the directive prologue
     if (value === 'use client' || value === 'use server') return true
   }
   return false
@@ -687,6 +686,22 @@ function findBodyOpeningElement(sourceFile: SourceFile): JsxOpeningElement | und
   return sourceFile
     .getDescendantsOfKind(SyntaxKind.JsxOpeningElement)
     .find(opening => opening.getTagNameNode().getText() === 'body')
+}
+
+// One source of truth for the injected binding — a renamed export won't trip
+// the compiler on these string literals (repo Post-Fix "rename audit" rule).
+const CORTEX_DEV_SCRIPTS = 'CortexDevScripts'
+const CORTEX_NEXT_MODULE = 'cortex-editor/next'
+const CORTEX_DEV_SCRIPTS_IMPORT = `import { ${CORTEX_DEV_SCRIPTS} } from '${CORTEX_NEXT_MODULE}'`
+
+/** Add a usable `import { CortexDevScripts }` after the directive prologue,
+ *  unless a non-aliased binding already exists. An aliased-only import
+ *  (`CortexDevScripts as CDS`) does NOT satisfy the rendered `<CortexDevScripts />`
+ *  element, so a proper import is still added; the two differ in local name so
+ *  there is no duplicate-identifier conflict. */
+function ensureCortexDevScriptsImport(sourceFile: SourceFile): void {
+  if (hasUsableNamedImport(sourceFile, CORTEX_DEV_SCRIPTS, CORTEX_NEXT_MODULE)) return
+  sourceFile.insertStatements(getInsertIndexAfterDirectives(sourceFile), CORTEX_DEV_SCRIPTS_IMPORT)
 }
 
 /** Insert <CortexDevScripts/> into the App Router root layout. Deliberately
@@ -744,13 +759,10 @@ export function injectDevScriptsIntoLayout(cwd: string):
     // aliased/missing import does not compile. Reconcile the import before
     // reporting 'already' — otherwise init would claim success on a layout that
     // fails to build. If a usable import already exists, it is genuinely done.
-    if (hasUsableNamedImport(sourceFile, 'CortexDevScripts', 'cortex-editor/next')) {
+    if (hasUsableNamedImport(sourceFile, CORTEX_DEV_SCRIPTS, CORTEX_NEXT_MODULE)) {
       return { status: 'already', layoutPath }
     }
-    sourceFile.insertStatements(
-      getInsertIndexAfterDirectives(sourceFile),
-      "import { CortexDevScripts } from 'cortex-editor/next'",
-    )
+    ensureCortexDevScriptsImport(sourceFile)
     fs.writeFileSync(layoutPath, sourceFile.getFullText())
     return { status: 'inserted', layoutPath }
   }
@@ -760,20 +772,8 @@ export function injectDevScriptsIntoLayout(cwd: string):
 
   // Insert the child at the exact end of the opening tag. The offset comes from
   // the AST, so a `>` inside an attribute expression can't misplace it.
-  sourceFile.insertText(bodyOpen.getEnd(), '\n        <CortexDevScripts />')
-
-  // Add the import after any directive prologue, unless a USABLE (non-aliased)
-  // CortexDevScripts binding already exists. An aliased-only import (e.g.
-  // `CortexDevScripts as CDS`) does not satisfy the rendered `<CortexDevScripts />`
-  // element, so a proper `import { CortexDevScripts }` is still added — the two
-  // imports (aliased + plain) have different local names, so there is no
-  // duplicate-identifier conflict.
-  if (!hasUsableNamedImport(sourceFile, 'CortexDevScripts', 'cortex-editor/next')) {
-    sourceFile.insertStatements(
-      getInsertIndexAfterDirectives(sourceFile),
-      "import { CortexDevScripts } from 'cortex-editor/next'",
-    )
-  }
+  sourceFile.insertText(bodyOpen.getEnd(), `\n        <${CORTEX_DEV_SCRIPTS} />`)
+  ensureCortexDevScriptsImport(sourceFile)
 
   fs.writeFileSync(layoutPath, sourceFile.getFullText())
   return { status: 'inserted', layoutPath }

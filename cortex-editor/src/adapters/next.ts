@@ -254,10 +254,11 @@ function handleTerminationSignal(signal: 'SIGINT' | 'SIGTERM'): void {
   // default/next handler instead of looping back into us. (process.once does not
   // auto-remove when the unwrapped listener is invoked directly, so this explicit
   // removal is load-bearing, not just belt-and-suspenders.)
-  for (const [sig, handler] of registeredSignalHandlers) {
-    if (sig === signal) process.removeListener(signal, handler)
-  }
-  registeredSignalHandlers = registeredSignalHandlers.filter(([sig]) => sig !== signal)
+  registeredSignalHandlers = registeredSignalHandlers.filter(([sig, handler]) => {
+    if (sig !== signal) return true
+    process.removeListener(signal, handler)
+    return false
+  })
   // Re-raise ONLY when no other handler remains. Peer handlers (Next's own
   // graceful-shutdown handler, a user's) already received the ORIGINAL signal in
   // this same dispatch, so re-raising would deliver it to them a second time —
