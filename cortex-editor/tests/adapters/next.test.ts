@@ -422,29 +422,39 @@ describe('withCortex loader runtimeId threading (ZF0-1851)', () => {
 describe('withCortex termination signal handling', () => {
   const DEV_PHASE = 'phase-development-server'
 
-  // Adding a SIGINT/SIGTERM listener suppresses Node's default die-on-signal, so
-  // the handler MUST re-raise termination itself — otherwise the first Ctrl+C in
-  // a programmatic dev server (next({ dev: true }) with no other handler) only
-  // disposes and the process survives until a second press.
-  it.each([
-    ['SIGINT', 130],
-    ['SIGTERM', 143],
-  ] as const)('disposes the bridge then exits on %s (code %i)', (signal, code) => {
-    const dispose = vi.fn(async () => {})
-    _setBridgeFactoryForTesting(() => ({ start: vi.fn(async () => {}), dispose, runtimeId: 'rt-1' }))
-    vi.stubEnv('NEXT_PHASE', DEV_PHASE)
+  // Adding a SIGINT/SIGTERM listener suppresses Node's default die-on-signal.
+  // The handler must NOT call process.exit — a synchronous exit preempts Next's
+  // own async graceful shutdown (Turbopack engine / child teardown) on EVERY
+  // Ctrl+C. Instead it disposes (fire-and-forget), removes OUR listener, and
+  // re-raises the signal so Node's default (or Next's own handler) proceeds.
+  it.each([['SIGINT'], ['SIGTERM']] as const)(
+    'disposes then re-raises %s (removing our listener) rather than process.exit',
+    (signal) => {
+      const dispose = vi.fn(async () => {})
+      _setBridgeFactoryForTesting(() => ({ start: vi.fn(async () => {}), dispose, runtimeId: 'rt-1' }))
+      vi.stubEnv('NEXT_PHASE', DEV_PHASE)
 
-    const exit = vi.spyOn(process, 'exit').mockImplementation(((c?: number) => {
-      throw new Error(`exit:${c}`)
-    }) as never)
+      // Spy the re-raise so it does not actually signal the vitest process.
+      const kill = vi.spyOn(process, 'kill').mockImplementation((() => true) as never)
+      // A stray process.exit would end the test run — assert it is never used.
+      const exit = vi.spyOn(process, 'exit').mockImplementation((() => undefined) as never)
 
-    const before = process.listeners(signal)
-    withCortex({})
-    const added = process.listeners(signal).filter((l) => !before.includes(l))
-    expect(added).toHaveLength(1)
+      const before = process.listeners(signal)
+      withCortex({})
+      const added = process.listeners(signal).filter((l) => !before.includes(l))
+      expect(added).toHaveLength(1)
 
-    expect(() => (added[0] as () => void)()).toThrow(`exit:${code}`)
-    expect(dispose).toHaveBeenCalledOnce()
-    expect(exit).toHaveBeenCalledWith(code)
-  })
+      // Invoke our handler directly (process.once does not auto-remove on a
+      // direct call of the unwrapped listener, so the explicit removeListener
+      // inside the handler is what must clear it).
+      ;(added[0] as () => void)()
+
+      expect(dispose).toHaveBeenCalledOnce()
+      // Our listener removed itself so the re-raise isn't caught by us again.
+      expect(process.listeners(signal).filter((l) => !before.includes(l))).toHaveLength(0)
+      // Cooperative re-raise of the same signal — NOT process.exit.
+      expect(kill).toHaveBeenCalledWith(process.pid, signal)
+      expect(exit).not.toHaveBeenCalled()
+    },
+  )
 })

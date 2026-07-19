@@ -190,16 +190,33 @@ export function _setBridgeFactoryForTesting(factory: BridgeFactory | null): void
   signalHandlersInstalled = false
 }
 
-/** Dispose the bridge, then re-raise default termination. Registering a
- *  SIGINT/SIGTERM listener suppresses Node's default die-on-signal, so without an
- *  explicit exit the first Ctrl+C in a programmatic dev server (next({dev:true})
+/** Dispose the bridge, then COOPERATIVELY re-raise the signal. Registering a
+ *  SIGINT/SIGTERM listener suppresses Node's default die-on-signal, so without
+ *  re-raising, the first Ctrl+C in a programmatic dev server (next({dev:true})
  *  with no other handler) would only kick dispose and leave the process alive
- *  until a second press. Dispose is async and best-effort — we do not block exit
- *  on it (a hard exit leaves the .cortex/ lock behind; staleness detection
- *  recovers it on next start). Exit with the conventional 128+signal code. */
+ *  until a second press.
+ *
+ *  We deliberately do NOT process.exit here: a synchronous exit preempts Next's
+ *  own async graceful shutdown (Turbopack engine / child teardown) on every
+ *  Ctrl+C. Instead we remove OUR listener and process.kill(pid, signal) so the
+ *  next handler in line — Node's default, or Next's own graceful handler — runs
+ *  normally. This also makes an inert (lock-refused) bridge's handler harmless:
+ *  dispose is a no-op and the re-raise simply passes through.
+ *
+ *  Dispose is async and best-effort — we do not block termination on it (a hard
+ *  signal leaves the .cortex/ lock behind; staleness detection recovers it on
+ *  next start). */
 function handleTerminationSignal(signal: 'SIGINT' | 'SIGTERM'): void {
   bridge?.dispose().catch(() => {})
-  process.exit(signal === 'SIGINT' ? 130 : 143)
+  // Remove our own listener(s) for this signal so the re-raise below reaches the
+  // default/next handler instead of looping back into us. (process.once does not
+  // auto-remove when the unwrapped listener is invoked directly, so this explicit
+  // removal is load-bearing, not just belt-and-suspenders.)
+  for (const [sig, handler] of registeredSignalHandlers) {
+    if (sig === signal) process.removeListener(signal, handler)
+  }
+  registeredSignalHandlers = registeredSignalHandlers.filter(([sig]) => sig !== signal)
+  process.kill(process.pid, signal)
 }
 
 function installSignalHandlers(): void {
