@@ -1804,6 +1804,21 @@ describe('injectDevScriptsIntoLayout', () => {
     }
   })
 
+  it('returns parse-error (not false success) on a syntactically broken layout (silent-failure review)', () => {
+    // ts-morph parses leniently; without an assertParseable guard a broken
+    // layout could match <body>, get an insertion, and report 'inserted'.
+    const broken = 'export default function RootLayout({ children }) { return ( <html><body>{children</body' // unclosed
+    const dir = makeTmpProject({ 'app/layout.tsx': broken })
+    try {
+      const result = injectDevScriptsIntoLayout(dir)
+      expect(result.status).toBe('parse-error')
+      // File left untouched.
+      expect(fs.readFileSync(path.join(dir, 'app', 'layout.tsx'), 'utf8')).toBe(broken)
+    } finally {
+      cleanup(dir)
+    }
+  })
+
   it('reconciles a usable import when the element is present but only an aliased import exists (cubic P1)', () => {
     // Element rendered, but the only import is aliased — the layout would not
     // compile (`CortexDevScripts` is undefined). Reporting 'already' here would

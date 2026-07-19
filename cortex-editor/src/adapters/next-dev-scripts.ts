@@ -26,12 +26,17 @@ interface InjectionFile {
 // visible exactly once.
 const warnedReasons = new Set<string>()
 
-function warnOnce(reason: string): null {
+/** Warn at most once per distinct reason. `setupHint` appends the
+ *  "is withCortex() wrapping next.config" nudge — pass it ONLY for the
+ *  bridge-might-not-be-running case (could-not-read). The other reasons
+ *  (malformed / torn / parse-error / missing-session) prove the bridge IS
+ *  running and just wrote a bad file, so the setup nudge would misdirect. */
+function warnOnce(reason: string, setupHint = false): null {
   if (!warnedReasons.has(reason)) {
     warnedReasons.add(reason)
     console.warn(
-      `[cortex] <CortexDevScripts/> is inactive: ${reason}. ` +
-      'Is withCortex() wrapping next.config, and is this `next dev` (not build/start)?'
+      `[cortex] <CortexDevScripts/> is inactive: ${reason}.` +
+      (setupHint ? ' Is withCortex() wrapping next.config, and is this `next dev` (not build/start)?' : '')
     )
   }
   return null
@@ -80,9 +85,20 @@ export function CortexDevScripts(props: CortexDevScriptsProps = {}): ReactElemen
     token = fs.readFileSync(path.join(cortexDir, 'token'), 'utf8').trim()
     port = Number(fs.readFileSync(path.join(cortexDir, 'port'), 'utf8').trim())
     injectionRawAfter = fs.readFileSync(path.join(cortexDir, 'injection.json'), 'utf8')
+  } catch {
+    // The bridge likely isn't running yet — this is the one reason that gets
+    // the setup nudge, since withCortex/`next dev` really might be misconfigured.
+    return warnOnce(`could not read discovery files in ${cortexDir}`, true)
+  }
+
+  // Parse in its OWN reason bucket: a malformed injection.json was READ fine but
+  // failed to PARSE, and must not share the "could not read" reason (which the
+  // common startup "file missing" case already latched) or it would be silently
+  // suppressed — the exact diagnostic-masking class the per-reason design fixes.
+  try {
     injection = JSON.parse(injectionRaw) as InjectionFile
   } catch {
-    return warnOnce(`could not read discovery files in ${cortexDir}`)
+    return warnOnce(`injection.json in ${cortexDir} is not valid JSON (partial write?) — retrying next render`)
   }
 
   if (injectionRaw !== injectionRawAfter) {

@@ -700,7 +700,8 @@ export function injectDevScriptsIntoLayout(cwd: string):
   | { status: 'already'; layoutPath: string }
   | { status: 'not-found' }
   | { status: 'no-body-tag'; layoutPath: string }
-  | { status: 'client-layout-unsupported'; layoutPath: string } {
+  | { status: 'client-layout-unsupported'; layoutPath: string }
+  | { status: 'parse-error'; layoutPath: string } {
   const candidates = [
     path.join('app', 'layout.tsx'),
     path.join('app', 'layout.jsx'),
@@ -720,6 +721,18 @@ export function injectDevScriptsIntoLayout(cwd: string):
   // recognized — a `.js` App Router layout still contains JSX that the plain
   // TypeScript scanner would otherwise reject.
   const sourceFile = createConfigSourceFile('layout.tsx', content)
+
+  // ts-morph parses leniently, so a syntactically-broken layout yields a
+  // partial AST — findBodyOpeningElement could still match a <body>, we'd
+  // insertText into a file we didn't understand, and report 'inserted' success.
+  // Every other codemod in this file guards with assertParseable; do the same,
+  // but return a status (not a throw — runInit switches on it) so init surfaces
+  // "couldn't parse your layout" instead of a false success.
+  try {
+    assertParseable(sourceFile, path.basename(layoutPath))
+  } catch {
+    return { status: 'parse-error', layoutPath }
+  }
 
   // A 'use client'/'use server' root layout would pull the server-only
   // CortexDevScripts into a client-component graph, breaking Next's build. Bail
@@ -943,6 +956,11 @@ export async function runInit(
         console.warn(
           `  ${path.relative(cwd, layoutResult.layoutPath)}: root layout is a client component ('use client') - ` +
           'CortexDevScripts is server-only. Add <CortexDevScripts /> to a server layout, or render it from a server component.'
+        )
+        break
+      case 'parse-error':
+        console.warn(
+          `  ${path.relative(cwd, layoutResult.layoutPath)}: could not parse - add <CortexDevScripts /> (from cortex-editor/next) inside <body> manually once the file compiles`
         )
         break
     }

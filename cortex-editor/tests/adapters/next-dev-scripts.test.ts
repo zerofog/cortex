@@ -91,6 +91,33 @@ describe('CortexDevScripts', () => {
     expect(CortexDevScripts({ projectRoot: root })).toBeNull()
   })
 
+  it('gives invalid injection.json its OWN reason so a prior "could not read" does not mask it (silent-failure review)', () => {
+    // The common startup state (bridge not up → files missing) latches the
+    // "could not read" reason first. A later malformed-JSON write was READ fine
+    // but failed to PARSE; if it shared the "could not read" bucket it would be
+    // silently suppressed. It must warn with a distinct parse reason.
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    expect(CortexDevScripts({ projectRoot: root })).toBeNull() // reason 1: could not read
+    expect(warn).toHaveBeenCalledTimes(1)
+
+    writeDiscovery({ injection: '{ not valid json' })
+    expect(CortexDevScripts({ projectRoot: root })).toBeNull() // reason 2: parse error — must NOT be masked
+    expect(warn).toHaveBeenCalledTimes(2)
+    expect(warn.mock.calls[1]![0]).toContain('not valid JSON')
+  })
+
+  it('appends the withCortex setup hint ONLY for the could-not-read reason (silent-failure review)', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    // could-not-read → bridge might be misconfigured → hint is appropriate.
+    expect(CortexDevScripts({ projectRoot: root })).toBeNull()
+    expect(warn.mock.calls[0]![0]).toContain('withCortex()')
+
+    // malformed (bridge IS running, just wrote a bad file) → hint would misdirect.
+    writeDiscovery({ port: 'not-a-port' })
+    expect(CortexDevScripts({ projectRoot: root })).toBeNull()
+    expect(warn.mock.calls[1]![0]).not.toContain('withCortex()')
+  })
+
   it('renders null on a torn discovery read: port file and injection.json disagree on port (3C)', () => {
     // A bridge restart mid-render can pair an old token with a new port/session
     // (three separate reads). injection.json carries the port the token/session
