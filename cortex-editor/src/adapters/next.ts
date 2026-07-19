@@ -120,14 +120,6 @@ function withCortexTurbopack(existing: TurbopackConfig | undefined, options: Cor
   return { ...(existing ?? {}), rules }
 }
 
-/** Next's config-function form: `export default (phase, ctx) => config`.
- *  Returned by withCortex in dev so the bridge starts only in the process
- *  that actually runs the dev server. */
-export type NextConfigFunction = (
-  phase: string,
-  context?: { defaultConfig?: NextConfig },
-) => Promise<NextConfig>
-
 /** Value of PHASE_DEVELOPMENT_SERVER in next/constants — hardcoded because
  *  `next` is an optional peer and this module must load without it. */
 const PHASE_DEVELOPMENT_SERVER = 'phase-development-server'
@@ -178,36 +170,48 @@ async function startBridge(options: CortexNextOptions): Promise<void> {
   }
 }
 
-export function withCortex(nextConfig: NextConfig = {}, options: CortexNextOptions = {}): NextConfig | NextConfigFunction {
-  if (process.env.NODE_ENV === 'production') return nextConfig
+/** Idempotently add `cortex-editor` to serverExternalPackages. <CortexDevScripts/>
+ *  pulls in server-only bridge machinery (ws, edit pipeline, fs) that must
+ *  resolve via Node at runtime rather than be bundled into the RSC module graph
+ *  — this is also the only way resolution works when cortex-editor is a
+ *  symlinked (file:/link:) dependency outside the project root. Applied on BOTH
+ *  the production and the dev path so a `next build` of a project that imports
+ *  <CortexDevScripts/> still resolves. */
+function mergeCortexServerExternals(existing: string[] | undefined): string[] {
+  return existing?.includes('cortex-editor') ? existing : [...(existing ?? []), 'cortex-editor']
+}
 
-  const wrapped = buildWrappedConfig(nextConfig, options)
-
-  // Function form so we learn the phase: next.config is evaluated in more than
-  // one process (CLI, dev server, build), and only the dev-server process may
-  // own the bridge. Awaiting start() here also guarantees the .cortex/
-  // discovery files exist before the first render — <CortexDevScripts/> never
-  // races the bridge.
-  return async (phase: string) => {
-    if (phase === PHASE_DEVELOPMENT_SERVER) {
-      await startBridge(options)
-    }
-    return wrapped
+export function withCortex(nextConfig: NextConfig = {}, options: CortexNextOptions = {}): NextConfig {
+  // Production `next build`: `cortex init` leaves a permanent <CortexDevScripts/>
+  // import in the layout, so the bridge module graph (ws, edit pipeline) is
+  // still pulled into the RSC server graph. Externalize cortex-editor so it
+  // resolves at runtime — but add NO turbopack rules, NO webpack hook, and
+  // start NO bridge in production.
+  if (process.env.NODE_ENV === 'production') {
+    return { ...nextConfig, serverExternalPackages: mergeCortexServerExternals(nextConfig.serverExternalPackages) }
   }
+
+  // withCortex must ALWAYS return a plain object so it composes with wrappers
+  // that spread the result — withBundleAnalyzer(withCortex(cfg)), withPWA(...):
+  // spreading a function yields {} and silently drops the entire config. Gate
+  // the bridge on the phase via the environment instead of the return shape.
+  // Next sets NEXT_PHASE when it evaluates next.config; only the dev-server
+  // phase owns the bridge. start() is fire-and-forget (it already swallows/logs
+  // its own errors) so config return stays synchronous — the .cortex/ discovery
+  // files being ready before first render is best-effort (<CortexDevScripts/>
+  // renders null + warns when they are absent).
+  if (process.env.NEXT_PHASE === PHASE_DEVELOPMENT_SERVER) {
+    startBridge(options).catch(() => {})
+  }
+
+  return buildWrappedConfig(nextConfig, options)
 }
 
 function buildWrappedConfig(nextConfig: NextConfig, options: CortexNextOptions): NextConfig {
   return {
     ...nextConfig,
 
-    // <CortexDevScripts/> pulls in the bridge machinery (ws, edit pipeline,
-    // fs) — server-only code that must resolve via Node at runtime rather
-    // than be bundled into the RSC module graph. This also makes resolution
-    // work when cortex-editor is a symlinked (file:/link:) dependency outside
-    // the project root, which the bundler otherwise fails to resolve.
-    serverExternalPackages: nextConfig.serverExternalPackages?.includes('cortex-editor')
-      ? nextConfig.serverExternalPackages
-      : [...(nextConfig.serverExternalPackages ?? []), 'cortex-editor'],
+    serverExternalPackages: mergeCortexServerExternals(nextConfig.serverExternalPackages),
 
     // Turbopack path — `next dev` default since Next 16. The webpack() hook
     // below is never called there; these rules are the equivalent entry point.

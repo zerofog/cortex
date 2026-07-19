@@ -1,12 +1,10 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { withCortex, _setBridgeFactoryForTesting, type NextConfig } from '../../src/adapters/next.js'
 
-// Any phase other than PHASE_DEVELOPMENT_SERVER: resolves the config object
-// without touching the bridge.
-const PHASE_TEST = 'phase-export'
-
-async function resolved(config: ReturnType<typeof withCortex>): Promise<NextConfig> {
-  return typeof config === 'function' ? config(PHASE_TEST) : config
+// withCortex always returns a plain NextConfig object now (fix 2A) — never a
+// phase function. This thin passthrough keeps the existing call sites uniform.
+async function resolved(config: NextConfig): Promise<NextConfig> {
+  return config
 }
 
 afterEach(() => {
@@ -74,11 +72,23 @@ describe('withCortex', () => {
     expect(webpackConfig.module.rules).toHaveLength(2)
   })
 
-  it('returns original config object (not a function) in production', () => {
+  it('in production, externalizes cortex-editor without adding turbopack rules or the webpack hook', () => {
+    // `cortex init` leaves a permanent <CortexDevScripts/> import in the layout,
+    // so a production `next build` still pulls the bridge module graph into the
+    // RSC server graph. Externalizing cortex-editor keeps it resolvable (esp. for
+    // symlinked file:/link: installs) without instrumenting or starting anything.
     vi.stubEnv('NODE_ENV', 'production')
-    const original = { reactStrictMode: true }
-    const result = withCortex(original as any)
-    expect(result).toBe(original)
+    const result = withCortex({ reactStrictMode: true } as any)
+    expect(result.serverExternalPackages).toContain('cortex-editor')
+    expect(result.reactStrictMode).toBe(true)
+    expect(result.turbopack).toBeUndefined()
+    expect(result.webpack).toBeUndefined()
+  })
+
+  it('does not double-add cortex-editor to serverExternalPackages in production', () => {
+    vi.stubEnv('NODE_ENV', 'production')
+    const result = withCortex({ serverExternalPackages: ['cortex-editor', 'sharp'] } as any)
+    expect(result.serverExternalPackages).toEqual(['cortex-editor', 'sharp'])
   })
 
   it('passes projectRoot from context.dir to loader options', async () => {
@@ -131,60 +141,90 @@ describe('withCortex', () => {
 })
 
 describe('withCortex bridge lifecycle', () => {
-  it('returns a config function in dev', () => {
-    expect(typeof withCortex({})).toBe('function')
+  const DEV_PHASE = 'phase-development-server'
+
+  it('always returns a plain config object (never a phase function)', () => {
+    vi.stubEnv('NEXT_PHASE', DEV_PHASE)
+    _setBridgeFactoryForTesting(() => ({ start: vi.fn(async () => {}), dispose: vi.fn(async () => {}) }))
+
+    const config = withCortex({})
+
+    expect(typeof config).toBe('object')
+    expect(config.turbopack).toBeDefined()
+    expect(config.webpack).toBeTypeOf('function')
   })
 
-  it('starts the bridge only for the development-server phase', async () => {
+  it('starts the bridge when NEXT_PHASE is the development-server phase', () => {
     const start = vi.fn(async () => {})
-    const dispose = vi.fn(async () => {})
-    _setBridgeFactoryForTesting(() => ({ start, dispose }))
+    _setBridgeFactoryForTesting(() => ({ start, dispose: vi.fn(async () => {}) }))
+    vi.stubEnv('NEXT_PHASE', DEV_PHASE)
 
-    const config = withCortex({}) as (phase: string) => Promise<NextConfig>
+    withCortex({})
 
-    await config('phase-production-build')
-    await config('phase-export')
-    expect(start).not.toHaveBeenCalled()
-
-    await config('phase-development-server')
     expect(start).toHaveBeenCalledOnce()
   })
 
-  it('reuses one bridge across repeated dev-server evaluations', async () => {
+  it('does not start the bridge for a non-dev phase, but still returns a full config', () => {
     const start = vi.fn(async () => {})
     const factory = vi.fn(() => ({ start, dispose: vi.fn(async () => {}) }))
     _setBridgeFactoryForTesting(factory)
+    vi.stubEnv('NEXT_PHASE', 'phase-production-build')
 
-    const config = withCortex({}) as (phase: string) => Promise<NextConfig>
-    await config('phase-development-server')
-    await config('phase-development-server')
+    const config = withCortex({})
+
+    expect(factory).not.toHaveBeenCalled()
+    expect(start).not.toHaveBeenCalled()
+    expect(config.turbopack).toBeDefined()
+    expect(config.webpack).toBeTypeOf('function')
+    expect(config.serverExternalPackages).toContain('cortex-editor')
+  })
+
+  it('does not start the bridge when NEXT_PHASE is unset', () => {
+    const start = vi.fn(async () => {})
+    _setBridgeFactoryForTesting(() => ({ start, dispose: vi.fn(async () => {}) }))
+    // NEXT_PHASE deliberately not stubbed
+
+    const config = withCortex({})
+
+    expect(start).not.toHaveBeenCalled()
+    expect(config.webpack).toBeTypeOf('function')
+  })
+
+  it('reuses one bridge across repeated dev-server evaluations', () => {
+    const start = vi.fn(async () => {})
+    const factory = vi.fn(() => ({ start, dispose: vi.fn(async () => {}) }))
+    _setBridgeFactoryForTesting(factory)
+    vi.stubEnv('NEXT_PHASE', DEV_PHASE)
+
+    withCortex({})
+    withCortex({})
 
     expect(factory).toHaveBeenCalledOnce()
     expect(start).toHaveBeenCalledTimes(2) // start() itself memoizes internally
   })
 
-  it('does not take down the dev server when bridge start throws', async () => {
+  it('does not throw out of config building when the bridge fails to start', async () => {
     const error = vi.spyOn(console, 'error').mockImplementation(() => {})
     _setBridgeFactoryForTesting(() => ({
       start: async () => { throw new Error('EADDRINUSE') },
       dispose: async () => {},
     }))
+    vi.stubEnv('NEXT_PHASE', DEV_PHASE)
 
-    const config = withCortex({}) as (phase: string) => Promise<NextConfig>
-    const resolvedConfig = await config('phase-development-server')
+    const config = withCortex({})
 
-    expect(resolvedConfig.webpack).toBeTypeOf('function')
+    expect(config.webpack).toBeTypeOf('function')
+    // start() is fire-and-forget; let its internal catch run.
+    await new Promise((r) => setTimeout(r, 0))
     expect(error).toHaveBeenCalledWith(expect.stringContaining('Bridge failed to start'), 'EADDRINUSE')
   })
 
-  it('passes port, toggleShortcut, and projectRoot through to the bridge', async () => {
+  it('passes port, toggleShortcut, and projectRoot through to the bridge', () => {
     const factory = vi.fn(() => ({ start: vi.fn(async () => {}), dispose: vi.fn(async () => {}) }))
     _setBridgeFactoryForTesting(factory)
+    vi.stubEnv('NEXT_PHASE', DEV_PHASE)
 
-    const config = withCortex({}, { port: 4141, toggleShortcut: '$mod+Shift+Comma', projectRoot: '/my/app' }) as (
-      phase: string,
-    ) => Promise<NextConfig>
-    await config('phase-development-server')
+    withCortex({}, { port: 4141, toggleShortcut: '$mod+Shift+Comma', projectRoot: '/my/app' })
 
     expect(factory).toHaveBeenCalledWith({
       root: '/my/app',
