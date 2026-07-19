@@ -1804,6 +1804,36 @@ describe('injectDevScriptsIntoLayout', () => {
     }
   })
 
+  it('reconciles a usable import when the element is present but only an aliased import exists (cubic P1)', () => {
+    // Element rendered, but the only import is aliased — the layout would not
+    // compile (`CortexDevScripts` is undefined). Reporting 'already' here would
+    // claim success on a broken layout; instead add a usable import.
+    const layout = [
+      "import { CortexDevScripts as CDS } from 'cortex-editor/next'",
+      'export default function RootLayout({ children }: { children: React.ReactNode }) {',
+      '  return (',
+      '    <html lang="en">',
+      '      <body>',
+      '        <CortexDevScripts />',
+      '        {children}',
+      '      </body>',
+      '    </html>',
+      '  )',
+      '}',
+      '',
+    ].join('\n')
+    const dir = makeTmpProject({ 'app/layout.tsx': layout })
+    try {
+      const result = injectDevScriptsIntoLayout(dir)
+      expect(result.status).toBe('inserted')
+      const content = fs.readFileSync(path.join(dir, 'app', 'layout.tsx'), 'utf8')
+      // A usable (non-aliased) CortexDevScripts import now exists.
+      expect(content).toContain("import { CortexDevScripts } from 'cortex-editor/next'")
+    } finally {
+      cleanup(dir)
+    }
+  })
+
   it('inserts the element (without duplicating the import) when the import exists but nothing renders it', () => {
     const layout = [
       "import { CortexDevScripts } from 'cortex-editor/next'",

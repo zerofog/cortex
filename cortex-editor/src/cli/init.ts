@@ -726,7 +726,21 @@ export function injectDevScriptsIntoLayout(cwd: string):
   // without modifying the file — the user must render it from a server layout.
   if (hasClientOrServerDirective(sourceFile)) return { status: 'client-layout-unsupported', layoutPath }
 
-  if (layoutRendersCortexDevScripts(sourceFile)) return { status: 'already', layoutPath }
+  if (layoutRendersCortexDevScripts(sourceFile)) {
+    // The element is present, but a rendered `<CortexDevScripts />` with only an
+    // aliased/missing import does not compile. Reconcile the import before
+    // reporting 'already' — otherwise init would claim success on a layout that
+    // fails to build. If a usable import already exists, it is genuinely done.
+    if (hasUsableNamedImport(sourceFile, 'CortexDevScripts', 'cortex-editor/next')) {
+      return { status: 'already', layoutPath }
+    }
+    sourceFile.insertStatements(
+      getInsertIndexAfterDirectives(sourceFile),
+      "import { CortexDevScripts } from 'cortex-editor/next'",
+    )
+    fs.writeFileSync(layoutPath, sourceFile.getFullText())
+    return { status: 'inserted', layoutPath }
+  }
 
   const bodyOpen = findBodyOpeningElement(sourceFile)
   if (!bodyOpen) return { status: 'no-body-tag', layoutPath }
