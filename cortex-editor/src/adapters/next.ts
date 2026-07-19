@@ -74,10 +74,18 @@ function resolveLoaderPath(): string {
 
 /** Turbopack requires loader options to be serializable — no functions, and no
  *  `undefined`-valued properties. Absent options are omitted entirely. */
-function buildLoaderOptions(projectRoot: string, options: CortexNextOptions): Record<string, unknown> {
+function buildLoaderOptions(
+  projectRoot: string,
+  options: CortexNextOptions,
+  runtimeId?: string,
+): Record<string, unknown> {
   const loaderOptions: Record<string, unknown> = { projectRoot }
   if (options.resolveAlias !== undefined) loaderOptions.resolveAlias = options.resolveAlias
   if (options.includeNodeModules !== undefined) loaderOptions.includeNodeModules = options.includeNodeModules
+  // ZF0-1851: only present when a bridge is active (dev-server phase). Absent
+  // otherwise so isRuntimeDisabled(undefined) short-circuits to false — and so
+  // the serializability contract (no undefined-valued keys) holds.
+  if (runtimeId !== undefined) loaderOptions.runtimeId = runtimeId
   return loaderOptions
 }
 
@@ -89,11 +97,15 @@ function isTurbopackRuleObject(value: unknown): value is TurbopackRuleObject {
  *  so node_modules filtering happens inside the loader (shouldExcludeCortexSource). */
 const CORTEX_TURBOPACK_GLOBS = ['*.tsx', '*.jsx'] as const
 
-function withCortexTurbopack(existing: TurbopackConfig | undefined, options: CortexNextOptions): TurbopackConfig {
+function withCortexTurbopack(
+  existing: TurbopackConfig | undefined,
+  options: CortexNextOptions,
+  runtimeId?: string,
+): TurbopackConfig {
   const projectRoot = options.projectRoot ?? process.cwd()
   const cortexLoader = {
     loader: resolveLoaderPath(),
-    options: buildLoaderOptions(projectRoot, options),
+    options: buildLoaderOptions(projectRoot, options, runtimeId),
   }
 
   const rules: Record<string, unknown> = { ...(existing?.rules ?? {}) }
@@ -125,6 +137,10 @@ function withCortexTurbopack(existing: TurbopackConfig | undefined, options: Cor
 const PHASE_DEVELOPMENT_SERVER = 'phase-development-server'
 
 interface BridgeHandle {
+  /** ZF0-1851: per-runtime id threaded into the source-loader options so the
+   *  loader's isRuntimeDisabled gate can key on THIS bridge. Read off the bridge
+   *  at config-build time (CortexWebpackRuntime exposes it as a readonly field). */
+  readonly runtimeId: string
   start(): Promise<void>
   dispose(): Promise<void>
 }
@@ -142,7 +158,12 @@ export function _setBridgeFactoryForTesting(factory: BridgeFactory | null): void
   bridge = null
 }
 
-async function startBridge(options: CortexNextOptions): Promise<void> {
+/** Construct the singleton bridge (idempotent) and return it so its runtimeId
+ *  can be threaded into the loader options synchronously, before start()
+ *  resolves. Kept separate from startBridge() because the loader options are
+ *  built as part of the config object that withCortex returns synchronously,
+ *  while start() is fire-and-forget. */
+function ensureBridge(options: CortexNextOptions): BridgeHandle {
   if (!bridge) {
     bridge = bridgeFactory({
       root: options.projectRoot ?? process.cwd(),
@@ -160,6 +181,11 @@ async function startBridge(options: CortexNextOptions): Promise<void> {
       process.once('SIGTERM', disposeBridge)
     }
   }
+  return bridge
+}
+
+async function startBridge(): Promise<void> {
+  if (!bridge) return
   // start() memoizes; a lock-refused start logs and returns cleanly without
   // throwing. Anything else (port collision, EACCES) must not take down the
   // user's dev server — cortex degrades to inert with a visible error.
@@ -200,14 +226,23 @@ export function withCortex(nextConfig: NextConfig = {}, options: CortexNextOptio
   // its own errors) so config return stays synchronous — the .cortex/ discovery
   // files being ready before first render is best-effort (<CortexDevScripts/>
   // renders null + warns when they are absent).
+  // Construct the bridge synchronously here (not just inside startBridge) so its
+  // runtimeId is available to the loader options built below. Both loader entry
+  // points must carry the SAME id the bridge was given so the ZF0-1851
+  // lock-refusal gate (source-loader isRuntimeDisabled) can key on it — a second
+  // `next dev` that loses the .cortex/ lock then goes inert instead of injecting
+  // the other server's port/token. Non-dev phases start no bridge, so there is
+  // no lock to refuse and runtimeId is left undefined.
+  let runtimeId: string | undefined
   if (process.env.NEXT_PHASE === PHASE_DEVELOPMENT_SERVER) {
-    startBridge(options).catch(() => {})
+    runtimeId = ensureBridge(options).runtimeId
+    startBridge().catch(() => {})
   }
 
-  return buildWrappedConfig(nextConfig, options)
+  return buildWrappedConfig(nextConfig, options, runtimeId)
 }
 
-function buildWrappedConfig(nextConfig: NextConfig, options: CortexNextOptions): NextConfig {
+function buildWrappedConfig(nextConfig: NextConfig, options: CortexNextOptions, runtimeId?: string): NextConfig {
   return {
     ...nextConfig,
 
@@ -215,7 +250,7 @@ function buildWrappedConfig(nextConfig: NextConfig, options: CortexNextOptions):
 
     // Turbopack path — `next dev` default since Next 16. The webpack() hook
     // below is never called there; these rules are the equivalent entry point.
-    turbopack: withCortexTurbopack(nextConfig.turbopack, options),
+    turbopack: withCortexTurbopack(nextConfig.turbopack, options, runtimeId),
 
     webpack(config: WebpackConfig, context: WebpackContext) {
       // Apply user's webpack config first
@@ -236,7 +271,7 @@ function buildWrappedConfig(nextConfig: NextConfig, options: CortexNextOptions):
         enforce: 'pre' as const,
         use: [{
           loader: resolveLoaderPath(),
-          options: buildLoaderOptions(context.dir, options),
+          options: buildLoaderOptions(context.dir, options, runtimeId),
         }],
       })
 

@@ -145,7 +145,7 @@ describe('withCortex bridge lifecycle', () => {
 
   it('always returns a plain config object (never a phase function)', () => {
     vi.stubEnv('NEXT_PHASE', DEV_PHASE)
-    _setBridgeFactoryForTesting(() => ({ start: vi.fn(async () => {}), dispose: vi.fn(async () => {}) }))
+    _setBridgeFactoryForTesting(() => ({ start: vi.fn(async () => {}), dispose: vi.fn(async () => {}), runtimeId: 'rt-1' }))
 
     const config = withCortex({})
 
@@ -156,7 +156,7 @@ describe('withCortex bridge lifecycle', () => {
 
   it('starts the bridge when NEXT_PHASE is the development-server phase', () => {
     const start = vi.fn(async () => {})
-    _setBridgeFactoryForTesting(() => ({ start, dispose: vi.fn(async () => {}) }))
+    _setBridgeFactoryForTesting(() => ({ start, dispose: vi.fn(async () => {}), runtimeId: 'rt-1' }))
     vi.stubEnv('NEXT_PHASE', DEV_PHASE)
 
     withCortex({})
@@ -166,7 +166,7 @@ describe('withCortex bridge lifecycle', () => {
 
   it('does not start the bridge for a non-dev phase, but still returns a full config', () => {
     const start = vi.fn(async () => {})
-    const factory = vi.fn(() => ({ start, dispose: vi.fn(async () => {}) }))
+    const factory = vi.fn(() => ({ start, dispose: vi.fn(async () => {}), runtimeId: 'rt-1' }))
     _setBridgeFactoryForTesting(factory)
     vi.stubEnv('NEXT_PHASE', 'phase-production-build')
 
@@ -181,7 +181,7 @@ describe('withCortex bridge lifecycle', () => {
 
   it('does not start the bridge when NEXT_PHASE is unset', () => {
     const start = vi.fn(async () => {})
-    _setBridgeFactoryForTesting(() => ({ start, dispose: vi.fn(async () => {}) }))
+    _setBridgeFactoryForTesting(() => ({ start, dispose: vi.fn(async () => {}), runtimeId: 'rt-1' }))
     // NEXT_PHASE deliberately not stubbed
 
     const config = withCortex({})
@@ -192,7 +192,7 @@ describe('withCortex bridge lifecycle', () => {
 
   it('reuses one bridge across repeated dev-server evaluations', () => {
     const start = vi.fn(async () => {})
-    const factory = vi.fn(() => ({ start, dispose: vi.fn(async () => {}) }))
+    const factory = vi.fn(() => ({ start, dispose: vi.fn(async () => {}), runtimeId: 'rt-1' }))
     _setBridgeFactoryForTesting(factory)
     vi.stubEnv('NEXT_PHASE', DEV_PHASE)
 
@@ -208,6 +208,7 @@ describe('withCortex bridge lifecycle', () => {
     _setBridgeFactoryForTesting(() => ({
       start: async () => { throw new Error('EADDRINUSE') },
       dispose: async () => {},
+      runtimeId: 'rt-1',
     }))
     vi.stubEnv('NEXT_PHASE', DEV_PHASE)
 
@@ -220,7 +221,7 @@ describe('withCortex bridge lifecycle', () => {
   })
 
   it('passes port, toggleShortcut, and projectRoot through to the bridge', () => {
-    const factory = vi.fn(() => ({ start: vi.fn(async () => {}), dispose: vi.fn(async () => {}) }))
+    const factory = vi.fn(() => ({ start: vi.fn(async () => {}), dispose: vi.fn(async () => {}), runtimeId: 'rt-1' }))
     _setBridgeFactoryForTesting(factory)
     vi.stubEnv('NEXT_PHASE', DEV_PHASE)
 
@@ -335,5 +336,50 @@ describe('withCortex turbopack rules', () => {
     await resolved(withCortex(original))
     expect(originalRules['*.tsx'].loaders).toEqual(['user-loader'])
     expect(Object.keys(originalRules)).toEqual(['*.tsx'])
+  })
+})
+
+describe('withCortex loader runtimeId threading (ZF0-1851)', () => {
+  const DEV_PHASE = 'phase-development-server'
+
+  it('threads the running bridge runtimeId into turbopack + webpack loader options', () => {
+    // The lock-refusal gate (source-loader isRuntimeDisabled) keys on runtimeId.
+    // Both loader entry points must carry the SAME id the bridge was given, or a
+    // second `next dev` that loses the .cortex/ lock keeps instrumenting and its
+    // <CortexDevScripts/> injects the other server's port/token (split-brain).
+    _setBridgeFactoryForTesting(() => ({
+      start: vi.fn(async () => {}),
+      dispose: vi.fn(async () => {}),
+      runtimeId: 'rt-abc',
+    }))
+    vi.stubEnv('NEXT_PHASE', DEV_PHASE)
+
+    const config = withCortex({})
+
+    const rules = (config.turbopack as { rules: Record<string, TurbopackRuleForTest> }).rules
+    const turbopackItem = rules['*.tsx']!.loaders[0] as { options: Record<string, unknown> }
+    expect(turbopackItem.options.runtimeId).toBe('rt-abc')
+
+    const webpackConfig = { module: { rules: [] as unknown[] } }
+    config.webpack!(webpackConfig as any, { dir: '/project', dev: true, isServer: false } as any)
+    const rule = webpackConfig.module.rules[0] as { use: Array<{ options: { runtimeId?: string } }> }
+    expect(rule.use[0]!.options.runtimeId).toBe('rt-abc')
+  })
+
+  it('omits runtimeId from loader options when no bridge is active (non-dev phase)', () => {
+    // No bridge means no lock to refuse — isRuntimeDisabled(undefined) is always
+    // false, which is correct here.
+    vi.stubEnv('NEXT_PHASE', 'phase-production-build')
+
+    const config = withCortex({})
+
+    const rules = (config.turbopack as { rules: Record<string, TurbopackRuleForTest> }).rules
+    const turbopackItem = rules['*.tsx']!.loaders[0] as { options: Record<string, unknown> }
+    expect(turbopackItem.options).not.toHaveProperty('runtimeId')
+
+    const webpackConfig = { module: { rules: [] as unknown[] } }
+    config.webpack!(webpackConfig as any, { dir: '/project', dev: true, isServer: false } as any)
+    const rule = webpackConfig.module.rules[0] as { use: Array<{ options: Record<string, unknown> }> }
+    expect(rule.use[0]!.options).not.toHaveProperty('runtimeId')
   })
 })
