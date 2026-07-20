@@ -180,19 +180,42 @@ function hasUsableNamedImport(sourceFile: SourceFile, functionName: string, modu
   )
 }
 
-/** True when `localName` is already bound by ANY import in the file — a named
- *  import whose effective local name (alias or original) matches, a default, or
- *  a namespace import. Used to avoid inserting a second `import { CortexDevScripts }`
- *  when the name is already in scope from a different module (e.g. a re-export
- *  barrel), which would be a duplicate-identifier (TS2300) compile error. */
-function hasLocalImportBinding(sourceFile: SourceFile, localName: string): boolean {
-  return sourceFile.getImportDeclarations().some(declaration => {
-    if (declaration.getDefaultImport()?.getText() === localName) return true
-    if (declaration.getNamespaceImport()?.getText() === localName) return true
-    return declaration.getNamedImports().some(
-      namedImport => (namedImport.getAliasNode()?.getText() ?? namedImport.getName()) === localName
-    )
-  })
+/** How `localName` is bound in the file, considering imports AND local
+ *  declarations:
+ *  - 'value'     — a usable runtime binding exists (value import from any module,
+ *                  or a local function/class/variable declaration). The rendered
+ *                  element resolves; inserting our import would be a duplicate
+ *                  identifier (TS2300).
+ *  - 'type-only' — ONLY type-space bindings exist (`import type`). The element
+ *                  cannot resolve at runtime, and adding a value import of the
+ *                  same name still collides with the type import — unfixable
+ *                  without editing the user's imports, so callers must bail.
+ *  - null        — the name is free; our import can be added safely. */
+function localBindingKind(sourceFile: SourceFile, localName: string): 'value' | 'type-only' | null {
+  if (
+    sourceFile.getFunction(localName) ||
+    sourceFile.getClass(localName) ||
+    sourceFile.getVariableDeclaration(localName)
+  ) {
+    return 'value'
+  }
+  let sawTypeOnly = false
+  for (const declaration of sourceFile.getImportDeclarations()) {
+    const declTypeOnly = declaration.isTypeOnly()
+    if (declaration.getDefaultImport()?.getText() === localName ||
+        declaration.getNamespaceImport()?.getText() === localName) {
+      if (!declTypeOnly) return 'value'
+      sawTypeOnly = true
+      continue
+    }
+    for (const namedImport of declaration.getNamedImports()) {
+      const local = namedImport.getAliasNode()?.getText() ?? namedImport.getName()
+      if (local !== localName) continue
+      if (declTypeOnly || namedImport.isTypeOnly()) sawTypeOnly = true
+      else return 'value'
+    }
+  }
+  return sawTypeOnly ? 'type-only' : null
 }
 
 function hasNamedRequire(sourceFile: SourceFile, functionName: string, moduleSpecifier: string): boolean {
@@ -716,11 +739,12 @@ const CORTEX_DEV_SCRIPTS_IMPORT = `import { ${CORTEX_DEV_SCRIPTS} } from '${CORT
  *  there is no duplicate-identifier conflict. */
 function ensureCortexDevScriptsImport(sourceFile: SourceFile): void {
   if (hasUsableNamedImport(sourceFile, CORTEX_DEV_SCRIPTS, CORTEX_NEXT_MODULE)) return
-  // The name is already bound from some OTHER module (barrel re-export): the
-  // rendered element resolves via that binding, and adding our import would
-  // duplicate the local identifier. Leave it — an aliased import (CDS) does NOT
-  // bind `CortexDevScripts`, so hasUsableNamedImport handled that case above.
-  if (hasLocalImportBinding(sourceFile, CORTEX_DEV_SCRIPTS)) return
+  // The name is already VALUE-bound elsewhere (barrel re-export import, or a
+  // local function/class/variable): the rendered element resolves via that
+  // binding, and adding our import would duplicate the local identifier.
+  // (Type-only bindings are handled by the callers, which bail with
+  // 'name-conflict' BEFORE reaching here — see localBindingKind.)
+  if (localBindingKind(sourceFile, CORTEX_DEV_SCRIPTS) === 'value') return
   sourceFile.insertStatements(getInsertIndexAfterDirectives(sourceFile), CORTEX_DEV_SCRIPTS_IMPORT)
 }
 
@@ -736,7 +760,8 @@ export function injectDevScriptsIntoLayout(cwd: string):
   | { status: 'not-found' }
   | { status: 'no-body-tag'; layoutPath: string }
   | { status: 'client-layout-unsupported'; layoutPath: string }
-  | { status: 'parse-error'; layoutPath: string } {
+  | { status: 'parse-error'; layoutPath: string }
+  | { status: 'name-conflict'; layoutPath: string } {
   const candidates = [
     path.join('app', 'layout.tsx'),
     path.join('app', 'layout.jsx'),
@@ -774,16 +799,19 @@ export function injectDevScriptsIntoLayout(cwd: string):
   // without modifying the file — the user must render it from a server layout.
   if (hasClientOrServerDirective(sourceFile)) return { status: 'client-layout-unsupported', layoutPath }
 
+  // A type-only binding (`import type { CortexDevScripts }`) can neither render
+  // the element at runtime nor coexist with a value import of the same name
+  // (duplicate identifier). Unfixable without editing the user's imports — bail.
+  const bindingKind = localBindingKind(sourceFile, CORTEX_DEV_SCRIPTS)
+  if (bindingKind === 'type-only') return { status: 'name-conflict', layoutPath }
+
   if (layoutRendersCortexDevScripts(sourceFile)) {
     // The element is present, but a rendered `<CortexDevScripts />` with only an
     // aliased/missing import does not compile. Reconcile the import before
     // reporting 'already' — otherwise init would claim success on a layout that
-    // fails to build. If a usable import already exists, it is genuinely done.
-    if (
-      hasUsableNamedImport(sourceFile, CORTEX_DEV_SCRIPTS, CORTEX_NEXT_MODULE) ||
-      hasLocalImportBinding(sourceFile, CORTEX_DEV_SCRIPTS)
-    ) {
-      // Element rendered AND a usable binding exists (ours, or a barrel's) — done.
+    // fails to build. A usable VALUE binding (ours, a barrel's, or a local
+    // declaration) means it is genuinely done.
+    if (hasUsableNamedImport(sourceFile, CORTEX_DEV_SCRIPTS, CORTEX_NEXT_MODULE) || bindingKind === 'value') {
       return { status: 'already', layoutPath }
     }
     ensureCortexDevScriptsImport(sourceFile)
@@ -985,6 +1013,12 @@ export async function runInit(
       case 'parse-error':
         console.warn(
           `  ${path.relative(cwd, layoutResult.layoutPath)}: could not parse - add <CortexDevScripts /> (from cortex-editor/next) inside <body> manually once the file compiles`
+        )
+        break
+      case 'name-conflict':
+        console.warn(
+          `  ${path.relative(cwd, layoutResult.layoutPath)}: 'CortexDevScripts' is bound as a type-only import - ` +
+          'remove the type-only import and add `import { CortexDevScripts } from \'cortex-editor/next\'` plus <CortexDevScripts /> inside <body> manually'
         )
         break
     }

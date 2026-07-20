@@ -1819,6 +1819,60 @@ describe('injectDevScriptsIntoLayout', () => {
     }
   })
 
+  it('bails with name-conflict on a type-only CortexDevScripts import (codex delta P2)', () => {
+    // `import type` cannot render the element at runtime, and a value import of
+    // the same name would collide with it — unfixable without editing the
+    // user's imports. Must NOT report already/inserted (both would be lies).
+    const layout = [
+      "import type { CortexDevScripts } from 'cortex-editor/next'",
+      'export default function RootLayout({ children }: { children: React.ReactNode }) {',
+      '  return (',
+      '    <html lang="en">',
+      '      <body>{children}</body>',
+      '    </html>',
+      '  )',
+      '}',
+      '',
+    ].join('\n')
+    const dir = makeTmpProject({ 'app/layout.tsx': layout })
+    try {
+      const before = fs.readFileSync(path.join(dir, 'app', 'layout.tsx'), 'utf8')
+      const result = injectDevScriptsIntoLayout(dir)
+      expect(result.status).toBe('name-conflict')
+      expect(fs.readFileSync(path.join(dir, 'app', 'layout.tsx'), 'utf8')).toBe(before)
+    } finally {
+      cleanup(dir)
+    }
+  })
+
+  it('treats a local CortexDevScripts declaration as a usable binding — no conflicting import (codex delta P2)', () => {
+    // A locally-declared component named CortexDevScripts renders itself;
+    // inserting our import would duplicate the identifier.
+    const layout = [
+      'function CortexDevScripts() { return null }',
+      'export default function RootLayout({ children }: { children: React.ReactNode }) {',
+      '  return (',
+      '    <html lang="en">',
+      '      <body>',
+      '        <CortexDevScripts />',
+      '        {children}',
+      '      </body>',
+      '    </html>',
+      '  )',
+      '}',
+      '',
+    ].join('\n')
+    const dir = makeTmpProject({ 'app/layout.tsx': layout })
+    try {
+      const before = fs.readFileSync(path.join(dir, 'app', 'layout.tsx'), 'utf8')
+      const result = injectDevScriptsIntoLayout(dir)
+      expect(result.status).toBe('already')
+      expect(fs.readFileSync(path.join(dir, 'app', 'layout.tsx'), 'utf8')).toBe(before)
+    } finally {
+      cleanup(dir)
+    }
+  })
+
   it('does not insert a duplicate import when CortexDevScripts is already bound from another module (review [0]/[2])', () => {
     // The element is rendered and CortexDevScripts is already in scope from a
     // re-export barrel. Inserting our own import would duplicate the local name
