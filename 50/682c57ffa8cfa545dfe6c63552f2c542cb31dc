@@ -1,0 +1,44 @@
+cortex-editor/src/core/tailwind-resolver.ts
+  s_bbde566b990012::t_d57547c83dadcb 17-82
+  s_bbde566b990012::t_b31e826079a0c8 403-405
+  s_bbde566b990012::t_f59cfcdca2098c 604-619
+  s_bbde566b990012::t_130bd2f6f9fc73 862-863
+cortex-editor/tests/core/edit-strategy.test.ts
+  s_bbde566b990012::t_bd7a1bbaf39597 62-70
+cortex-editor/src/core/capabilities.ts
+  s_bbde566b990012::t_dd5c0847ce4bb2 30-36,40-42
+cortex-editor/tests/core/tailwind-resolver.test.ts
+  s_bbde566b990012::t_e24b9d2f89f9f5 1040-1042
+  s_bbde566b990012::t_7e8799bec15595 979-983,988,991-998,1004
+  s_bbde566b990012::t_179016740fef0e 984-987,989-990,999-1003
+  s_bbde566b990012::t_f1339ee9e1f7d8 1068-1096
+cortex-editor/src/adapters/next.ts
+  s_bbde566b990012::t_0a9992c1a06b5a 35-45
+  s_bbde566b990012::t_936d0aee877c30 24-34,47
+  s_bbde566b990012::t_d47ef3f69dc740 647-650,674
+cortex-editor/package.json
+  s_bbde566b990012::t_e6a6dee30e6ba5 107
+cortex-editor/src/core/edit-strategy.ts
+  s_bbde566b990012::t_f42b89b5bdfae3 30,33-43,46-47
+cortex-editor/tests/adapters/next-type-contract.test.ts
+  s_bbde566b990012::t_de1e4bfe9bdd06 1-22,27-46
+  s_bbde566b990012::t_bff9cccc6f5d91 23-26
+cortex-editor/package-lock.json
+  s_bbde566b990012::t_00c88201ec5c99 3,9,34,47,59-61,143-153,596-1083,1085-1097,1099,1101-1102,1212-1354,1707-1716,2062-2074,2175-2195,2239-2245,2431-2441,3404-3486,3836-3838,3845-3858,3959-3966,4031-4076,4350-4373,4550-4556
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.15",
+  "base_commit_sha": "50682c57ffa8cfa545dfe6c63552f2c542cb31dc",
+  "prompts": {},
+  "sessions": {
+    "s_bbde566b990012": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "b0f4fb44-6981-42bb-810b-9f8c930540f4",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "dklzf <213919963+dklzf@users.noreply.github.com>"
+    }
+  }
+}
