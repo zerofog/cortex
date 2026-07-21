@@ -264,6 +264,32 @@ describe('cortexWebpack adapter', () => {
     }
   })
 
+  it('dispose() cancels a pending conflict retry — no bridge resurrection (cubic P1)', async () => {
+    // Shutdown during the retry window: the unref'd timer must not survive
+    // dispose() and call start() on the disposed runtime, or a "stopped"
+    // webpack build grows a live bridge holding the project lock.
+    const root = makeTempProject()
+    const cortexDir = path.join(root, '.cortex')
+    fs.mkdirSync(cortexDir, { recursive: true })
+    const lockPath = path.join(cortexDir, '.lock')
+    fs.writeFileSync(lockPath, JSON.stringify({ pid: process.ppid, nonce: 'holder', startedAt: Date.now() }))
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+    const runtime = new CortexWebpackRuntime({
+      root, mode: 'development', toggleShortcut: '$mod+Shift+Period', runtimeId: 'rt-retry-dispose', conflictRetryDelayMs: 60,
+    })
+    try {
+      await runtime.start() // refused, retry scheduled
+      await runtime.dispose() // must cancel the pending retry
+      fs.unlinkSync(lockPath) // lock now free — a surviving timer WOULD acquire it
+
+      await new Promise((r) => setTimeout(r, 200))
+      expect(runtime.started).toBe(false)
+      expect(fs.existsSync(lockPath)).toBe(false) // no resurrected bridge re-created it
+    } finally {
+      await runtime.dispose()
+    }
+  })
+
   it('foreign lock refusal logs ONE actionable conflict and disables instrumentation', async () => {
     const root = makeTempProject()
     const cortexDir = path.join(root, '.cortex')

@@ -409,7 +409,13 @@ function isOutermostWithCortexCall(sourceFile: SourceFile, expression: Node, vis
   if (expr.getKind() === SyntaxKind.Identifier && /^[A-Za-z_$][\w$]*$/.test(text)) {
     if (visited.has(text)) return false
     visited.add(text)
-    return valueExpressionsFor(sourceFile, text).some((value) => isOutermostWithCortexCall(sourceFile, value, visited))
+    // Only the LAST value expression (source order) decides outermost-ness:
+    // `config = withCortex(c); config = plain(c)` exports the UNWRAPPED value,
+    // and blessing any-assignment would make init skip the required wrapper
+    // (cubic P1). The earlier withCortex still registers via the 'inner'
+    // classifier, which warns instead.
+    const lastValue = valueExpressionsFor(sourceFile, text).at(-1)
+    return lastValue ? isOutermostWithCortexCall(sourceFile, lastValue, visited) : false
   }
   if (expr.getKind() !== SyntaxKind.CallExpression) return false
   return expr.asKindOrThrow(SyntaxKind.CallExpression).getExpression().getText().trim() === 'withCortex'

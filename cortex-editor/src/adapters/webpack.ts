@@ -401,6 +401,9 @@ export class CortexWebpackRuntime {
   /** One-shot flag for the silent post-foreign-conflict retry (see the
    *  LockHeldError handling in startInternal). */
   private conflictRetryScheduled = false
+  /** Pending retry timer — cancelled by dispose() so a shutdown during the
+   *  retry window cannot resurrect a bridge on a disposed runtime (cubic P1). */
+  private conflictRetryTimer: ReturnType<typeof setTimeout> | null = null
   /** Set by startInternal's lock-refused path; consumed by start() to
    *  un-memoize AFTER the assignment settles (see start()). */
   private lockRefusedLastStart = false
@@ -537,8 +540,13 @@ export class CortexWebpackRuntime {
         // server is still held then, and we stay refused (already warned).
         if (!this.conflictRetryScheduled) {
           this.conflictRetryScheduled = true
-          const timer = setTimeout(() => { void this.start() }, this.conflictRetryDelayMs)
-          timer.unref()
+          // start() rethrows construction errors after disposing — swallow
+          // here or the fire-and-forget retry surfaces an unhandled rejection.
+          this.conflictRetryTimer = setTimeout(() => {
+            this.conflictRetryTimer = null
+            this.start().catch(() => {})
+          }, this.conflictRetryDelayMs)
+          this.conflictRetryTimer.unref()
         }
         return
       }
@@ -685,7 +693,16 @@ export class CortexWebpackRuntime {
     try {
       await atomicWrite(
         injectionFilePath,
-        JSON.stringify({ port: this.port, sessionId: session.sessionId, toggleShortcut: this.toggleShortcut }),
+        // lockNonce binds these values to THIS bridge's lock ownership:
+        // <CortexDevScripts/> compares it against the live lock's holder
+        // nonce, so a successor's acquire→publish window (live lock, but the
+        // files on disk are still the predecessor's) is detectable.
+        JSON.stringify({
+          port: this.port,
+          sessionId: session.sessionId,
+          toggleShortcut: this.toggleShortcut,
+          lockNonce: this.runtimeId,
+        }),
         { mode: 0o600 },
       )
       fs.chmodSync(injectionFilePath, 0o600)
@@ -1283,6 +1300,15 @@ export class CortexWebpackRuntime {
   }
 
   async dispose(): Promise<void> {
+    // Cancel a pending conflict retry FIRST — dispose() is the intent to stop;
+    // a timer surviving it would call start() on this disposed runtime and
+    // resurrect the bridge (cubic P1). A later legitimate restart (watchRun)
+    // calls start() itself and gets a fresh retry budget.
+    if (this.conflictRetryTimer) {
+      clearTimeout(this.conflictRetryTimer)
+      this.conflictRetryTimer = null
+    }
+    this.conflictRetryScheduled = false
     // Let any in-flight discovery write LAND before session.dispose() removes
     // the files — an unserialized write would resume after removal and
     // re-create orphaned discovery files (or overwrite a successor bridge's

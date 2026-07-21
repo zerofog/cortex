@@ -3,7 +3,7 @@ import path from 'path'
 import { createElement, type ReactElement } from 'react'
 // cortex-lock is dependency-light (node:fs/path/crypto only), so importing it
 // here keeps this module's leaf status (3F) intact.
-import { checkCortexLockLiveness } from '../core/cortex-lock.js'
+import { inspectCortexLock } from '../core/cortex-lock.js'
 import {
   CORTEX_BROWSER_PATH,
   DEFAULT_TOGGLE_SHORTCUT,
@@ -20,6 +20,7 @@ interface InjectionFile {
   port?: unknown
   sessionId?: unknown
   toggleShortcut?: unknown
+  lockNonce?: unknown
 }
 
 // Once-per-REASON warning so a missing bridge doesn't spam every render — but a
@@ -140,14 +141,28 @@ export function CortexDevScripts(props: CortexDevScriptsProps = {}): ReactElemen
   // 'missing' also refuses, which covers the exit-handler path that releases
   // the lock but leaves discovery files, at the cost of the rare degraded
   // lock-less mode (read-only-root bridges already warn loudly there).
-  const lockLiveness = checkCortexLockLiveness(cortexDir)
-  if (lockLiveness !== 'live') {
+  const lock = inspectCortexLock(cortexDir)
+  if (lock.liveness !== 'live') {
     return warnOnce(
       `discovery files in ${cortexDir} have no live bridge owning them ` +
-      `(lock ${lockLiveness}) — refusing to inject. If no dev server crash explains ` +
+      `(lock ${lock.liveness}) — refusing to inject. If no dev server crash explains ` +
       `this, delete ${cortexDir} and restart \`next dev\``,
       false,
       `stale-lock:${cortexDir}`, // stable key — the message embeds the liveness variant
+    )
+  }
+  // Owner binding (cubic P2): a live lock alone doesn't prove the values read
+  // above were written by ITS owner — a successor acquires the lock BEFORE
+  // publishing files, and in that window the on-disk injection.json is still
+  // the predecessor's (stable, so the freshness re-read below can't see it).
+  // The bridge stamps its lock nonce into injection.json; a mismatch means a
+  // different owner generation. Older bridges omit the field (compat: skip).
+  if (typeof injection.lockNonce === 'string' && lock.holderNonce !== null && injection.lockNonce !== lock.holderNonce) {
+    return warnOnce(
+      `discovery files in ${cortexDir} were written by a different bridge generation ` +
+      `than the live lock owner (handoff in progress) — retrying next render`,
+      false,
+      `owner-mismatch:${cortexDir}`, // stable key
     )
   }
 

@@ -168,7 +168,12 @@ function activeLocks(): Map<string, CortexLock> {
  * locks don't grow the env var unboundedly.
  */
 const FAMILY_ENV = '__CORTEX_LOCK_FAMILY'
-const FAMILY_MAX = 8
+/** Leak guard, not a working-set bound: eviction of a nonce whose lock is
+ *  still ACTIVE would make a same-boot sibling classify that holder as a
+ *  foreign conflict (cubic P2). With dedupe + adoption a family carries ~one
+ *  nonce per project root, so 32 makes live-nonce eviction implausible while
+ *  still capping pathological growth. */
+const FAMILY_MAX = 32
 
 function familyNonces(): string[] {
   return (process.env[FAMILY_ENV] ?? '').split(',').filter(Boolean)
@@ -230,16 +235,30 @@ function removeFamilyNonce(nonce: string): void {
  *  startup with a remediation message; neither deletes another owner's state. */
 export type CortexLockLiveness = 'live' | 'stale' | 'missing' | 'corrupt'
 
-export function checkCortexLockLiveness(cortexDir: string): CortexLockLiveness {
+export interface CortexLockInspection {
+  liveness: CortexLockLiveness
+  /** Owner nonce when the lock file is readable; null for missing/corrupt.
+   *  Consumers use it to bind discovery-file CONTENTS to the live owner: the
+   *  bridge stamps this nonce into injection.json, so files written by a
+   *  predecessor generation are detectable even while a successor's lock is
+   *  live (the acquire→publish handoff window). */
+  holderNonce: string | null
+}
+
+export function inspectCortexLock(cortexDir: string): CortexLockInspection {
   const lockPath = path.join(cortexDir, '.lock')
   try {
     fs.accessSync(lockPath)
   } catch {
-    return 'missing'
+    return { liveness: 'missing', holderNonce: null }
   }
   const holder = readLockFile(lockPath)
-  if (holder === null) return 'corrupt'
-  return isProcessAlive(holder.pid) ? 'live' : 'stale'
+  if (holder === null) return { liveness: 'corrupt', holderNonce: null }
+  return { liveness: isProcessAlive(holder.pid) ? 'live' : 'stale', holderNonce: holder.nonce }
+}
+
+export function checkCortexLockLiveness(cortexDir: string): CortexLockLiveness {
+  return inspectCortexLock(cortexDir).liveness
 }
 
 export class CortexLock {

@@ -147,14 +147,16 @@ export class CortexSession {
     // A live conflicting instance throws LockHeldError here, so the adapter's
     // `new CortexSession(...)` throws and it refuses to start. `acquire` returns
     // null (no throw) only when `.cortex/` itself is unwritable — see CortexLock.
-    this.lock = config.cortexDir ? CortexLock.acquire(config.cortexDir, config.lockOwnerNonce) : null
     // Natural-drain exits (a transient config evaluator whose bridge is
-    // unref'd) run process-exit handlers but never dispose(). The lock's own
-    // exit handler releases the lock; this one removes the discovery files the
-    // session wrote, so such an evaluator leaves .cortex/ CLEAN instead of
-    // orphaned port/token/injection.json (fail-closed at the liveness gate,
-    // but needless residue). Removed again in dispose() to keep long-lived
-    // restart patterns from accumulating listeners.
+    // unref'd) run process-exit handlers but never dispose(). This handler
+    // removes the discovery files the session wrote, so such an evaluator
+    // leaves .cortex/ CLEAN instead of orphaned port/token/injection.json.
+    // Registered BEFORE the lock is acquired — exit handlers run in
+    // registration order, so the files are deleted while WE still hold the
+    // lock; registering after would delete them AFTER the lock's own exit
+    // handler released it, a window where a successor may already have
+    // acquired and published ITS files (cubic P2). Removed again in dispose()
+    // to keep long-lived restart patterns from accumulating listeners.
     this.onExitCleanup = () => {
       for (const filePath of [this.portFilePath, this.tokenFilePath, this.injectionFilePath]) {
         if (!filePath) continue
@@ -162,6 +164,7 @@ export class CortexSession {
       }
     }
     process.once('exit', this.onExitCleanup)
+    this.lock = config.cortexDir ? CortexLock.acquire(config.cortexDir, config.lockOwnerNonce) : null
     this.token = randomUUID()
     this.sessionId = randomUUID()
     this.annotations = new AnnotationStore(

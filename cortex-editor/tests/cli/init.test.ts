@@ -783,6 +783,37 @@ describe('cortex init', () => {
     }
   })
 
+  it('does NOT bless a withCortex assignment that a LATER assignment overwrites (cubic P1)', async () => {
+    // `config = withCortex(c); config = plain(c); export default config`
+    // exports the UNWRAPPED value — any-assignment blessing would report this
+    // configured and leave cortex inactive. Source order decides: the final
+    // value is not a withCortex call → not outermost; the earlier call still
+    // registers as 'inner' → loud warn, no modification.
+    const nextConfig = [
+      "import { withCortex } from 'cortex-editor/next'",
+      'const plain = (config) => ({ ...config })',
+      'let config = { reactStrictMode: true }',
+      'config = withCortex(config)',
+      'config = plain(config)',
+      'export default config',
+      '',
+    ].join('\n')
+    const dir = makeTmpProject({
+      'package.json': '{"name":"test","type":"module","devDependencies":{"cortex-editor":"^0.1.0","next":"^16.0.0"}}',
+      'next.config.mjs': nextConfig,
+    })
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    try {
+      const result = await runInit(dir)
+      expect(result.nextConfigInjected).toBe(false)
+      expect(warn.mock.calls.some(c => /NOT the outermost wrapper/.test(String(c[0])))).toBe(true)
+      expect(fs.readFileSync(path.join(dir, 'next.config.mjs'), 'utf8')).toBe(nextConfig)
+    } finally {
+      warn.mockRestore()
+      cleanup(dir)
+    }
+  })
+
   it('classifies a cyclic self-referential config without crashing (delta review P3)', async () => {
     // `const config = config` is a runtime TDZ error but parses cleanly; the
     // outermost classifier's identifier recursion must terminate (visited

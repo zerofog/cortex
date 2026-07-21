@@ -27,7 +27,9 @@ function writeDiscovery(
   fs.writeFileSync(path.join(cortexDir, 'token'), overrides.token ?? 'test-token-value')
   fs.writeFileSync(
     path.join(cortexDir, 'injection.json'),
-    overrides.injection ?? JSON.stringify({ sessionId: 'session-abc', toggleShortcut: '$mod+Shift+Period' })
+    // lockNonce matches the default lock's nonce below, so the default fixture
+    // exercises the owner-binding MATCH path on every injecting test.
+    overrides.injection ?? JSON.stringify({ sessionId: 'session-abc', toggleShortcut: '$mod+Shift+Period', lockNonce: 'test-nonce' })
   )
   // The component only injects when a LIVE bridge owns the discovery files —
   // the bridge's `.cortex/.lock` is that ownership record. Default fixture:
@@ -280,5 +282,20 @@ describe('CortexDevScripts', () => {
 
     expect(CortexDevScripts({ projectRoot: root })).toBeNull()
     expect(warn.mock.calls[0]![0]).toContain('lock corrupt')
+  })
+
+  it('refuses to inject when injection.json was written by a DIFFERENT owner than the live lock (cubic P2)', () => {
+    // Handoff window: a successor acquires the lock BEFORE publishing its
+    // files, so the on-disk values are the predecessor's while the lock is
+    // live. The stamped lockNonce exposes the generation mismatch — the
+    // freshness re-read alone cannot (the stale file is not changing).
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    writeDiscovery({
+      injection: JSON.stringify({ port: 4321, sessionId: 'old-session', toggleShortcut: '$mod+Shift+Period', lockNonce: 'previous-owner' }),
+      lock: JSON.stringify({ pid: process.pid, nonce: 'new-owner', startedAt: Date.now() }),
+    })
+
+    expect(CortexDevScripts({ projectRoot: root })).toBeNull()
+    expect(warn.mock.calls[0]![0]).toContain('different bridge generation')
   })
 })
