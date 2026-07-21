@@ -1,0 +1,125 @@
+cortex-editor/tests/adapters/atomic-write.test.ts
+  s_bbde566b990012::t_dfd47d6a788eb4 37-52
+cortex-editor/tests/e2e/next-turbopack.spec.ts
+  s_bbde566b990012::t_6e5a98913d9675 81-83,85-86,90
+  s_bbde566b990012::t_ba721cd3da0c73 84
+  s_bbde566b990012::t_44726b3966a9bb 66-77
+  s_bbde566b990012::t_b98e1ef3e9c2c2 20-26
+cortex-editor/src/adapters/next.ts
+  s_bbde566b990012::t_24c77e58d5ba0d 14
+  s_bbde566b990012::t_4c9b3947f484cd 335-337,339-340
+  s_bbde566b990012::t_4ce8a7cb0ca2c5 1
+  s_bbde566b990012::t_20cb6bdaabc89e 25-29,35-48
+  s_bbde566b990012::t_14346d871232b9 217-277,287-290
+  s_bbde566b990012::t_90c795b5d33116 309,312-313,318
+  s_bbde566b990012::t_16fa277cb081fa 470-479
+  s_bbde566b990012::t_889b9f80aacd12 374,376-377,386,390
+  s_bbde566b990012::t_3ebd30833e1c4b 12-13
+  s_bbde566b990012::t_6c0cdc2c447568 450-469,480-511,515-517,519-525,527-529,531-532,545-546
+  s_bbde566b990012::t_34279069786ab8 49-52
+  s_bbde566b990012::t_bae9eed2763514 401,405,414
+  s_bbde566b990012::t_d3c31dc68b3c70 538-543
+  s_bbde566b990012::t_17189d9e8e5e69 168-171,173-182
+  s_bbde566b990012::t_b15e18cadf7436 533-537
+  s_bbde566b990012::t_57e17b7fa836ae 53
+  s_bbde566b990012::t_dd43376e35f904 216
+cortex-editor/src/core/cortex-lock.ts
+  s_bbde566b990012::t_b44b76bd95ca68 336-342
+  s_bbde566b990012::t_a8fc57df246c4a 332-335,343-357,362
+  s_bbde566b990012::t_31fac23bee6b55 145-168,170-176,182,185,214-243
+  s_bbde566b990012::t_a49d4b7742eb89 177-181,183,186-203
+  s_bbde566b990012::t_c0fe97062d699f 184,204-213
+  s_bbde566b990012::t_35e1b004ccb70e 328
+  s_bbde566b990012::t_80ea8270f39fce 382-384,386
+  s_bbde566b990012::t_4433c8dbe1875a 272-281,283
+  s_bbde566b990012::t_203174194695db 444-447,449
+  s_bbde566b990012::t_ea30099d34ced9 397-398,401
+  s_bbde566b990012::t_568dc779f463d1 372-377
+  s_bbde566b990012::t_2d5fc04ffb333a 466-467
+  s_bbde566b990012::t_1bed2b719ffd1e 410-412,418-427
+  s_bbde566b990012::t_fc42428bc6db7d 59-67,72
+cortex-editor/tests/adapters/next.test.ts
+  s_bbde566b990012::t_a3ac86b6b44e8c 287-291,293,295-298
+  s_bbde566b990012::t_0ddfb232b35ac1 378-396
+  s_bbde566b990012::t_cfd378b5c8ede1 360-367,369-370,372-377
+  s_bbde566b990012::t_17c641800ab019 2-33,36,38-39,42-49,56-137,150-151,166-167,177,184,194-199,201,203,206-207,217-218,229,234,243-244,255-267,269-276,278,280-285,301-316,318-322,325,329-332,334-350,355-357,400,402-403,406,414-415,429-430,441-468,471,474,477,481,491,493,502,504,543-544,565,570,582-584,588-589,598,602,607-608,616-617,625-626,630,635,637-639,645,648,657-658,664,667,672,675,694,715,738,746
+cortex-editor/src/adapters/webpack.ts
+  s_bbde566b990012::t_6568b7060389f8 401-403,407-408
+  s_bbde566b990012::t_ef34a9489435d4 492-497
+  s_bbde566b990012::t_adb2c531aaa1eb 501-507
+  s_bbde566b990012::t_9f5fb6591cd25c 508-516,521-524,526-527
+  s_bbde566b990012::t_30ccad1345651f 611-619
+  s_bbde566b990012::t_010c09113ebdd8 1286-1290
+  s_bbde566b990012::t_cb1736c9f9dc44 620-627
+  s_bbde566b990012::t_b863b09645b4be 654-658,669,675,686
+  s_bbde566b990012::t_4e5e1cbcafce0b 404-406
+  s_bbde566b990012::t_36318cdffae2df 398-400
+  s_bbde566b990012::t_5f4f288e7f6642 417,424
+  s_bbde566b990012::t_b0de775a718f9e 629-636
+  s_bbde566b990012::t_1a883da8e4e8e7 517-520,528-530,532-542
+  s_bbde566b990012::t_6d631b3c4188d6 452-471
+  s_bbde566b990012::t_5e52db99ea8f7c 628
+cortex-editor/tests/adapters/next-dev-scripts.test.ts
+  s_bbde566b990012::t_1aed37984928ed 209-235
+  s_bbde566b990012::t_a7b02bd688d65e 9-11,20-28
+  s_bbde566b990012::t_b44c35a38c186d 208,236-266
+cortex-editor/tests/adapters/webpack.test.ts
+  s_bbde566b990012::t_0bace9afcfe896 199-218,223-235,267-288
+  s_bbde566b990012::t_a422895152ebd5 10
+  s_bbde566b990012::t_bed91e1c5364bc 219-222
+  s_bbde566b990012::t_d5d2ba06ec98b2 236-266
+  s_bbde566b990012::t_864fb7be1828e5 14
+  s_bbde566b990012::t_1e6a9a8ccc3214 158-198
+cortex-editor/src/core/session.ts
+  s_bbde566b990012::t_fceff887ca5037 150
+  s_bbde566b990012::t_f2a3f4c3ebd501 151-164
+  s_bbde566b990012::t_8488aab68b73ca 70-72
+  s_bbde566b990012::t_775c5d8296ed86 237-241
+  s_bbde566b990012::t_e2d73df32b323e 31-36
+cortex-editor/tests/core/cortex-lock.test.ts
+  s_bbde566b990012::t_212593b1700c2d 7
+  s_bbde566b990012::t_e0d62b8b2cc716 248,250-254,256-257,265-272
+  s_bbde566b990012::t_144861b59cf7f1 273-378
+cortex-editor/tests/adapters/next-rsc-import-weight.test.ts
+  s_bbde566b990012::t_c5ff740dc8bcc8 22-25,28,41-58
+  s_bbde566b990012::t_e8f30e8479c375 59
+cortex-editor/src/adapters/next-dev-scripts.ts
+  s_bbde566b990012::t_d76f3c82eccd83 85-88
+  s_bbde566b990012::t_ef90663672fe4a 4-6
+  s_bbde566b990012::t_fcc1a7b2c28a87 151-168
+  s_bbde566b990012::t_2b92afdcf01f7d 131-150
+cortex-editor/README.md
+  s_bbde566b990012::t_0d9aa1bc8386e9 56
+dev-app-next/package.json
+  s_bbde566b990012::t_57d5a232f16a8c 11
+cortex-editor/src/adapters/atomic-write.ts
+  s_bbde566b990012::t_685e3d9c07dd5d 84
+  s_bbde566b990012::t_2bbb577d7dc499 55-62,65
+cortex-editor/tests/e2e/next-config-inspector-exit.spec.ts
+  s_bbde566b990012::t_84b43fb8cfae82 39-43,45
+  s_bbde566b990012::t_1002994e29df67 1-20,22-38,44,46,53-55,57-61,77-87,89,97,100-103
+  s_bbde566b990012::t_8bbe49c6966d71 47-49,51-52,56
+  s_bbde566b990012::t_6f31c7e782868f 88
+  s_bbde566b990012::t_98c3371749f28c 90-96,98-99
+  s_bbde566b990012::t_fbe29585f09bb4 21
+  s_bbde566b990012::t_593b7949cfea32 62-76
+  s_bbde566b990012::t_be2a71ceaddc5d 50
+dev-app-next/package-lock.json
+  s_bbde566b990012::t_f8a6ae91b2bc27 11,24,44,51,62,74-76,565-567,571-573,587-589,603-605,619-621,635-637,651-653,667-669,683-685,815-817,820,822,834-842
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.14",
+  "base_commit_sha": "79bee4d563e18047a8d750164cb98bafb79ec065",
+  "prompts": {},
+  "sessions": {
+    "s_bbde566b990012": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "b0f4fb44-6981-42bb-810b-9f8c930540f4",
+        "model": "claude-fable-5"
+      },
+      "human_author": "dklzf <213919963+dklzf@users.noreply.github.com>"
+    }
+  }
+}
