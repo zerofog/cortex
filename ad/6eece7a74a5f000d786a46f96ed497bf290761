@@ -1,0 +1,21 @@
+cortex-editor/tests/adapters/next-dev-scripts.test.ts
+  s_bbde566b990012::t_9a4c08f7d34de2 1-2,9-17
+  s_bbde566b990012::t_61ea5745e714bb 248,253
+  s_bbde566b990012::t_9ef38c3fa68e82 18
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.14",
+  "base_commit_sha": "ad6eece7a74a5f000d786a46f96ed497bf290761",
+  "prompts": {},
+  "sessions": {
+    "s_bbde566b990012": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "b0f4fb44-6981-42bb-810b-9f8c930540f4",
+        "model": "claude-fable-5"
+      },
+      "human_author": "dklzf <213919963+dklzf@users.noreply.github.com>"
+    }
+  }
+}
