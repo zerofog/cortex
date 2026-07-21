@@ -1,0 +1,73 @@
+cortex-editor/src/adapters/next.ts
+  s_bbde566b990012::t_d9399f7e7b951f 280
+  s_bbde566b990012::t_5c356d2d0e7b3f 331,334-346,355-356
+  s_bbde566b990012::t_bc649bf00106ef 550-556
+  s_bbde566b990012::t_9862dc4c53e3fb 232-238
+cortex-editor/src/adapters/webpack.ts
+  s_bbde566b990012::t_3a762bded89ad5 696-700,705
+cortex-editor/tests/e2e/next-config-inspector-exit.spec.ts
+  s_bbde566b990012::t_78e447b483cf65 77-94
+cortex-editor/tests/cli/init.test.ts
+  s_bbde566b990012::t_eee621a257f9a1 1778-1798
+  s_bbde566b990012::t_63ac130477cec0 8-22
+  s_bbde566b990012::t_0386bb9f3ebf2a 1761
+  s_bbde566b990012::t_55ef1852436ddd 627,651,674,696,722,794,824,850,875,896,925,953,972,994,1210,1457,1484,1508,1534,1559,1584,1608,1634,1659,1684,1713,1740
+  s_bbde566b990012::t_9683a907badfb4 1910-1918,1923-1929,1934-1941,1946-1950,1956-1961
+cortex-editor/tests/adapters/next-dev-scripts.test.ts
+  s_bbde566b990012::t_75d74212dac933 30-33,41
+  s_bbde566b990012::t_d87bb82f13d11f 288,291-292,295-296,302-323
+cortex-editor/tests/adapters/next.test.ts
+  s_bbde566b990012::t_1b94d341b8e21b 557-571
+cortex-editor/tests/core/cortex-lock.test.ts
+  s_bbde566b990012::t_628dd1787c8237 51-82
+cortex-editor/src/adapters/next-dev-scripts.ts
+  s_bbde566b990012::t_7a1c52d65ac5d8 23
+  s_bbde566b990012::t_7be0cbdd86ef57 79-86
+  s_bbde566b990012::t_e18fa1e074b2ec 165-170
+cortex-editor/src/core/cortex-lock.ts
+  s_bbde566b990012::t_f05bd83211f645 254-260,268,271-272
+  s_bbde566b990012::t_90766571e79fe8 418-421
+  s_bbde566b990012::t_18a8f53b7b1001 513-516
+  s_bbde566b990012::t_1b0d68e3b089bd 42-47,49-57
+  s_bbde566b990012::t_b34453421ee2ad 452
+  s_bbde566b990012::t_20176b9f689df7 121-124
+  s_bbde566b990012::t_6e880e85042d00 392
+  s_bbde566b990012::t_ae47436f936dab 283-286,291,293
+cortex-editor/src/browser/channel.ts
+  s_bbde566b990012::t_119defbf465b4c 376-390,392-397
+  s_bbde566b990012::t_60e393d265d707 279-283
+  s_bbde566b990012::t_6459164c4ba003 338-342,344-368,370
+cortex-editor/src/core/session.ts
+  s_bbde566b990012::t_94576c4f8cc704 70-73
+  s_bbde566b990012::t_ebabfcedbaed47 171-181
+cortex-editor/src/adapters/injection-snippet.ts
+  s_bbde566b990012::t_7c426512626342 25-29,35
+cortex-editor/src/cli/init.ts
+  s_bbde566b990012::t_b09f5f6e099895 1310
+  s_bbde566b990012::t_700d306a6b825e 407,421-422,425-428
+  s_bbde566b990012::t_6d76a735dc8103 1266,1281-1289
+  s_bbde566b990012::t_ded4b085a43e2d 650-653
+  s_bbde566b990012::t_ebc2fa35b777e4 445-447
+  s_bbde566b990012::t_5910f8a4c63c05 1156-1163
+  s_bbde566b990012::t_61c92e49528a11 378,385-393
+  s_bbde566b990012::t_1fe2b0392550aa 1054-1060
+cortex-editor/tests/browser/channel.test.ts
+  s_bbde566b990012::t_2a54cdb12284be 299,302,311-313,323-327,330,333-334,339-340
+  s_bbde566b990012::t_e6563ace888c33 291-298,300-301,303-310,314-322,328-329,331-332,335-338,341-344
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.15",
+  "base_commit_sha": "dfb57b2e5edca94138032357c872f6c49a919f19",
+  "prompts": {},
+  "sessions": {
+    "s_bbde566b990012": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "b0f4fb44-6981-42bb-810b-9f8c930540f4",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "dklzf <213919963+dklzf@users.noreply.github.com>"
+    }
+  }
+}
