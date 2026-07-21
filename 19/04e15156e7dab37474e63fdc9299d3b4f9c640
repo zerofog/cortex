@@ -1,0 +1,39 @@
+cortex-editor/tests/browser/bootstrap.test.ts
+  s_bbde566b990012::t_a98e13777e2f7b 81-121
+cortex-editor/tests/cli/mcp.test.ts
+  s_bbde566b990012::t_c7010408b88ea4 173-183
+cortex-editor/tests/adapters/webpack.test.ts
+  s_bbde566b990012::t_f1bda999cc30bc 254-256,262
+  s_bbde566b990012::t_8d55f471cbfa88 295-299,309,313,315-323
+cortex-editor/src/browser/index.tsx
+  s_bbde566b990012::t_6db8b448d51a8b 124,128-140
+  s_bbde566b990012::t_4959f0fc008483 17-18
+  s_bbde566b990012::t_6636330616221a 198
+cortex-editor/src/adapters/webpack.ts
+  s_bbde566b990012::t_07ec66ac56c88c 404-405
+  s_bbde566b990012::t_994c177c8b2703 528-531,534-541,548-552
+  s_bbde566b990012::t_544efdcedabfc0 1316
+cortex-editor/src/cli/mcp.ts
+  s_bbde566b990012::t_248b1e9b0e79ff 481-483,487-499
+  s_bbde566b990012::t_3fdc1b6739f3c7 475-480,484-486
+  s_bbde566b990012::t_2199a474c6b281 532
+  s_bbde566b990012::t_f256287c4c468d 155-158
+  s_bbde566b990012::t_a7afa592586188 187-190
+  s_bbde566b990012::t_c9f5b8dbac51f1 557
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.15",
+  "base_commit_sha": "1904e15156e7dab37474e63fdc9299d3b4f9c640",
+  "prompts": {},
+  "sessions": {
+    "s_bbde566b990012": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "b0f4fb44-6981-42bb-810b-9f8c930540f4",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "dklzf <213919963+dklzf@users.noreply.github.com>"
+    }
+  }
+}
