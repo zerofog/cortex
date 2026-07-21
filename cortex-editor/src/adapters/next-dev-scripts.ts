@@ -20,7 +20,7 @@ interface InjectionFile {
   port?: unknown
   sessionId?: unknown
   toggleShortcut?: unknown
-  lockNonce?: unknown
+  lockGeneration?: unknown
 }
 
 // Once-per-REASON warning so a missing bridge doesn't spam every render — but a
@@ -76,7 +76,14 @@ export function _resetDevScriptsWarningForTesting(): void {
 export function CortexDevScripts(props: CortexDevScriptsProps = {}): ReactElement | null {
   if (process.env.NODE_ENV === 'production') return null
 
-  const cortexDir = path.join(props.projectRoot ?? process.cwd(), '.cortex')
+  // The bridge writes `.cortex/` under withCortex's projectRoot (which may be a
+  // monorepo parent or `next dev <dir>` target), while this component defaults
+  // to cwd — a divergence that renders null (cubic P2). withCortex advertises
+  // its resolved root in __CORTEX_PROJECT_ROOT at config-eval time (the same
+  // parent→worker env channel the lock family uses), so RSC workers inherit it.
+  // Explicit prop > inherited env > cwd.
+  const projectRoot = props.projectRoot ?? process.env.__CORTEX_PROJECT_ROOT ?? process.cwd()
+  const cortexDir = path.join(projectRoot, '.cortex')
 
   let port: number
   let token: string
@@ -155,9 +162,12 @@ export function CortexDevScripts(props: CortexDevScriptsProps = {}): ReactElemen
   // above were written by ITS owner — a successor acquires the lock BEFORE
   // publishing files, and in that window the on-disk injection.json is still
   // the predecessor's (stable, so the freshness re-read below can't see it).
-  // The bridge stamps its lock nonce into injection.json; a mismatch means a
-  // different owner generation. Older bridges omit the field (compat: skip).
-  if (typeof injection.lockNonce === 'string' && lock.holderNonce !== null && injection.lockNonce !== lock.holderNonce) {
+  // The bridge stamps its lock GENERATION into injection.json; a mismatch
+  // means a different acquisition wrote these values. Generation (not the
+  // shareable family nonce) is what distinguishes a same-family successor
+  // reclaiming a crashed predecessor's lock (cubic P1). Older bridges omit
+  // the field (compat: skip).
+  if (typeof injection.lockGeneration === 'string' && lock.holderGeneration !== null && injection.lockGeneration !== lock.holderGeneration) {
     return warnOnce(
       `discovery files in ${cortexDir} were written by a different bridge generation ` +
       `than the live lock owner (handoff in progress) — retrying next render`,

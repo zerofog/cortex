@@ -276,7 +276,11 @@ export function createWebSocketChannel(options?: WebSocketChannelOptions): Corte
       // RCE vector.
       while (queue.length > 0) {
         const msg = queue.shift()!
-        ws!.send(JSON.stringify({ ...msg, token: capturedToken }))
+        // Same toJSON strip as send() — a queued message could equally carry a
+        // hijacking toJSON.
+        const payload: Record<string, unknown> = { ...msg, token: capturedToken }
+        delete payload.toJSON
+        ws!.send(JSON.stringify(payload))
       }
     }
 
@@ -331,17 +335,66 @@ export function createWebSocketChannel(options?: WebSocketChannelOptions): Corte
   // editor shell with it, nothing more — the auth token stays closure-held and
   // is stamped inside send() (ZF0-1326 posture unchanged). Captured into a
   // named const so dispose() can identity-check before removing it (3B).
+  // Set once the init handshake has passed through send(); until then a
+  // bridge-forwarded set-active is HELD (see below), not sent.
+  let initSent = false
+  let pendingActivation: BrowserToServer | null = null
+
   const activationBridge = (msg: unknown): void => {
-    if (typeof msg === 'object' && msg !== null && (msg as { type?: unknown }).type === 'cortex/set-active') {
-      wsChannel.send(msg as BrowserToServer)
+    if (typeof msg !== 'object' || msg === null || (msg as { type?: unknown }).type !== 'cortex/set-active') {
+      return
     }
+    // Reconstruct a CLEAN, primitive-only message rather than forwarding the
+    // caller's object (ZF0-1326 hardening). Forwarding it let a page-XSS caller
+    // attach a `toJSON`/getter that survives the `{ ...msg, token }` spread in
+    // send(): JSON.stringify would invoke it with `this` bound to the
+    // token-bearing object, exfiltrating the closure token AND returning a
+    // forged payload (e.g. an `edit`) that the server accepts because the token
+    // is genuine — a full XSS→RCE escalation defeating this bridge's entire
+    // purpose. Hard-coding `type` and coercing the fields to primitives strips
+    // any toJSON, getters, and extra properties.
+    const m = msg as { active?: unknown; tabId?: unknown }
+    const clean: BrowserToServer = {
+      type: 'cortex/set-active',
+      active: Boolean(m.active),
+      ...(typeof m.tabId === 'string' ? { tabId: m.tabId } : {}),
+    } as BrowserToServer
+    // Hold until init has been sent so the server (which drops non-init
+    // messages from an un-initialized socket) doesn't discard this early
+    // toggle — the WS-fallback activation-loss bug (cubic P2). send() flushes
+    // pendingActivation right after it forwards init.
+    if (!initSent) {
+      pendingActivation = clean
+      return
+    }
+    wsChannel.send(clean)
   }
 
   const wsChannel: CortexChannel = {
     send(msg: BrowserToServer): void {
       if (disposed) return
+      // Once init passes through, release any set-active the activationBridge
+      // parked pre-handshake — enqueued/sent AFTER init so the FIFO order
+      // reaching the server is init-then-set-active (the server adds the socket
+      // to its initialized set on init, so the trailing set-active passes the
+      // gate). Guarded so this runs exactly once per handshake.
+      if (msg.type === 'init' && !initSent) {
+        initSent = true
+        if (pendingActivation) {
+          const activation = pendingActivation
+          pendingActivation = null
+          this.send(msg)
+          this.send(activation)
+          return
+        }
+      }
       if (connected && ws?.readyState === WebSocket.OPEN) {
-        ws.send(JSON.stringify({ ...msg, token: capturedToken }))
+        // Defense in depth for the ZF0-1326 vector: strip a hostile toJSON
+        // before serialization so no msg reaching JSON.stringify can hijack it,
+        // even one that didn't come through activationBridge.
+        const payload: Record<string, unknown> = { ...msg, token: capturedToken }
+        delete payload.toJSON
+        ws.send(JSON.stringify(payload))
       } else {
         // Fix 5: cap queue size, drop oldest. Queue raw messages —
         // token is stamped at send time from the closure-captured value

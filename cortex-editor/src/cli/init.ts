@@ -375,13 +375,22 @@ function viteConfigUsesCortexEditor(
  *  are how real configs wrap imperatively — initializer-only resolution
  *  classifies such a correctly-wrapped config 'none' and init double-wraps
  *  it (delta review P2). */
-function valueExpressionsFor(sourceFile: SourceFile, name: string): Node[] {
+function valueExpressionsFor(sourceFile: SourceFile, name: string, beforePos?: number): Node[] {
   const values: Node[] = []
   const initializer = sourceFile.getVariableDeclaration(name)?.getInitializer()
   if (initializer) values.push(initializer)
   for (const binary of sourceFile.getDescendantsOfKind(SyntaxKind.BinaryExpression)) {
     if (binary.getOperatorToken().getKind() !== SyntaxKind.EqualsToken) continue
     if (binary.getLeft().getText().trim() !== name) continue
+    // Only assignments that FLOW INTO the export decide its value (cubic P2):
+    // (1) at module top level — a `name = …` inside a function/block reassigns
+    //     a different (shadowed) binding, not the exported one; (2) BEFORE the
+    //     export position — a post-export assignment cannot change what the
+    //     export already captured.
+    if (binary.getFirstAncestorByKind(SyntaxKind.FunctionDeclaration) ||
+        binary.getFirstAncestorByKind(SyntaxKind.ArrowFunction) ||
+        binary.getFirstAncestorByKind(SyntaxKind.FunctionExpression)) continue
+    if (beforePos !== undefined && binary.getStart() >= beforePos) continue
     values.push(binary.getRight())
   }
   return values
@@ -395,7 +404,7 @@ function valueExpressionsFor(sourceFile: SourceFile, name: string): Node[] {
  *  (withBundleAnalyzer(withCortex(cfg))) silently destroys the config.
  *  `visited` guards identifier cycles: `const config = config` parses cleanly
  *  and must classify 'none', not crash init with a RangeError (delta review). */
-function isOutermostWithCortexCall(sourceFile: SourceFile, expression: Node, visited: Set<string> = new Set()): boolean {
+function isOutermostWithCortexCall(sourceFile: SourceFile, expression: Node, exportPos: number, visited: Set<string> = new Set()): boolean {
   let expr: Node | undefined = expression
   for (;;) {
     const kind = expr.getKind()
@@ -409,13 +418,14 @@ function isOutermostWithCortexCall(sourceFile: SourceFile, expression: Node, vis
   if (expr.getKind() === SyntaxKind.Identifier && /^[A-Za-z_$][\w$]*$/.test(text)) {
     if (visited.has(text)) return false
     visited.add(text)
-    // Only the LAST value expression (source order) decides outermost-ness:
+    // The LAST value expression that flows into the export (source order,
+    // pre-export, module-scope only) decides outermost-ness:
     // `config = withCortex(c); config = plain(c)` exports the UNWRAPPED value,
     // and blessing any-assignment would make init skip the required wrapper
-    // (cubic P1). The earlier withCortex still registers via the 'inner'
-    // classifier, which warns instead.
-    const lastValue = valueExpressionsFor(sourceFile, text).at(-1)
-    return lastValue ? isOutermostWithCortexCall(sourceFile, lastValue, visited) : false
+    // (cubic P1); a post-export or function-scoped reassignment does not affect
+    // it (cubic P2). The earlier withCortex still registers as 'inner' → warns.
+    const lastValue = valueExpressionsFor(sourceFile, text, exportPos).at(-1)
+    return lastValue ? isOutermostWithCortexCall(sourceFile, lastValue, exportPos, visited) : false
   }
   if (expr.getKind() !== SyntaxKind.CallExpression) return false
   return expr.asKindOrThrow(SyntaxKind.CallExpression).getExpression().getText().trim() === 'withCortex'
@@ -432,7 +442,9 @@ function nextConfigUsesWithCortex(
   assertParseable(sourceFile, basename)
 
   const classify = (expression: Node): WithCortexUsage => {
-    if (isOutermostWithCortexCall(sourceFile, expression)) return 'outermost'
+    // The export expression's position bounds which assignments count as
+    // flowing into it (pre-export only) — see valueExpressionsFor.
+    if (isOutermostWithCortexCall(sourceFile, expression, expression.getStart())) return 'outermost'
     return configExpressionUsesNamedCall(sourceFile, expression, 'withCortex') ? 'inner' : 'none'
   }
 
@@ -635,6 +647,10 @@ export interface InitResult {
   detectedBundler: BundlerKind
   packageManager: PackageManager
   setupComplete: boolean
+  /** Next-only: outcome of the root-layout <CortexDevScripts/> injection. null
+   *  for non-Next apps. 'manual-required' means the config was wired but the
+   *  layout injection bailed and the user must add the element by hand. */
+  nextLayoutStatus: 'inserted' | 'already' | 'manual-required' | null
 }
 
 function createInstallRequest(
@@ -1035,6 +1051,13 @@ export async function runInit(
   let nextConfigCreated = false
   let webpackConfigInjected = false
   let adapterConfigured = false
+  // Next-only: the layout must render <CortexDevScripts/> for the editor to
+  // load. Injection can bail (no layout, no <body>, client layout, conflict) —
+  // in which case setup is NOT complete even though next.config was wired
+  // (cubic P2). Stays null for non-Next apps and true until the Next branch
+  // observes a bail.
+  let nextLayoutStatus: InitResult['nextLayoutStatus'] = null
+  let layoutReady = true
 
   if (!depFound) {
     const installRequest = createInstallRequest(packageManager, ['cortex-editor'], cwd)
@@ -1129,6 +1152,14 @@ export async function runInit(
           'remove the type-only import and add `import { CortexDevScripts } from \'cortex-editor/next\'` plus <CortexDevScripts /> inside <body> manually'
         )
         break
+    }
+    // Only 'inserted'/'already' leave the layout ready; every other status is a
+    // bail that requires a manual step, so setup is not complete (cubic P2).
+    if (layoutResult.status === 'inserted' || layoutResult.status === 'already') {
+      nextLayoutStatus = layoutResult.status
+    } else {
+      nextLayoutStatus = 'manual-required'
+      layoutReady = false
     }
   } else if (detectedBundler === 'vite') {
     if (webpackConfigPath && viteConfigPath) {
@@ -1232,7 +1263,7 @@ export async function runInit(
     }
   }
 
-  const setupComplete = depFound && adapterConfigured
+  const setupComplete = depFound && adapterConfigured && layoutReady
   if (setupComplete) {
     console.log('  Setup complete. Restart your AI agent so it picks up .mcp.json.')
     // Fire-and-forget telemetry — never let it throw or block init.
@@ -1247,6 +1278,15 @@ export async function runInit(
     } catch {
       // Swallow — telemetry must never break the init command.
     }
+  } else if (depFound && adapterConfigured && !layoutReady) {
+    // Config is wired; only the layout injection bailed. The user's manual fix
+    // (rendering <CortexDevScripts/> — possibly from a nested server component
+    // for a client root layout) is undetectable on re-run, so DON'T tell them
+    // to "re-run cortex init" — that would nag forever after a correct fix.
+    console.warn(
+      '  One manual step left: render <CortexDevScripts /> (from cortex-editor/next) ' +
+      'inside <body> of your root server layout. See the warning above for the specifics.'
+    )
   } else {
     console.warn('  Cortex setup incomplete. Resolve the warnings above, then re-run cortex init.')
   }
@@ -1267,5 +1307,6 @@ export async function runInit(
     detectedBundler,
     packageManager,
     setupComplete,
+    nextLayoutStatus,
   }
 }

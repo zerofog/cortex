@@ -693,15 +693,16 @@ export class CortexWebpackRuntime {
     try {
       await atomicWrite(
         injectionFilePath,
-        // lockNonce binds these values to THIS bridge's lock ownership:
-        // <CortexDevScripts/> compares it against the live lock's holder
-        // nonce, so a successor's acquire→publish window (live lock, but the
-        // files on disk are still the predecessor's) is detectable.
+        // lockGeneration binds these values to THIS bridge's exact lock
+        // acquisition: <CortexDevScripts/> compares it against the live lock's
+        // generation, so a successor's acquire→publish window (live lock, but
+        // the files on disk are still the predecessor's) is detectable — even
+        // when the successor is same-family and shares the family nonce.
         JSON.stringify({
           port: this.port,
           sessionId: session.sessionId,
           toggleShortcut: this.toggleShortcut,
-          lockNonce: this.runtimeId,
+          lockGeneration: session.lockGeneration,
         }),
         { mode: 0o600 },
       )

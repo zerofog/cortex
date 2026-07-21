@@ -67,6 +67,10 @@ export class CortexSession {
    *  no cortexDir was given (unit tests) or the `.cortex/` dir was unwritable
    *  (read-only root — degraded, lock-less, same as the pre-ZF0-1851 behavior). */
   private readonly lock: CortexLock | null
+  /** This session's lock GENERATION id — stamped into injection.json so
+   *  <CortexDevScripts/> can prove the discovery files it read belong to the
+   *  live lock's exact acquisition. null when lock-less (read-only root). */
+  get lockGeneration(): string | null { return this.lock?.generation ?? null }
   /** Best-effort discovery-file cleanup for natural-drain exits that never run
    *  dispose() (see constructor); detached again in dispose(). */
   private readonly onExitCleanup: () => void
@@ -164,7 +168,17 @@ export class CortexSession {
       }
     }
     process.once('exit', this.onExitCleanup)
-    this.lock = config.cortexDir ? CortexLock.acquire(config.cortexDir, config.lockOwnerNonce) : null
+    try {
+      this.lock = config.cortexDir ? CortexLock.acquire(config.cortexDir, config.lockOwnerNonce) : null
+    } catch (err) {
+      // A LockHeldError (or any acquire failure) aborts construction. Detach
+      // the exit handler we just registered — otherwise Next's conflict retry,
+      // which constructs a fresh session per attempt, leaks one 'exit' listener
+      // (and this partially-built session) per failed attempt, eventually
+      // tripping Node's MaxListenersExceededWarning (cubic P3).
+      process.removeListener('exit', this.onExitCleanup)
+      throw err
+    }
     this.token = randomUUID()
     this.sessionId = randomUUID()
     this.annotations = new AnnotationStore(

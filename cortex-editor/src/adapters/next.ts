@@ -229,6 +229,13 @@ interface BridgeState {
   terminating: boolean
   signalHandlersInstalled: boolean
   registeredSignalHandlers: Array<[NodeJS.Signals, () => void]>
+  /** Peer signal-listener count captured at install time. The re-raise guard
+   *  can't use listenerCount at DISPATCH: Node's onceWrapper self-removes
+   *  before invoking, so a peer's `process.once(SIGINT, gracefulShutdown)` has
+   *  already left the list when our handler runs — making us think we're the
+   *  sole listener and re-raise, delivering the signal to that peer a second
+   *  time and force-escalating its graceful shutdown (cubic P2). */
+  peerListenersAtInstall: Partial<Record<NodeJS.Signals, number>>
 }
 
 /** Bridge state lives on globalThis (NOT module scope), keyed by canonicalized
@@ -270,6 +277,7 @@ function bridgeStateFor(canonicalRoot: string): BridgeState {
       terminating: false,
       signalHandlersInstalled: false,
       registeredSignalHandlers: [],
+      peerListenersAtInstall: {},
     }
     registry.set(canonicalRoot, state)
   }
@@ -320,14 +328,22 @@ function handleTerminationSignal(signal: 'SIGINT' | 'SIGTERM', state: BridgeStat
     process.removeListener(signal, handler)
     return false
   })
-  // Re-raise ONLY when no other handler remains. Peer handlers (Next's own
+  // Re-raise ONLY when cortex was the SOLE listener. Peer handlers (Next's own
   // graceful-shutdown handler, a user's) already received the ORIGINAL signal in
   // this same dispatch, so re-raising would deliver it to them a second time —
-  // potentially escalating a graceful shutdown into a forced one. We re-raise
-  // solely to cover the case where cortex was the ONLY listener (a programmatic
-  // dev server), where suppressing Node's default die-on-signal would otherwise
-  // hang the process until a second Ctrl+C.
-  if (process.listenerCount(signal) === 0) {
+  // potentially escalating a graceful shutdown into a forced one.
+  //
+  // Peer presence is judged from the count captured at INSTALL, not dispatch:
+  // Node's onceWrapper self-removes before invoking, so a peer's
+  // `process.once(signal, …)` has already left the list by the time we run —
+  // `process.listenerCount(signal)` at dispatch would read 0 and we'd wrongly
+  // re-raise (cubic P2). We still AND in the live count so a peer that
+  // persisted (process.on) and is genuinely still present also suppresses the
+  // re-raise. Tradeoff: a peer present at install that deregistered before the
+  // signal now suppresses the re-raise too — costing one extra Ctrl+C in that
+  // obscure case, which is benign next to force-killing a peer's shutdown.
+  const peersAtInstall = state.peerListenersAtInstall[signal] ?? 0
+  if (process.listenerCount(signal) === 0 && peersAtInstall === 0) {
     process.kill(process.pid, signal)
   }
 }
@@ -336,6 +352,8 @@ function installSignalHandlers(state: BridgeState): void {
   if (state.signalHandlersInstalled) return
   state.signalHandlersInstalled = true
   for (const signal of ['SIGINT', 'SIGTERM'] as const) {
+    // Snapshot peers BEFORE adding ours — see handleTerminationSignal.
+    state.peerListenersAtInstall[signal] = process.listenerCount(signal)
     const handler = () => handleTerminationSignal(signal, state)
     state.registeredSignalHandlers.push([signal, handler])
     process.once(signal, handler)
@@ -529,7 +547,13 @@ function finalizePhaseConfig(nextConfig: NextConfig, options: CortexNextOptions,
   // armed immediately, regardless of when the async construction resolves.
   let runtimeId: string | undefined
   if (phase === PHASE_DEVELOPMENT_SERVER && process.env.CORTEX_BRIDGE !== '0') {
-    const state = bridgeStateFor(canonicalProjectRoot(options.projectRoot ?? process.cwd()))
+    const canonicalRoot = canonicalProjectRoot(options.projectRoot ?? process.cwd())
+    // Advertise the resolved root so <CortexDevScripts/> in RSC workers reads
+    // `.cortex/` from where the bridge WRITES it, not from a divergent cwd
+    // (cubic P2). Config eval precedes worker spawn, so children inherit it —
+    // the same parent→worker env contract the lock family relies on.
+    process.env.__CORTEX_PROJECT_ROOT = canonicalRoot
+    const state = bridgeStateFor(canonicalRoot)
     // ADOPT an inherited family nonce when one exists (we were spawned by a
     // cortex-advertising process — the same boot): using the SAME nonce as
     // our lock nonce makes family classification direction-independent. A

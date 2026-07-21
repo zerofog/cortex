@@ -5,6 +5,21 @@ import os from 'node:os'
 import { injectDevScriptsIntoLayout, runInit } from '../../src/cli/init.js'
 import { detectBundler, detectPackageManager } from '../../src/cli/detect.js'
 
+/** A minimal but complete App Router root layout, so a Next fixture reaches
+ *  setupComplete (config wired AND <CortexDevScripts/> injectable). Setup is
+ *  now correctly incomplete without an injectable layout (cubic P2), so
+ *  config-wrapping fixtures that assert setupComplete must include one. */
+const NEXT_LAYOUT = [
+  'export default function RootLayout({ children }: { children: React.ReactNode }) {',
+  '  return (',
+  '    <html lang="en">',
+  '      <body>{children}</body>',
+  '    </html>',
+  '  )',
+  '}',
+  '',
+].join('\n')
+
 /** Create a temp directory with optional files pre-seeded. */
 function makeTmpProject(files: Record<string, string> = {}): string {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cortex-init-'))
@@ -609,6 +624,7 @@ describe('cortex init', () => {
     ].join('\n')
     const dir = makeTmpProject({
       'package.json': '{"name":"test","type":"module","devDependencies":{"cortex-editor":"^0.1.0","next":"^16.0.0"}}',
+      'app/layout.tsx': NEXT_LAYOUT,
       'next.config.mjs': nextConfig,
     })
     try {
@@ -632,6 +648,7 @@ describe('cortex init', () => {
     ].join('\n')
     const dir = makeTmpProject({
       'package.json': '{"name":"test","devDependencies":{"cortex-editor":"^0.1.0","next":"^16.0.0"}}',
+      'app/layout.tsx': NEXT_LAYOUT,
       'next.config.cjs': nextConfig,
     })
     try {
@@ -654,6 +671,7 @@ describe('cortex init', () => {
     ].join('\n')
     const dir = makeTmpProject({
       'package.json': '{"name":"test","devDependencies":{"cortex-editor":"^0.1.0","next":"^16.0.0"}}',
+      'app/layout.tsx': NEXT_LAYOUT,
       'next.config.cjs': nextConfig,
     })
     try {
@@ -675,6 +693,7 @@ describe('cortex init', () => {
     ].join('\n')
     const dir = makeTmpProject({
       'package.json': '{"name":"test","devDependencies":{"cortex-editor":"^0.1.0","next":"^16.0.0"}}',
+      'app/layout.tsx': NEXT_LAYOUT,
       'next.config.cjs': nextConfig,
     })
     try {
@@ -700,6 +719,7 @@ describe('cortex init', () => {
     ].join('\n')
     const dir = makeTmpProject({
       'package.json': '{"name":"test","type":"module","devDependencies":{"cortex-editor":"^0.1.0","next":"^16.0.0","vite":"^6.0.0"}}',
+      'app/layout.tsx': NEXT_LAYOUT,
       'next.config.mjs': nextConfig,
       'vite.config.ts': viteConfig,
     })
@@ -771,6 +791,7 @@ describe('cortex init', () => {
     ].join('\n')
     const dir = makeTmpProject({
       'package.json': '{"name":"test","type":"module","devDependencies":{"cortex-editor":"^0.1.0","next":"^16.0.0"}}',
+      'app/layout.tsx': NEXT_LAYOUT,
       'next.config.mjs': nextConfig,
     })
     try {
@@ -800,6 +821,7 @@ describe('cortex init', () => {
     ].join('\n')
     const dir = makeTmpProject({
       'package.json': '{"name":"test","type":"module","devDependencies":{"cortex-editor":"^0.1.0","next":"^16.0.0"}}',
+      'app/layout.tsx': NEXT_LAYOUT,
       'next.config.mjs': nextConfig,
     })
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
@@ -825,6 +847,7 @@ describe('cortex init', () => {
     ].join('\n')
     const dir = makeTmpProject({
       'package.json': '{"name":"test","type":"module","devDependencies":{"cortex-editor":"^0.1.0","next":"^16.0.0"}}',
+      'app/layout.tsx': NEXT_LAYOUT,
       'next.config.mjs': nextConfig,
     })
     try {
@@ -849,6 +872,7 @@ describe('cortex init', () => {
     ].join('\n')
     const dir = makeTmpProject({
       'package.json': '{"name":"test","type":"module","devDependencies":{"cortex-editor":"^0.1.0","next":"^16.0.0"}}',
+      'app/layout.tsx': NEXT_LAYOUT,
       'next.config.mjs': nextConfig,
     })
     try {
@@ -869,6 +893,7 @@ describe('cortex init', () => {
     ].join('\n')
     const dir = makeTmpProject({
       'package.json': '{"name":"test","type":"module","devDependencies":{"cortex-editor":"^0.1.0","next":"^16.0.0"}}',
+      'app/layout.tsx': NEXT_LAYOUT,
       'next.config.mjs': nextConfig,
     })
     try {
@@ -897,6 +922,7 @@ describe('cortex init', () => {
     ].join('\n')
     const dir = makeTmpProject({
       'package.json': '{"name":"test","type":"module","devDependencies":{"cortex-editor":"^0.1.0","next":"^16.0.0"}}',
+      'app/layout.tsx': NEXT_LAYOUT,
       'next.config.mjs': nextConfig,
     })
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
@@ -924,6 +950,7 @@ describe('cortex init', () => {
     ].join('\n')
     const dir = makeTmpProject({
       'package.json': '{"name":"test","type":"module","devDependencies":{"cortex-editor":"^0.1.0","next":"^16.0.0"}}',
+      'app/layout.tsx': NEXT_LAYOUT,
       'next.config.mjs': nextConfig,
     })
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
@@ -942,6 +969,7 @@ describe('cortex init', () => {
     const nextConfig = 'export default () => ({ reactStrictMode: true })'
     const dir = makeTmpProject({
       'package.json': '{"name":"test","type":"module","devDependencies":{"cortex-editor":"^0.1.0","next":"^16.0.0"}}',
+      'app/layout.tsx': NEXT_LAYOUT,
       'next.config.mjs': nextConfig,
     })
     try {
@@ -963,6 +991,7 @@ describe('cortex init', () => {
     ].join('\n')
     const dir = makeTmpProject({
       'package.json': '{"name":"test","type":"module","devDependencies":{"cortex-editor":"^0.1.0","next":"^16.0.0"}}',
+      'app/layout.tsx': NEXT_LAYOUT,
       'next.config.mjs': nextConfig,
     })
     try {
@@ -1178,6 +1207,7 @@ describe('cortex init', () => {
       'Next.js',
       {
         'package.json': '{"name":"test","devDependencies":{"next":"^16.0.0"}}',
+        'app/layout.tsx': NEXT_LAYOUT,
         'next.config.mjs': 'export default { reactStrictMode: true }\n',
       },
       'next.config.mjs',
@@ -1424,6 +1454,7 @@ describe('cortex init', () => {
   it('wraps an existing Next.js config with withCortex instead of trying the Vite path', async () => {
     const dir = makeTmpProject({
       'package.json': '{"name":"test","devDependencies":{"cortex-editor":"^0.1.0","next":"^16.0.0"}}',
+      'app/layout.tsx': NEXT_LAYOUT,
       'next.config.mjs': 'export default { reactStrictMode: true }\n',
     })
     try {
@@ -1450,6 +1481,7 @@ describe('cortex init', () => {
     ].join('\n')
     const dir = makeTmpProject({
       'package.json': '{"name":"test","devDependencies":{"cortex-editor":"^0.1.0","next":"^16.0.0"}}',
+      'app/layout.tsx': NEXT_LAYOUT,
       'next.config.mjs': nextConfig,
     })
     try {
@@ -1473,6 +1505,7 @@ describe('cortex init', () => {
     ].join('\n')
     const dir = makeTmpProject({
       'package.json': '{"name":"test","devDependencies":{"cortex-editor":"^0.1.0","next":"^16.0.0"}}',
+      'app/layout.tsx': NEXT_LAYOUT,
       'next.config.mjs': nextConfig,
     })
     try {
@@ -1498,6 +1531,7 @@ describe('cortex init', () => {
     ].join('\n')
     const dir = makeTmpProject({
       'package.json': '{"name":"test","devDependencies":{"cortex-editor":"^0.1.0","next":"^16.0.0"}}',
+      'app/layout.tsx': NEXT_LAYOUT,
       'next.config.mjs': nextConfig,
     })
     try {
@@ -1522,6 +1556,7 @@ describe('cortex init', () => {
     ].join('\n')
     const dir = makeTmpProject({
       'package.json': '{"name":"test","devDependencies":{"cortex-editor":"^0.1.0","next":"^16.0.0"}}',
+      'app/layout.tsx': NEXT_LAYOUT,
       'next.config.mjs': nextConfig,
     })
     try {
@@ -1546,6 +1581,7 @@ describe('cortex init', () => {
     ].join('\n')
     const dir = makeTmpProject({
       'package.json': '{"name":"test","devDependencies":{"cortex-editor":"^0.1.0","next":"^16.0.0"}}',
+      'app/layout.tsx': NEXT_LAYOUT,
       'next.config.js': nextConfig,
     })
     try {
@@ -1569,6 +1605,7 @@ describe('cortex init', () => {
   it('wraps a CommonJS Next.js config with withCortex', async () => {
     const dir = makeTmpProject({
       'package.json': '{"name":"test","devDependencies":{"cortex-editor":"^0.1.0","next":"^16.0.0"}}',
+      'app/layout.tsx': NEXT_LAYOUT,
       'next.config.js': 'module.exports = { reactStrictMode: true }\n',
     })
     try {
@@ -1594,6 +1631,7 @@ describe('cortex init', () => {
     ].join('\n')
     const dir = makeTmpProject({
       'package.json': '{"name":"test","devDependencies":{"cortex-editor":"^0.1.0","next":"^16.0.0"}}',
+      'app/layout.tsx': NEXT_LAYOUT,
       'next.config.js': nextConfig,
     })
     try {
@@ -1618,6 +1656,7 @@ describe('cortex init', () => {
     ].join('\n')
     const dir = makeTmpProject({
       'package.json': '{"name":"test","devDependencies":{"cortex-editor":"^0.1.0","next":"^16.0.0"}}',
+      'app/layout.tsx': NEXT_LAYOUT,
       'next.config.js': nextConfig,
     })
     try {
@@ -1642,6 +1681,7 @@ describe('cortex init', () => {
     const originalConfig = 'module.exports = { reactStrictMode: true }\n'
     const dir = makeTmpProject({
       'package.json': '{"name":"test","devDependencies":{"cortex-editor":"^0.1.0","next":"^16.0.0"}}',
+      'app/layout.tsx': NEXT_LAYOUT,
       'next.config.cjs': originalConfig,
     })
     try {
@@ -1670,6 +1710,7 @@ describe('cortex init', () => {
     ].join('\n')
     const dir = makeTmpProject({
       'package.json': '{"name":"test","devDependencies":{"cortex-editor":"^0.1.0","next":"^16.0.0"}}',
+      'app/layout.tsx': NEXT_LAYOUT,
       'next.config.mjs': nextConfig,
     })
     try {
@@ -1696,6 +1737,7 @@ describe('cortex init', () => {
     ].join('\n')
     const dir = makeTmpProject({
       'package.json': '{"name":"test","devDependencies":{"cortex-editor":"^0.1.0","next":"^16.0.0"}}',
+      'app/layout.tsx': NEXT_LAYOUT,
       'next.config.js': nextConfig,
     })
     try {
@@ -1716,6 +1758,7 @@ describe('cortex init', () => {
   it('creates a Next.js config when Next is detected without a config file', async () => {
     const dir = makeTmpProject({
       'package.json': '{"name":"test","devDependencies":{"cortex-editor":"^0.1.0","next":"^16.0.0"}}',
+      'app/layout.tsx': NEXT_LAYOUT,
     })
     try {
       const result = await runInit(dir)
@@ -1730,6 +1773,27 @@ describe('cortex init', () => {
     } finally {
       cleanup(dir)
     }
+  })
+
+  it('does NOT report setupComplete when the config is wired but layout injection bails (cubic P2)', () => {
+    // A Next app whose root layout has no <body> — config wraps fine, but
+    // <CortexDevScripts/> can't be injected, so the editor would never load.
+    // Reporting "Setup complete" there is a lie; setup must be flagged
+    // incomplete with the manual-step status.
+    const dir = makeTmpProject({
+      'package.json': '{"name":"test","devDependencies":{"cortex-editor":"^0.1.0","next":"^16.0.0"}}',
+      'next.config.mjs': 'export default { reactStrictMode: true }\n',
+      'app/layout.tsx': 'export default function RootLayout() { return null }\n',
+    })
+    return runInit(dir).then((result) => {
+      try {
+        expect(result.nextConfigInjected).toBe(true)
+        expect(result.nextLayoutStatus).toBe('manual-required')
+        expect(result.setupComplete).toBe(false)
+      } finally {
+        cleanup(dir)
+      }
+    })
   })
 
   it.each([
@@ -1843,38 +1907,58 @@ describe('injectDevScriptsIntoLayout', () => {
 
   it('inserts the import and element inside <body> of app/layout.tsx', () => {
     const dir = makeTmpProject({ 'app/layout.tsx': LAYOUT })
-    const result = injectDevScriptsIntoLayout(dir)
-    expect(result.status).toBe('inserted')
-    const content = fs.readFileSync(path.join(dir, 'app', 'layout.tsx'), 'utf8')
-    expect(content.startsWith("import { CortexDevScripts } from 'cortex-editor/next'")).toBe(true)
-    expect(content).toContain('<body className="antialiased">\n        <CortexDevScripts />')
+    try {
+      const result = injectDevScriptsIntoLayout(dir)
+      expect(result.status).toBe('inserted')
+      const content = fs.readFileSync(path.join(dir, 'app', 'layout.tsx'), 'utf8')
+      expect(content.startsWith("import { CortexDevScripts } from 'cortex-editor/next'")).toBe(true)
+      expect(content).toContain('<body className="antialiased">\n        <CortexDevScripts />')
+    } finally {
+      cleanup(dir)
+    }
   })
 
   it('finds src/app/layout.tsx when app/ is nested under src/', () => {
     const dir = makeTmpProject({ 'src/app/layout.tsx': LAYOUT })
-    const result = injectDevScriptsIntoLayout(dir)
-    expect(result.status).toBe('inserted')
-    expect(fs.readFileSync(path.join(dir, 'src', 'app', 'layout.tsx'), 'utf8')).toContain('<CortexDevScripts />')
+    try {
+      const result = injectDevScriptsIntoLayout(dir)
+      expect(result.status).toBe('inserted')
+      expect(fs.readFileSync(path.join(dir, 'src', 'app', 'layout.tsx'), 'utf8')).toContain('<CortexDevScripts />')
+    } finally {
+      cleanup(dir)
+    }
   })
 
   it('is idempotent — reports already when the component is present', () => {
     const dir = makeTmpProject({ 'app/layout.tsx': LAYOUT })
-    injectDevScriptsIntoLayout(dir)
-    const afterFirst = fs.readFileSync(path.join(dir, 'app', 'layout.tsx'), 'utf8')
-    expect(injectDevScriptsIntoLayout(dir).status).toBe('already')
-    expect(fs.readFileSync(path.join(dir, 'app', 'layout.tsx'), 'utf8')).toBe(afterFirst)
+    try {
+      injectDevScriptsIntoLayout(dir)
+      const afterFirst = fs.readFileSync(path.join(dir, 'app', 'layout.tsx'), 'utf8')
+      expect(injectDevScriptsIntoLayout(dir).status).toBe('already')
+      expect(fs.readFileSync(path.join(dir, 'app', 'layout.tsx'), 'utf8')).toBe(afterFirst)
+    } finally {
+      cleanup(dir)
+    }
   })
 
   it('reports not-found when no root layout exists', () => {
     const dir = makeTmpProject({})
-    expect(injectDevScriptsIntoLayout(dir).status).toBe('not-found')
+    try {
+      expect(injectDevScriptsIntoLayout(dir).status).toBe('not-found')
+    } finally {
+      cleanup(dir)
+    }
   })
 
   it('bails without writing when the layout has no <body> tag', () => {
     const custom = 'export default function RootLayout() { return null }\n'
     const dir = makeTmpProject({ 'app/layout.tsx': custom })
-    expect(injectDevScriptsIntoLayout(dir).status).toBe('no-body-tag')
-    expect(fs.readFileSync(path.join(dir, 'app', 'layout.tsx'), 'utf8')).toBe(custom)
+    try {
+      expect(injectDevScriptsIntoLayout(dir).status).toBe('no-body-tag')
+      expect(fs.readFileSync(path.join(dir, 'app', 'layout.tsx'), 'utf8')).toBe(custom)
+    } finally {
+      cleanup(dir)
+    }
   })
 
   it('inserts correctly when <body> has a > inside an attribute expression', () => {

@@ -27,9 +27,10 @@ function writeDiscovery(
   fs.writeFileSync(path.join(cortexDir, 'token'), overrides.token ?? 'test-token-value')
   fs.writeFileSync(
     path.join(cortexDir, 'injection.json'),
-    // lockNonce matches the default lock's nonce below, so the default fixture
-    // exercises the owner-binding MATCH path on every injecting test.
-    overrides.injection ?? JSON.stringify({ sessionId: 'session-abc', toggleShortcut: '$mod+Shift+Period', lockNonce: 'test-nonce' })
+    // lockGeneration matches the default lock's generation below, so the
+    // default fixture exercises the owner-binding MATCH path on every
+    // injecting test.
+    overrides.injection ?? JSON.stringify({ sessionId: 'session-abc', toggleShortcut: '$mod+Shift+Period', lockGeneration: 'test-gen' })
   )
   // The component only injects when a LIVE bridge owns the discovery files —
   // the bridge's `.cortex/.lock` is that ownership record. Default fixture:
@@ -37,7 +38,7 @@ function writeDiscovery(
   if (overrides.lock !== false) {
     fs.writeFileSync(
       path.join(cortexDir, '.lock'),
-      overrides.lock ?? JSON.stringify({ pid: process.pid, nonce: 'test-nonce', startedAt: Date.now() }),
+      overrides.lock ?? JSON.stringify({ pid: process.pid, nonce: 'test-nonce', generation: 'test-gen', startedAt: Date.now() }),
     )
   }
 }
@@ -284,18 +285,40 @@ describe('CortexDevScripts', () => {
     expect(warn.mock.calls[0]![0]).toContain('lock corrupt')
   })
 
-  it('refuses to inject when injection.json was written by a DIFFERENT owner than the live lock (cubic P2)', () => {
+  it('refuses to inject when injection.json was written by a DIFFERENT generation than the live lock (cubic P2)', () => {
     // Handoff window: a successor acquires the lock BEFORE publishing its
     // files, so the on-disk values are the predecessor's while the lock is
-    // live. The stamped lockNonce exposes the generation mismatch — the
-    // freshness re-read alone cannot (the stale file is not changing).
+    // live. The stamped lockGeneration exposes the mismatch — the freshness
+    // re-read alone cannot (the stale file is not changing).
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
     writeDiscovery({
-      injection: JSON.stringify({ port: 4321, sessionId: 'old-session', toggleShortcut: '$mod+Shift+Period', lockNonce: 'previous-owner' }),
-      lock: JSON.stringify({ pid: process.pid, nonce: 'new-owner', startedAt: Date.now() }),
+      injection: JSON.stringify({ port: 4321, sessionId: 'old-session', toggleShortcut: '$mod+Shift+Period', lockGeneration: 'previous-gen' }),
+      lock: JSON.stringify({ pid: process.pid, nonce: 'new-owner', generation: 'successor-gen', startedAt: Date.now() }),
     })
 
     expect(CortexDevScripts({ projectRoot: root })).toBeNull()
     expect(warn.mock.calls[0]![0]).toContain('different bridge generation')
+  })
+
+  it('INJECTS for a same-family successor whose generation matches, even when the family nonce is shared (cubic P1)', () => {
+    // The critical case the generation split fixes: a same-family successor
+    // shares the family NONCE with the crashed predecessor, so a nonce-based
+    // check would false-match the predecessor's stale files. Generation is
+    // per-acquire and unique, so the successor's own files (matching
+    // generation) still inject while the predecessor's would not.
+    writeDiscovery({
+      injection: JSON.stringify({ port: 4321, sessionId: 's', toggleShortcut: '$mod+Shift+Period', lockGeneration: 'gen-successor' }),
+      lock: JSON.stringify({ pid: process.pid, nonce: 'shared-family-nonce', generation: 'gen-successor', startedAt: Date.now() }),
+    })
+
+    expect(CortexDevScripts({ projectRoot: root })).not.toBeNull()
+  })
+
+  it('reads discovery files from __CORTEX_PROJECT_ROOT when no projectRoot prop is given (cubic P2)', () => {
+    // The bridge advertises its resolved root via env so RSC workers (which
+    // default to cwd) read `.cortex/` from where the bridge WROTE it.
+    writeDiscovery()
+    vi.stubEnv('__CORTEX_PROJECT_ROOT', root)
+    expect(CortexDevScripts({})).not.toBeNull()
   })
 })

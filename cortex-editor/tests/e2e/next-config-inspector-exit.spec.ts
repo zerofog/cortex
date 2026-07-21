@@ -74,18 +74,25 @@ test('a config-inspecting process that starts the bridge exits on event-loop dra
       client.connect(bridgePort, '127.0.0.1', () => resolve())
     })
 
-    const exitCode = await new Promise<number | null>((resolve, reject) => {
-      const timer = setTimeout(() => {
-        child.kill('SIGKILL')
-        reject(new Error(
-          `config-inspector process did not exit — the bridge is pinning its event loop (zombie regression).\n${output}`,
-        ))
-      }, 30_000)
-      child.on('exit', (code) => { clearTimeout(timer); resolve(code) })
-      child.on('error', (err) => { clearTimeout(timer); reject(err) })
-    })
+    let exitCode: number | null
+    try {
+      exitCode = await new Promise<number | null>((resolve, reject) => {
+        const timer = setTimeout(() => {
+          child.kill('SIGKILL')
+          reject(new Error(
+            `config-inspector process did not exit — the bridge is pinning its event loop (zombie regression).\n${output}`,
+          ))
+        }, 30_000)
+        child.on('exit', (code) => { clearTimeout(timer); resolve(code) })
+        child.on('error', (err) => { clearTimeout(timer); reject(err) })
+      })
+    } finally {
+      // Always clean up the held socket — including the timeout/kill reject
+      // path this test's failure case exercises (cubic P3), so a zombie
+      // regression doesn't also leak this socket until GC.
+      client.destroy()
+    }
 
-    client.destroy()
     expect(exitCode, output).toBe(0)
     // (Startup falsifiability is proven ABOVE: the port-file poll succeeded
     // while the child was alive, so the bridge fully started — lazy import →

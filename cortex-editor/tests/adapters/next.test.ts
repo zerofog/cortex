@@ -554,6 +554,21 @@ describe('withCortex termination handling', () => {
     expect(killSpy).toHaveBeenCalledWith(process.pid, 'SIGTERM')
   })
 
+  it('does NOT re-raise when a peer was present at install even if it self-removed by dispatch (cubic P2)', () => {
+    // A peer's process.once handler self-removes (Node onceWrapper) BEFORE our
+    // handler runs, so listenerCount at DISPATCH reads 0 — which would make us
+    // wrongly re-raise and force-escalate the peer's graceful shutdown. The fix
+    // snapshots peer presence at INSTALL. Simulate: 1 peer at install, 0 at
+    // dispatch → cortex must NOT re-raise.
+    const listenerCount = vi.spyOn(process, 'listenerCount').mockReturnValue(1)
+    stubBridge()
+    evalPhase(withCortex({}), DEV_PHASE) // installs handlers; snapshots peers=1
+
+    listenerCount.mockReturnValue(0) // the once-peer self-removed this dispatch
+    onceHandlers['SIGINT']!()
+    expect(killSpy).not.toHaveBeenCalled()
+  })
+
   it('disposes rather than starts a bridge whose async construction was in flight at termination', async () => {
     vi.spyOn(process, 'listenerCount').mockReturnValue(1) // suppress re-raise
     const start = vi.fn(async () => {})

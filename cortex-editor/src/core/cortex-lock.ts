@@ -39,11 +39,22 @@ interface LockFileContents {
   /** OS process id of the cortex instance that owns the lock — cross-process
    *  liveness key (is the holder alive → conflict, vs dead → stale + reclaim). */
   pid: number
-  /** Unique per-CortexLock-instance id. pid alone is insufficient: a Vite dev
-   *  server restarts `configureServer` IN-PROCESS, so the old and new sessions
-   *  share a pid. release() matches on nonce so the old session's delayed
-   *  release cannot unlink the new session's freshly-acquired lock file. */
+  /** FAMILY nonce — identifies the boot family for same-boot conflict
+   *  classification (LockHeldError.sameFamily). Deliberately SHAREABLE: the
+   *  Next adapter passes its runtimeId here and advertises it to child
+   *  processes, so a same-boot sibling recognizes the holder. Because it is
+   *  shared, it must NOT be used to prove which GENERATION wrote a file — see
+   *  `generation`. */
   nonce: string
+  /** GENERATION id — fresh per acquire, never shared. Identifies THIS exact
+   *  lock acquisition. Used by release() (only unlink the file this instance
+   *  created) and by the discovery-ownership check (<CortexDevScripts/>
+   *  matches injection.json's generation to the live lock's, so a same-family
+   *  successor reclaiming a crashed predecessor's lock — same nonce — is still
+   *  distinguished during its acquire→publish window). Optional in the type
+   *  for backward-compat with pre-generation lock files (readLockFile falls
+   *  back to the nonce). */
+  generation: string
   /** Date.now() at acquisition — purely diagnostic (helps a human reading the file). */
   startedAt: number
 }
@@ -107,7 +118,10 @@ function readLockFile(lockPath: string): LockFileContents | null {
       parsed.pid > 0 &&
       typeof parsed.nonce === 'string'
     ) {
-      return { pid: parsed.pid, nonce: parsed.nonce, startedAt: parsed.startedAt ?? 0 }
+      // generation is newer than nonce; a pre-generation lock file (mid-upgrade)
+      // falls back to the nonce, matching the old injection.json's lockNonce.
+      const generation = typeof parsed.generation === 'string' ? parsed.generation : parsed.nonce
+      return { pid: parsed.pid, nonce: parsed.nonce, generation, startedAt: parsed.startedAt ?? 0 }
     }
     return null
   } catch {
@@ -237,12 +251,13 @@ export type CortexLockLiveness = 'live' | 'stale' | 'missing' | 'corrupt'
 
 export interface CortexLockInspection {
   liveness: CortexLockLiveness
-  /** Owner nonce when the lock file is readable; null for missing/corrupt.
-   *  Consumers use it to bind discovery-file CONTENTS to the live owner: the
-   *  bridge stamps this nonce into injection.json, so files written by a
-   *  predecessor generation are detectable even while a successor's lock is
-   *  live (the acquire→publish handoff window). */
-  holderNonce: string | null
+  /** Owner GENERATION when the lock file is readable; null for missing/corrupt.
+   *  Consumers bind discovery-file CONTENTS to the live owner by matching the
+   *  generation the bridge stamped into injection.json — so files written by a
+   *  predecessor generation are detected even while a successor's lock is live
+   *  (the acquire→publish handoff window), INCLUDING a same-family successor
+   *  that reuses the shared family nonce. */
+  holderGeneration: string | null
 }
 
 export function inspectCortexLock(cortexDir: string): CortexLockInspection {
@@ -250,11 +265,11 @@ export function inspectCortexLock(cortexDir: string): CortexLockInspection {
   try {
     fs.accessSync(lockPath)
   } catch {
-    return { liveness: 'missing', holderNonce: null }
+    return { liveness: 'missing', holderGeneration: null }
   }
   const holder = readLockFile(lockPath)
-  if (holder === null) return { liveness: 'corrupt', holderNonce: null }
-  return { liveness: isProcessAlive(holder.pid) ? 'live' : 'stale', holderNonce: holder.nonce }
+  if (holder === null) return { liveness: 'corrupt', holderGeneration: null }
+  return { liveness: isProcessAlive(holder.pid) ? 'live' : 'stale', holderGeneration: holder.generation }
 }
 
 export function checkCortexLockLiveness(cortexDir: string): CortexLockLiveness {
@@ -265,11 +280,17 @@ export class CortexLock {
   private released = false
   private readonly onExit: () => void
 
+  /** This acquisition's generation id — exposed so the session can stamp it
+   *  into injection.json for the discovery-ownership check. */
+  readonly generation: string
+
   private constructor(
     private readonly lockPath: string,
     private readonly nonce: string,
     private readonly registryKey: string,
+    generation: string,
   ) {
+    this.generation = generation
     // Best-effort synchronous release for exit paths the adapter's
     // SIGTERM/SIGINT → dispose() handler didn't already cover (e.g. an
     // uncaught-exception exit). `process.on('exit')` callbacks may only do
@@ -368,7 +389,7 @@ export class CortexLock {
         '[cortex] Filesystem does not support atomic lock placement — using best-effort marker mode:',
         reason instanceof Error ? reason.message : String(reason),
       )
-      const lock = new CortexLock(lockPath, contents.nonce, registryKey)
+      const lock = new CortexLock(lockPath, contents.nonce, registryKey, contents.generation)
       activeLocks().set(registryKey, lock)
       addFamilyNonce(contents.nonce)
       return lock
@@ -394,7 +415,10 @@ export class CortexLock {
       // into a spurious LockHeldError(-1) on a FREE lock. Only the lock file
       // CONTENT carries the owner nonce — temp naming needs uniqueness alone.
       const tmpPath = `${lockPath}.creating-${process.pid}-${randomUUID()}`
-      const contents: LockFileContents = { pid: process.pid, nonce, startedAt: Date.now() }
+      // generation is ALWAYS fresh (never the shared ownerNonce) — it is the
+      // per-acquisition identity release() and the discovery-ownership check
+      // rely on.
+      const contents: LockFileContents = { pid: process.pid, nonce, generation: randomUUID(), startedAt: Date.now() }
       try {
         fs.writeFileSync(tmpPath, JSON.stringify(contents), { mode: 0o600, flag: 'wx' })
       } catch (writeErr) {
@@ -425,7 +449,7 @@ export class CortexLock {
         try { fs.unlinkSync(tmpPath) } catch { /* harmless */ }
       }
       if (linked) {
-        const lock = new CortexLock(lockPath, nonce, registryKey)
+        const lock = new CortexLock(lockPath, nonce, registryKey, contents.generation)
         activeLocks().set(registryKey, lock)
         // Advertise ownership to processes we spawn from here on (see FAMILY_ENV).
         addFamilyNonce(nonce)
@@ -486,7 +510,10 @@ export class CortexLock {
     removeFamilyNonce(this.nonce)
     process.removeListener('exit', this.onExit)
     try {
-      if (readLockFile(this.lockPath)?.nonce === this.nonce) {
+      // Match on GENERATION, not the (shareable) family nonce: only unlink the
+      // exact acquisition this instance created, so a same-family successor's
+      // lock is never removed by a predecessor's delayed release.
+      if (readLockFile(this.lockPath)?.generation === this.generation) {
         fs.unlinkSync(this.lockPath)
       }
     } catch {

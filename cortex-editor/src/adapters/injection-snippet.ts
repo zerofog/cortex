@@ -22,13 +22,17 @@ export const DEFAULT_TOGGLE_SHORTCUT = '$mod+Shift+Period'
  *  leaf module (with validateToggleShortcut) so next.ts can validate a shortcut
  *  WITHOUT statically importing webpack.ts's heavy graph. webpack.ts re-exports
  *  validateToggleShortcut for its own consumers. */
-const VALID_SHORTCUT = /^\$mod\+(?:Shift\+)?(?:Alt\+)?(?:Key[A-Z]|Digit\d|Period|Comma|Slash|Backslash|BracketLeft|BracketRight|Semicolon|Quote|Backquote|Minus|Equal)$/
+// Shift and Alt are accepted in EITHER order — the docs show `$mod+Alt+Shift`
+// while the message example shows `$mod+Shift+Period`, and rejecting one order
+// surprised users (cubic P3). Both canonical orderings (and each modifier
+// alone) are permitted; the KeyCode is required last.
+const VALID_SHORTCUT = /^\$mod\+(?:Shift\+Alt\+|Alt\+Shift\+|Shift\+|Alt\+)?(?:Key[A-Z]|Digit\d|Period|Comma|Slash|Backslash|BracketLeft|BracketRight|Semicolon|Quote|Backquote|Minus|Equal)$/
 
 export function validateToggleShortcut(shortcut: string): string {
   if (!VALID_SHORTCUT.test(shortcut)) {
     throw new Error(
       `[cortex] Invalid toggleShortcut: "${shortcut}". ` +
-      `Expected format: "$mod+[Alt+][Shift+]KeyCode" (e.g., "$mod+Shift+Period"). ` +
+      `Expected format: "$mod+[Shift+][Alt+]KeyCode" (Shift/Alt optional, either order; e.g., "$mod+Shift+Period"). ` +
       `See https://developer.mozilla.org/en-US/docs/Web/API/KeyboardEvent/code`,
     )
   }

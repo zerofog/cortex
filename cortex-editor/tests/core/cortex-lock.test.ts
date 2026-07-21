@@ -48,6 +48,38 @@ describe('CortexLock', () => {
     expect(fs.existsSync(lockPath)).toBe(false)
   })
 
+  it('mints a FRESH generation per acquire even with a fixed ownerNonce (family-shared nonce)', () => {
+    // Same-family bridges pass the SAME ownerNonce (adopted family nonce), so
+    // the nonce cannot distinguish acquisitions. generation must be unique per
+    // acquire so the discovery-ownership check and release() can tell a
+    // successor's lock from a crashed predecessor's (cubic P1).
+    const first = CortexLock.acquire(cortexDir, 'shared-family-nonce')!
+    const firstGen = first.generation
+    const firstOnDisk = JSON.parse(fs.readFileSync(lockPath, 'utf8')) as { nonce: string; generation: string }
+    expect(firstOnDisk.nonce).toBe('shared-family-nonce')
+    expect(firstOnDisk.generation).toBe(firstGen)
+    first.release()
+
+    const second = CortexLock.acquire(cortexDir, 'shared-family-nonce')!
+    held = second
+    expect(second.generation).not.toBe(firstGen) // fresh generation despite same nonce
+    const secondOnDisk = JSON.parse(fs.readFileSync(lockPath, 'utf8')) as { nonce: string; generation: string }
+    expect(secondOnDisk.nonce).toBe('shared-family-nonce')
+    expect(secondOnDisk.generation).toBe(second.generation)
+  })
+
+  it('release() only unlinks a lock whose GENERATION matches — a stale predecessor cannot remove a successor', () => {
+    const predecessor = CortexLock.acquire(cortexDir, 'shared-family-nonce')!
+    // Simulate a successor replacing the lock file with a fresh generation but
+    // the SAME family nonce (what a same-family reclaim produces).
+    fs.writeFileSync(lockPath, JSON.stringify({ pid: process.pid, nonce: 'shared-family-nonce', generation: 'successor-gen', startedAt: Date.now() }))
+    predecessor.release() // its generation no longer matches on disk
+    // The successor's lock file must survive the predecessor's delayed release.
+    expect(fs.existsSync(lockPath)).toBe(true)
+    expect((JSON.parse(fs.readFileSync(lockPath, 'utf8')) as { generation: string }).generation).toBe('successor-gen')
+    fs.unlinkSync(lockPath)
+  })
+
   it('Vite in-process restart handoff: release-then-reacquire succeeds; old release no-ops', () => {
     // Vite's configureServer re-entry: the adapter calls releaseLockForHandoff
     // on the old session BEFORE constructing the new one. The new acquire then

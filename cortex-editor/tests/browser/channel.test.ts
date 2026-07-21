@@ -288,6 +288,60 @@ describe('createWebSocketChannel', () => {
     expect(sent.token).toBe('ws-token-abc')
   })
 
+  it('neutralizes a toJSON hijack through the __cortex_send__ activation bridge (XSS→RCE, ZF0-1326)', () => {
+    // A page-XSS caller passes a set-active message carrying a hostile toJSON.
+    // Pre-fix, the object was forwarded and `{ ...msg, token }` preserved the
+    // toJSON, which JSON.stringify then ran with `this` bound to the
+    // token-bearing object — exfiltrating the token AND forging an `edit`
+    // command the server accepts. The bridge must reconstruct a clean message
+    // so the bytes on the wire are exactly a set-active with no forgery.
+    window.__CORTEX_TOKEN__ = 'SECRET-REAL-TOKEN'
+    const channel = createWebSocketChannel({ url: 'ws://test' })
+    const ws = mockInstances[0]!
+    let leaked = ''
+    // Hostile early toggle through the window-exposed bridge (held pre-init).
+    ;(window.__cortex_send__ as (m: unknown) => void)({
+      type: 'cortex/set-active',
+      active: true,
+      toJSON() {
+        leaked = (this as { token?: string }).token ?? ''
+        return { type: 'edit', forged: true, token: (this as { token?: string }).token }
+      },
+    })
+    // Handshake goes through the channel (not the bridge) → releases the held
+    // activation after init.
+    channel.send({ type: 'init' } as never)
+    ws._simulateOpen()
+
+    const wirePayloads = ws.send.mock.calls.map((c) => JSON.parse(c[0] as string))
+    // No payload is a forged edit, and the token was never reachable by toJSON.
+    expect(wirePayloads.some((p) => p.type === 'edit' || p.forged)).toBe(false)
+    expect(leaked).toBe('')
+    const setActive = wirePayloads.find((p) => p.type === 'cortex/set-active')
+    expect(setActive).toBeDefined()
+    expect(setActive.active).toBe(true)
+    // Order: init reached the wire before the released set-active.
+    const initIdx = wirePayloads.findIndex((p) => p.type === 'init')
+    const activeIdx = wirePayloads.findIndex((p) => p.type === 'cortex/set-active')
+    expect(initIdx).toBeGreaterThanOrEqual(0)
+    expect(activeIdx).toBeGreaterThan(initIdx)
+  })
+
+  it('holds a pre-handshake set-active until init passes through — never delivered pre-handshake (cubic P2)', () => {
+    // WS-fallback: an early toggle press reaches the activation bridge before
+    // CortexApp sends init. The server drops non-init messages from an
+    // uninitialized socket, so the bridge must NOT deliver set-active until
+    // after init. With no init sent, it never reaches the wire.
+    window.__CORTEX_TOKEN__ = 'tok'
+    createWebSocketChannel({ url: 'ws://test' })
+    const ws = mockInstances[0]!
+    ;(window.__cortex_send__ as (m: unknown) => void)({ type: 'cortex/set-active', active: true, tabId: 't1' })
+    ws._simulateOpen() // connect WITHOUT ever sending init
+
+    const payloads = ws.send.mock.calls.map((c) => JSON.parse(c[0] as string))
+    expect(payloads.some((p) => p.type === 'cortex/set-active')).toBe(false)
+  })
+
   it('uses the closure-captured token across a real close→reconnect→flush cycle', () => {
     // The previous "reconnect-flush" test was subsumed by the closure-capture
     // assertion above — both queue-flush and immediate-send branches use the
