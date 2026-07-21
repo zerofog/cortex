@@ -1,0 +1,41 @@
+cortex-editor/src/cli/init.ts
+  s_bbde566b990012::t_f6478236e6b723 412-418
+cortex-editor/tests/cli/init.test.ts
+  s_bbde566b990012::t_bb996f8590a392 786-816
+cortex-editor/src/adapters/next-dev-scripts.ts
+  s_bbde566b990012::t_08db39cced46ae 23
+  s_bbde566b990012::t_1b2d74f36e8d40 144-145,148,154-165
+  s_bbde566b990012::t_b4ebd23134504a 6
+  s_bbde566b990012::t_c458d2163ae892 166-167
+cortex-editor/src/adapters/webpack.ts
+  s_bbde566b990012::t_759de13d57c6b0 543-549
+  s_bbde566b990012::t_86736443a3b80c 696-705
+  s_bbde566b990012::t_4e14f8011c7391 1303-1311
+  s_bbde566b990012::t_deb0616e1297e9 404-406
+cortex-editor/src/core/session.ts
+  s_bbde566b990012::t_234102ca452bcc 151-159,167
+cortex-editor/tests/adapters/next-dev-scripts.test.ts
+  s_bbde566b990012::t_099ff25d25ed94 286-300
+  s_bbde566b990012::t_634b5daaf966ae 30-32
+cortex-editor/tests/adapters/webpack.test.ts
+  s_bbde566b990012::t_555fc01d1a1d2b 267-292
+cortex-editor/src/core/cortex-lock.ts
+  s_bbde566b990012::t_ee9b3b1f859341 238-248,253,256-261
+  s_bbde566b990012::t_c73fd5ce3bc1ee 171-176
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.14",
+  "base_commit_sha": "991f791136e267bf66a430bc18aaf70529cb9f6d",
+  "prompts": {},
+  "sessions": {
+    "s_bbde566b990012": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "b0f4fb44-6981-42bb-810b-9f8c930540f4",
+        "model": "claude-fable-5"
+      },
+      "human_author": "dklzf <213919963+dklzf@users.noreply.github.com>"
+    }
+  }
+}
