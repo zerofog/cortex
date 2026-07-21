@@ -34,6 +34,22 @@ describe('atomicWrite', () => {
     expect(actual).toBe('hello')
   })
 
+  it('applies options.mode to the final file, including when OVERWRITING a looser-mode file', async () => {
+    // Discovery files (token, injection.json) carry secrets and are written
+    // 0600 via the temp file's creation mode — rename preserves the temp
+    // inode's metadata, so this must hold on both the create path and the
+    // overwrite path (where the PREVIOUS file's mode must not survive).
+    const target = join(dir, 'secret.txt')
+    await atomicWrite(target, 'fresh', { mode: 0o600 })
+    expect(((await fs.stat(target)).mode & 0o777)).toBe(0o600)
+
+    const loose = join(dir, 'was-world-readable.txt')
+    await fs.writeFile(loose, 'old', { mode: 0o644 })
+    await atomicWrite(loose, 'now-secret', { mode: 0o600 })
+    expect(((await fs.stat(loose)).mode & 0o777)).toBe(0o600)
+    expect(await fs.readFile(loose, 'utf-8')).toBe('now-secret')
+  })
+
   it('overwrites an existing file atomically (no torn state visible between rename and read)', async () => {
     const target = join(dir, 'existing.txt')
     await fs.writeFile(target, 'ORIGINAL CONTENT LONG ENOUGH TO NOTICE TEARING', 'utf-8')

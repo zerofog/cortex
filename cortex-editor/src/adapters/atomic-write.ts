@@ -52,10 +52,17 @@ export class ExternalRevertError extends Error {
  * shutdowns is not required. The atomic rename eliminates torn-write risk,
  * which is the actually-observed failure mode.
  */
-export async function atomicWrite(filePath: string, content: string): Promise<void> {
+export interface AtomicWriteOptions {
+  /** File mode applied when creating the temp file; `rename` preserves the
+   *  temp file's inode metadata onto the final path, so this IS the final
+   *  mode. Use for secret-bearing files (token, injection.json → 0o600). */
+  mode?: number
+}
+
+export async function atomicWrite(filePath: string, content: string, options: AtomicWriteOptions = {}): Promise<void> {
   const tmpPath = tempSibling(filePath)
   try {
-    await fs.writeFile(tmpPath, content, 'utf-8')
+    await fs.writeFile(tmpPath, content, { encoding: 'utf-8', mode: options.mode })
     await fs.rename(tmpPath, filePath)
   } catch (err) {
     // Best-effort cleanup of the temp file when rename fails. If rename
@@ -74,7 +81,7 @@ export async function atomicWrite(filePath: string, content: string): Promise<vo
   // because the editor won't re-save in the same tick.
   const retryTmp = tempSibling(filePath)
   try {
-    await fs.writeFile(retryTmp, content, 'utf-8')
+    await fs.writeFile(retryTmp, content, { encoding: 'utf-8', mode: options.mode })
     await fs.rename(retryTmp, filePath)
   } catch (err) {
     try { await fs.unlink(retryTmp) } catch { /* already gone */ }

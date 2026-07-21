@@ -1,6 +1,9 @@
 import fs from 'fs'
 import path from 'path'
 import { createElement, type ReactElement } from 'react'
+// cortex-lock is dependency-light (node:fs/path/crypto only), so importing it
+// here keeps this module's leaf status (3F) intact.
+import { checkCortexLockLiveness } from '../core/cortex-lock.js'
 import {
   CORTEX_BROWSER_PATH,
   DEFAULT_TOGGLE_SHORTCUT,
@@ -78,17 +81,14 @@ export function CortexDevScripts(props: CortexDevScriptsProps = {}): ReactElemen
   let token: string
   let injection: InjectionFile
   let injectionRaw: string
-  let injectionRawAfter: string
   try {
-    // Read injection.json FIRST and AGAIN after the token/port so a bridge
-    // restart that rewrites the discovery set mid-render is detected even when
-    // the port is unchanged (the port cross-check below misses a same-port
-    // restart). The two injection.json snapshots differ across the write
-    // window because each restart mints a fresh sessionId. (3J)
+    // injection.json is read FIRST and then re-read as the LAST validation
+    // step (after every other gate, including the lock-liveness check below)
+    // so a bridge restart ANYWHERE in this render's read window is detected —
+    // each restart mints a fresh sessionId, so the two snapshots differ. (3J)
     injectionRaw = fs.readFileSync(path.join(cortexDir, 'injection.json'), 'utf8')
     token = fs.readFileSync(path.join(cortexDir, 'token'), 'utf8').trim()
     port = Number(fs.readFileSync(path.join(cortexDir, 'port'), 'utf8').trim())
-    injectionRawAfter = fs.readFileSync(path.join(cortexDir, 'injection.json'), 'utf8')
   } catch {
     // The bridge likely isn't running yet — this is the one reason that gets
     // the setup nudge, since withCortex/`next dev` really might be misconfigured.
@@ -103,12 +103,6 @@ export function CortexDevScripts(props: CortexDevScriptsProps = {}): ReactElemen
     injection = JSON.parse(injectionRaw) as InjectionFile
   } catch {
     return warnOnce(`injection.json in ${cortexDir} is not valid JSON (partial write?) — retrying next render`)
-  }
-
-  if (injectionRaw !== injectionRawAfter) {
-    return warnOnce(
-      `discovery files in ${cortexDir} changed mid-read (bridge restart) — retrying next render`,
-    )
   }
 
   if (!Number.isInteger(port) || port <= 0 || token.length === 0) {
@@ -132,6 +126,44 @@ export function CortexDevScripts(props: CortexDevScriptsProps = {}): ReactElemen
   const sessionId = typeof injection.sessionId === 'string' ? injection.sessionId : null
   if (!sessionId) {
     return warnOnce(`injection.json in ${cortexDir} is missing a session id`)
+  }
+
+  // Owner-liveness gate: discovery-file PRESENCE alone is not proof of a
+  // running bridge. A hard-killed dev server leaves port/token/injection.json
+  // behind (dispose never ran), and injecting them would hand the browser a
+  // dead — or worse, since-reassigned — port plus a stale token. The bridge
+  // acquires `.cortex/.lock` BEFORE writing discovery files and releases it on
+  // dispose/exit, so a live lock owner is the freshness signal. Fail closed:
+  // 'missing' also refuses, which covers the exit-handler path that releases
+  // the lock but leaves discovery files, at the cost of the rare degraded
+  // lock-less mode (read-only-root bridges already warn loudly there).
+  const lockLiveness = checkCortexLockLiveness(cortexDir)
+  if (lockLiveness !== 'live') {
+    return warnOnce(
+      `discovery files in ${cortexDir} have no live bridge owning them ` +
+      `(lock ${lockLiveness}) — refusing to inject. If no dev server crash explains ` +
+      `this, delete ${cortexDir} and restart \`next dev\``,
+      false,
+      `stale-lock:${cortexDir}`, // stable key — the message embeds the liveness variant
+    )
+  }
+
+  // Freshness snapshot LAST — after the lock check, not before it (codex P2):
+  // liveness only proves SOME process owns the lock now, not that it wrote the
+  // values read above. A bridge swap between those reads and the lock check
+  // would pair the OLD port/token with the NEW owner's live lock; since every
+  // restart mints a fresh sessionId, re-reading injection.json as the final
+  // gate closes that window. (3J)
+  let injectionRawAfter: string
+  try {
+    injectionRawAfter = fs.readFileSync(path.join(cortexDir, 'injection.json'), 'utf8')
+  } catch {
+    return warnOnce(`could not read discovery files in ${cortexDir}`, true)
+  }
+  if (injectionRaw !== injectionRawAfter) {
+    return warnOnce(
+      `discovery files in ${cortexDir} changed mid-read (bridge restart) — retrying next render`,
+    )
   }
 
   const body = createManualInjectionScriptBody({

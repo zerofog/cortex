@@ -17,6 +17,13 @@
  *
  * Skips when dev-app-next has no node_modules (fresh clone without the
  * fixture app installed). Not part of @fast-ci.
+ *
+ * dev-app-next pins next@16.1.6 EXACTLY (no ^): activation rides on the
+ * phase-function config contract, and 16.1.x is the newest line WITHOUT the
+ * `__NEXT_DEV_SERVER` env var that ~16.2 introduced. The 0.3.0 pre-release
+ * validation caught activation dead on a real 16.1.6 app while this spec
+ * passed on 16.2.10 — the fixture version must stay on a no-env-var line so
+ * an env-sniffing detection regression can never pass here again.
  */
 import { spawn, type ChildProcess } from 'child_process'
 import fs from 'fs'
@@ -56,13 +63,31 @@ test.describe('Next 16 Turbopack integration', () => {
 
   test.beforeAll(async () => {
     test.setTimeout(180_000)
+    // Enforce the 16.1.x pin at runtime — a lockfile drift onto ≥16.2 would
+    // silently reintroduce the version line where `__NEXT_DEV_SERVER` exists
+    // and this spec would stop guarding against env-var-sniffing detection.
+    const nextVersion = (JSON.parse(
+      fs.readFileSync(path.join(appRoot, 'node_modules', 'next', 'package.json'), 'utf8'),
+    ) as { version: string }).version
+    if (!nextVersion.startsWith('16.1.')) {
+      throw new Error(
+        `dev-app-next must pin next@16.1.x (no __NEXT_DEV_SERVER env var) to keep this spec a ` +
+        `regression barrier for phase-based activation; found ${nextVersion}. See the header comment.`,
+      )
+    }
     counterOriginal = fs.readFileSync(counterPath, 'utf8')
     fs.rmSync(path.join(appRoot, '.cortex'), { recursive: true, force: true })
 
+    // Same env sanitation as the inspector-exit spec: shell-leaked
+    // CORTEX_BRIDGE=0 or __CORTEX_LOCK_FAMILY would silently disable or
+    // misclassify the bridge and fail this spec for reasons unrelated to code.
+    const devEnv: NodeJS.ProcessEnv = { ...process.env, NODE_ENV: 'development' }
+    delete devEnv.CORTEX_BRIDGE
+    delete devEnv.__CORTEX_LOCK_FAMILY
     devServer = spawn('npx', ['next', 'dev', '-p', String(PORT)], {
       cwd: appRoot,
       stdio: ['ignore', 'pipe', 'pipe'],
-      env: { ...process.env, NODE_ENV: 'development' },
+      env: devEnv,
     })
     let output = ''
     devServer.stdout!.on('data', (d: Buffer) => { output += d.toString() })

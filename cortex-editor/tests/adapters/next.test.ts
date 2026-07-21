@@ -1,17 +1,51 @@
 import { afterEach, beforeEach, describe, expect, it, vi, type MockInstance } from 'vitest'
-import { withCortex, _setBridgeFactoryForTesting, type NextConfig } from '../../src/adapters/next.js'
+import {
+  withCortex,
+  _setBridgeFactoryForTesting,
+  type NextConfig,
+  type NextConfigPhaseContext,
+  type NextPhaseConfigFunction,
+} from '../../src/adapters/next.js'
 
-// withCortex always returns a plain NextConfig object now (fix 2A) — never a
-// phase function. This thin passthrough keeps the existing call sites uniform.
-async function resolved(config: NextConfig): Promise<NextConfig> {
-  return config
+// withCortex returns the PHASE-FUNCTION config form — `(phase, ctx) => config`
+// — because the phase argument is Next's only public, version-stable dev-server
+// signal (no env var carries it at config-eval time; the `__NEXT_DEV_SERVER`
+// env var the previous implementation keyed on only exists from Next ~16.2).
+// These tests exercise withCortex exactly the way Next's config loader does:
+// call the returned function with a phase. NO test may stub NEXT_PHASE /
+// __NEXT_DEV_SERVER — that was the self-certifying harness that let a
+// dead-on-16.1 detection ship.
+const DEV_PHASE = 'phase-development-server'
+const BUILD_PHASE = 'phase-production-build'
+const PROD_SERVER_PHASE = 'phase-production-server'
+// A real non-dev, non-production phase (next-jest evaluates config with it):
+// transforms must apply, the bridge must not start.
+const TEST_PHASE = 'phase-test'
+
+const phaseContext: NextConfigPhaseContext = { defaultConfig: {} }
+
+/** Evaluate the phase function expecting the SYNC path (object/sync-fn input
+ *  must never yield a Promise — ecosystem consumers of a resolved config would
+ *  break on an unexpected thenable). */
+function evalPhase(fn: NextPhaseConfigFunction, phase: string): NextConfig {
+  const result = fn(phase, phaseContext)
+  if (result instanceof Promise) throw new Error('expected a synchronous config, got a Promise')
+  return result
 }
 
-// The bridge is constructed ASYNCHRONOUSLY now (the factory lazy-imports
+// The bridge is constructed ASYNCHRONOUSLY (the factory lazy-imports
 // webpack.ts — 3F), so factory/start calls land on a later microtask. Flush the
-// microtask + macrotask queues before asserting on them. The config RETURN stays
-// synchronous; only bridge startup is deferred.
+// microtask + macrotask queues before asserting on them. The config return for
+// object inputs stays synchronous; only bridge startup is deferred.
 const flushAsync = (): Promise<void> => new Promise((r) => setTimeout(r, 0))
+
+function stubBridge() {
+  const start = vi.fn(async () => {})
+  const dispose = vi.fn(async () => {})
+  const factory = vi.fn((opts: { runtimeId: string }) => ({ start, dispose, runtimeId: opts.runtimeId }))
+  _setBridgeFactoryForTesting(factory)
+  return { start, dispose, factory }
+}
 
 afterEach(() => {
   vi.unstubAllEnvs()
@@ -19,9 +53,88 @@ afterEach(() => {
   _setBridgeFactoryForTesting(null)
 })
 
-describe('withCortex', () => {
-  it('adds webpack loader rule for .jsx/.tsx files', async () => {
-    const config = await resolved(withCortex({}))
+describe('withCortex phase contract', () => {
+  it('returns the phase-function config form', () => {
+    expect(withCortex({})).toBeTypeOf('function')
+  })
+
+  it('yields a SYNCHRONOUS config for a plain object input (never an unexpected Promise)', () => {
+    const result = withCortex({})(TEST_PHASE, phaseContext)
+    expect(result instanceof Promise).toBe(false)
+  })
+
+  it('calls a function-shaped user config with the ORIGINAL phase and context', () => {
+    const userConfig = vi.fn(() => ({ basePath: '/shop' }))
+    const context: NextConfigPhaseContext = { defaultConfig: { distDir: '.next' } }
+
+    const config = withCortex(userConfig)(TEST_PHASE, context) as NextConfig
+
+    expect(userConfig).toHaveBeenCalledExactlyOnceWith(TEST_PHASE, context)
+    expect(config.basePath).toBe('/shop')
+  })
+
+  it('preserves a sync function config result synchronously', () => {
+    const result = withCortex(() => ({}))(TEST_PHASE, phaseContext)
+    expect(result instanceof Promise).toBe(false)
+  })
+
+  it('resolves an async function config and wraps its result', async () => {
+    const result = withCortex(async () => ({ basePath: '/async' }))(TEST_PHASE, phaseContext)
+    expect(result).toBeInstanceOf(Promise)
+    const config = await result
+    expect(config.basePath).toBe('/async')
+    expect(config.turbopack).toBeDefined()
+  })
+
+  it('resolves a promise-valued user config (export default (async () => cfg)())', async () => {
+    const config = await withCortex(Promise.resolve({ basePath: '/p' }))(TEST_PHASE, phaseContext)
+    expect(config.basePath).toBe('/p')
+    expect(config.turbopack).toBeDefined()
+  })
+
+  it('preserves custom properties attached to the user config', () => {
+    const config = evalPhase(withCortex({ myCustomKey: { nested: true }, env: { FLAG: '1' } }), TEST_PHASE)
+    expect(config.myCustomKey).toEqual({ nested: true })
+    expect(config.env).toEqual({ FLAG: '1' })
+  })
+
+  it('propagates a sync user-config throw unchanged and never starts the bridge', () => {
+    const { factory } = stubBridge()
+    const fn = withCortex(() => { throw new Error('user config broke') })
+
+    expect(() => fn(DEV_PHASE, phaseContext)).toThrow('user config broke')
+    expect(factory).not.toHaveBeenCalled()
+  })
+
+  it('propagates an async user-config rejection unchanged and never starts the bridge', async () => {
+    const { factory } = stubBridge()
+    const fn = withCortex(async () => { throw new Error('async config broke') })
+
+    await expect(fn(DEV_PHASE, phaseContext)).rejects.toThrow('async config broke')
+    await flushAsync()
+    expect(factory).not.toHaveBeenCalled()
+  })
+
+  it('starts the bridge only AFTER an async user config resolves successfully', async () => {
+    const { factory } = stubBridge()
+    let resolveUser!: (cfg: NextConfig) => void
+    const userConfig = () => new Promise<NextConfig>((res) => { resolveUser = res })
+
+    const pending = withCortex(userConfig)(DEV_PHASE, phaseContext)
+    await flushAsync()
+    expect(factory).not.toHaveBeenCalled()
+
+    resolveUser({ reactStrictMode: true })
+    const config = await pending
+    await flushAsync()
+    expect(factory).toHaveBeenCalledOnce()
+    expect(config.reactStrictMode).toBe(true)
+  })
+})
+
+describe('withCortex webpack instrumentation', () => {
+  it('adds webpack loader rule for .jsx/.tsx files', () => {
+    const config = evalPhase(withCortex({}), TEST_PHASE)
     const webpackConfig = { module: { rules: [] as unknown[] } }
     const context = { dir: '/project', dev: true, isServer: false }
 
@@ -34,8 +147,8 @@ describe('withCortex', () => {
     expect(rule.exclude('/project/node_modules/react/index.jsx')).toBe(true)
   })
 
-  it('lets explicitly included node_modules packages reach the shared loader', async () => {
-    const config = await resolved(withCortex({}, { includeNodeModules: ['@acme/ui'] }))
+  it('lets explicitly included node_modules packages reach the shared loader', () => {
+    const config = evalPhase(withCortex({}, { includeNodeModules: ['@acme/ui'] }), TEST_PHASE)
     const webpackConfig = { module: { rules: [] as unknown[] } }
     const context = { dir: '/project', dev: true, isServer: false }
 
@@ -50,8 +163,8 @@ describe('withCortex', () => {
     expect(rule.use[0]!.options.includeNodeModules).toEqual(['@acme/ui'])
   })
 
-  it('passes resolve aliases through to the shared loader', async () => {
-    const config = await resolved(withCortex({}, { resolveAlias: { '@': '/project/src' } }))
+  it('passes resolve aliases through to the shared loader', () => {
+    const config = evalPhase(withCortex({}, { resolveAlias: { '@': '/project/src' } }), TEST_PHASE)
     const webpackConfig = { module: { rules: [] as unknown[] } }
     const context = { dir: '/project', dev: true, isServer: false }
 
@@ -61,14 +174,14 @@ describe('withCortex', () => {
     expect(rule.use[0]!.options.resolveAlias).toEqual({ '@': '/project/src' })
   })
 
-  it('preserves existing webpack config', async () => {
+  it('preserves existing webpack config', () => {
     const existingRule = { test: /\.css$/, use: ['style-loader'] }
     const originalWebpack = vi.fn((config: any) => {
       config.module.rules.push(existingRule)
       return config
     })
 
-    const config = await resolved(withCortex({ webpack: originalWebpack }))
+    const config = evalPhase(withCortex({ webpack: originalWebpack }), TEST_PHASE)
     const webpackConfig = { module: { rules: [] as unknown[] } }
     const context = { dir: '/project', dev: true, isServer: false }
 
@@ -78,37 +191,20 @@ describe('withCortex', () => {
     expect(webpackConfig.module.rules).toHaveLength(2)
   })
 
-  it('in production, externalizes cortex-editor without adding turbopack rules or the webpack hook', () => {
-    // `cortex init` leaves a permanent <CortexDevScripts/> import in the layout,
-    // so a production `next build` still pulls the bridge module graph into the
-    // RSC server graph. Externalizing cortex-editor keeps it resolvable (esp. for
-    // symlinked file:/link: installs) without instrumenting or starting anything.
-    vi.stubEnv('NODE_ENV', 'production')
-    const result = withCortex({ reactStrictMode: true } as any)
-    expect(result.serverExternalPackages).toContain('cortex-editor')
-    expect(result.reactStrictMode).toBe(true)
-    expect(result.turbopack).toBeUndefined()
-    expect(result.webpack).toBeUndefined()
+  it('accepts webpack: null (the type Next actually declares) and installs only the cortex rule', () => {
+    // Next's NextConfig types webpack as `NextJsWebpackConfig | null | undefined`.
+    // A null value must typecheck AND be skipped at runtime — only function
+    // values are invoked.
+    const config = evalPhase(withCortex({ webpack: null }), TEST_PHASE)
+    const webpackConfig = { module: { rules: [] as unknown[] } }
+
+    config.webpack!(webpackConfig as any, { dir: '/project', dev: true, isServer: false } as any)
+
+    expect(webpackConfig.module.rules).toHaveLength(1)
   })
 
-  it('does not double-add cortex-editor to serverExternalPackages in production', () => {
-    vi.stubEnv('NODE_ENV', 'production')
-    const result = withCortex({ serverExternalPackages: ['cortex-editor', 'sharp'] } as any)
-    expect(result.serverExternalPackages).toEqual(['cortex-editor', 'sharp'])
-  })
-
-  it('does NOT add cortex-editor to serverExternalPackages when it is in transpilePackages (review [4])', () => {
-    // Next rejects a package in both lists, aborting config load. Respect the
-    // user's transpile choice and warn instead of forcing the conflict.
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
-    vi.stubEnv('NODE_ENV', 'production')
-    const result = withCortex({ transpilePackages: ['cortex-editor'] } as any)
-    expect(result.serverExternalPackages).toBeUndefined()
-    expect(warn).toHaveBeenCalledWith(expect.stringContaining('transpilePackages'))
-  })
-
-  it('passes projectRoot from context.dir to loader options', async () => {
-    const config = await resolved(withCortex({}))
+  it('passes projectRoot from context.dir to loader options', () => {
+    const config = evalPhase(withCortex({}), TEST_PHASE)
     const webpackConfig = { module: { rules: [] as unknown[] } }
     const context = { dir: '/my/project', dev: true, isServer: false }
 
@@ -118,8 +214,8 @@ describe('withCortex', () => {
     expect(rule.use[0]!.options.projectRoot).toBe('/my/project')
   })
 
-  it('sets loader path to a string ending in next-source-loader', async () => {
-    const config = await resolved(withCortex({}))
+  it('sets loader path to a string ending in next-source-loader', () => {
+    const config = evalPhase(withCortex({}), TEST_PHASE)
     const webpackConfig = { module: { rules: [] as unknown[] } }
     const context = { dir: '/project', dev: true, isServer: false }
 
@@ -130,12 +226,12 @@ describe('withCortex', () => {
     expect(rule.use[0]!.loader).toMatch(/next-source-loader/)
   })
 
-  it('adds the loader for server-side builds too (symmetric instrumentation)', async () => {
+  it('adds the loader for server-side builds too (symmetric instrumentation)', () => {
     // Next prerenders client components on the server; client-only
     // instrumentation makes SSR HTML and the client render disagree about
     // data-cortex-* attributes, and React does not guarantee mismatched
     // attributes get patched. Both sides must be instrumented identically.
-    const config = await resolved(withCortex({}))
+    const config = evalPhase(withCortex({}), TEST_PHASE)
     const webpackConfig = { module: { rules: [] as unknown[] } }
     const context = { dir: '/project', dev: true, isServer: true }
 
@@ -144,8 +240,8 @@ describe('withCortex', () => {
     expect(webpackConfig.module.rules).toHaveLength(1)
   })
 
-  it('sets enforce: "pre" on the loader rule', async () => {
-    const config = await resolved(withCortex({}))
+  it('sets enforce: "pre" on the loader rule', () => {
+    const config = evalPhase(withCortex({}), TEST_PHASE)
     const webpackConfig = { module: { rules: [] as unknown[] } }
     const context = { dir: '/project', dev: true, isServer: false }
 
@@ -156,86 +252,158 @@ describe('withCortex', () => {
   })
 })
 
-describe('withCortex bridge lifecycle', () => {
-  const DEV_PHASE = 'phase-development-server'
-
-  it('always returns a plain config object (never a phase function)', () => {
-    vi.stubEnv('NEXT_PHASE', DEV_PHASE)
-    _setBridgeFactoryForTesting(() => ({ start: vi.fn(async () => {}), dispose: vi.fn(async () => {}), runtimeId: 'rt-1' }))
-
-    const config = withCortex({})
-
-    expect(typeof config).toBe('object')
-    expect(config.turbopack).toBeDefined()
-    expect(config.webpack).toBeTypeOf('function')
+describe('withCortex production behavior', () => {
+  it('under NODE_ENV=production, externalizes cortex-editor without turbopack rules or the webpack hook', () => {
+    // `cortex init` leaves a permanent <CortexDevScripts/> import in the layout,
+    // so a production `next build` still pulls the bridge module graph into the
+    // RSC server graph. Externalizing cortex-editor keeps it resolvable (esp. for
+    // symlinked file:/link: installs) without instrumenting or starting anything.
+    vi.stubEnv('NODE_ENV', 'production')
+    const result = evalPhase(withCortex({ reactStrictMode: true }), TEST_PHASE)
+    expect(result.serverExternalPackages).toContain('cortex-editor')
+    expect(result.reactStrictMode).toBe(true)
+    expect(result.turbopack).toBeUndefined()
+    expect(result.webpack).toBeUndefined()
   })
 
-  it('starts the bridge when NEXT_PHASE is the development-server phase', async () => {
-    const start = vi.fn(async () => {})
-    _setBridgeFactoryForTesting(() => ({ start, dispose: vi.fn(async () => {}), runtimeId: 'rt-1' }))
-    vi.stubEnv('NEXT_PHASE', DEV_PHASE)
+  it.each([[BUILD_PHASE], [PROD_SERVER_PHASE]])(
+    'treats %s as production even when NODE_ENV is forced to development',
+    (phase) => {
+      // Belt-and-braces both ways: a NODE_ENV=development `next build` must not
+      // bake data-cortex-source attributes (leaking source paths) into
+      // production output.
+      vi.stubEnv('NODE_ENV', 'development')
+      const { factory } = stubBridge()
 
-    withCortex({})
-    await flushAsync()
+      const result = evalPhase(withCortex({}), phase)
 
-    expect(start).toHaveBeenCalledOnce()
-  })
+      expect(result.serverExternalPackages).toContain('cortex-editor')
+      expect(result.turbopack).toBeUndefined()
+      expect(result.webpack).toBeUndefined()
+      expect(factory).not.toHaveBeenCalled()
+    },
+  )
 
-  it('starts the bridge when __NEXT_DEV_SERVER=1 (the signal real `next dev` sets)', async () => {
-    // NEXT_PHASE is NOT set in the environment at config-eval time under a real
-    // `next dev` (verified on Next 16.2) — the dev server sets __NEXT_DEV_SERVER
-    // instead. This is the signal the e2e depends on; without it the bridge
-    // never starts, no discovery files are written, and activation dead-ends.
-    const start = vi.fn(async () => {})
-    _setBridgeFactoryForTesting(() => ({ start, dispose: vi.fn(async () => {}), runtimeId: 'rt-1' }))
-    vi.stubEnv('__NEXT_DEV_SERVER', '1')
-    // NEXT_PHASE deliberately unset — __NEXT_DEV_SERVER alone must suffice.
+  it('NODE_ENV=production wins even at the development-server phase (no bridge, no transforms)', () => {
+    // The belt-and-braces direction: a host that forces production while
+    // evaluating with the dev phase must get the externalize-only config.
+    vi.stubEnv('NODE_ENV', 'production')
+    const { factory } = stubBridge()
 
-    withCortex({})
-    await flushAsync()
-
-    expect(start).toHaveBeenCalledOnce()
-  })
-
-  it('does not start the bridge for a non-dev phase, but still returns a full config', () => {
-    const start = vi.fn(async () => {})
-    const factory = vi.fn(() => ({ start, dispose: vi.fn(async () => {}), runtimeId: 'rt-1' }))
-    _setBridgeFactoryForTesting(factory)
-    vi.stubEnv('NEXT_PHASE', 'phase-production-build')
-
-    const config = withCortex({})
+    const result = evalPhase(withCortex({}), DEV_PHASE)
 
     expect(factory).not.toHaveBeenCalled()
-    expect(start).not.toHaveBeenCalled()
-    expect(config.turbopack).toBeDefined()
-    expect(config.webpack).toBeTypeOf('function')
-    expect(config.serverExternalPackages).toContain('cortex-editor')
+    expect(result.serverExternalPackages).toContain('cortex-editor')
+    expect(result.turbopack).toBeUndefined()
+    expect(result.webpack).toBeUndefined()
   })
 
-  it('does not start the bridge when no dev-server signal is present', () => {
-    const start = vi.fn(async () => {})
-    _setBridgeFactoryForTesting(() => ({ start, dispose: vi.fn(async () => {}), runtimeId: 'rt-1' }))
-    // Neither dev-server signal present.
-    vi.stubEnv('NEXT_PHASE', '')
-    vi.stubEnv('__NEXT_DEV_SERVER', '')
+  it('does not double-add cortex-editor to serverExternalPackages in production', () => {
+    vi.stubEnv('NODE_ENV', 'production')
+    const result = evalPhase(withCortex({ serverExternalPackages: ['cortex-editor', 'sharp'] }), TEST_PHASE)
+    expect(result.serverExternalPackages).toEqual(['cortex-editor', 'sharp'])
+  })
 
-    const config = withCortex({})
+  it('does NOT add cortex-editor to serverExternalPackages when it is in transpilePackages (review [4])', () => {
+    // Next rejects a package in both lists, aborting config load. Respect the
+    // user's transpile choice and warn instead of forcing the conflict.
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    vi.stubEnv('NODE_ENV', 'production')
+    const result = evalPhase(withCortex({ transpilePackages: ['cortex-editor'] }), TEST_PHASE)
+    expect(result.serverExternalPackages).toBeUndefined()
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('transpilePackages'))
+  })
+})
 
-    expect(start).not.toHaveBeenCalled()
+describe('withCortex bridge lifecycle', () => {
+  it('starts the bridge when Next evaluates the config with the development-server phase', async () => {
+    const { start, factory } = stubBridge()
+
+    evalPhase(withCortex({}), DEV_PHASE)
+    await flushAsync()
+
+    expect(factory).toHaveBeenCalledOnce()
+    expect(start).toHaveBeenCalledOnce()
+  })
+
+  it.each([[TEST_PHASE], ['phase-export'], [BUILD_PHASE]])(
+    'does not start the bridge for %s, but still returns a usable config',
+    async (phase) => {
+      const { start, factory } = stubBridge()
+
+      const config = evalPhase(withCortex({}), phase)
+      await flushAsync()
+
+      expect(factory).not.toHaveBeenCalled()
+      expect(start).not.toHaveBeenCalled()
+      expect(config.serverExternalPackages).toContain('cortex-editor')
+    },
+  )
+
+  it('honors the CORTEX_BRIDGE=0 opt-out: no bridge, instrumentation still applied', async () => {
+    // Escape hatch for unusual hosts that evaluate the config with the dev
+    // phase but must not get a WS sidecar. Transforms are pure config and stay.
+    vi.stubEnv('CORTEX_BRIDGE', '0')
+    const { factory } = stubBridge()
+
+    const config = evalPhase(withCortex({}), DEV_PHASE)
+    await flushAsync()
+
+    expect(factory).not.toHaveBeenCalled()
+    expect(config.turbopack).toBeDefined()
     expect(config.webpack).toBeTypeOf('function')
+    const rules = (config.turbopack as { rules: Record<string, TurbopackRuleForTest> }).rules
+    const item = rules['*.tsx']!.loaders[0] as { options: Record<string, unknown> }
+    expect(item.options).not.toHaveProperty('runtimeId')
+  })
+
+  it('ADOPTS an inherited family nonce as its runtimeId (direction-independent classification)', async () => {
+    // A config evaluator spawned by a cortex-advertising parent must lock with
+    // the PARENT's nonce, not a fresh one — env flows parent→child only, so a
+    // child that wins the lock race with a fresh nonce would be classified
+    // foreign by the parent (warn + instrumentation disabled in whichever
+    // process compiles). Codex P1.
+    vi.stubEnv('__CORTEX_LOCK_FAMILY', 'inherited-boot-nonce-a1')
+    const { factory } = stubBridge()
+
+    const config = evalPhase(withCortex({}), DEV_PHASE)
+    await flushAsync()
+
+    const runtimeId = (config.turbopack as { rules: Record<string, { loaders: Array<{ options: Record<string, unknown> }> }> })
+      .rules['*.tsx']!.loaders[0]!.options.runtimeId
+    expect(runtimeId).toBe('inherited-boot-nonce-a1')
+    expect(factory).toHaveBeenCalledWith(expect.objectContaining({ runtimeId: 'inherited-boot-nonce-a1' }))
+  })
+
+  it('advertises the runtimeId in __CORTEX_LOCK_FAMILY synchronously at config-eval time', () => {
+    // The bridge acquires its lock ASYNCHRONOUSLY with runtimeId as the lock
+    // nonce. Advertising must happen before that — synchronously during config
+    // evaluation — so a sibling process Next spawns in the interim inherits
+    // the nonce and classifies the eventual holder as sameFamily.
+    const familyBackup = process.env.__CORTEX_LOCK_FAMILY
+    delete process.env.__CORTEX_LOCK_FAMILY
+    // Factory intentionally never resolves: only the SYNCHRONOUS side effects
+    // of the evaluation may be observed.
+    _setBridgeFactoryForTesting(() => new Promise(() => {}))
+    try {
+      const config = evalPhase(withCortex({}), DEV_PHASE)
+      const runtimeId = (config.turbopack as { rules: Record<string, { loaders: Array<{ options: Record<string, unknown> }> }> })
+        .rules['*.tsx']!.loaders[0]!.options.runtimeId as string
+      expect((process.env.__CORTEX_LOCK_FAMILY ?? '').split(',')).toContain(runtimeId)
+    } finally {
+      if (familyBackup === undefined) delete process.env.__CORTEX_LOCK_FAMILY
+      else process.env.__CORTEX_LOCK_FAMILY = familyBackup
+    }
   })
 
   it('reuses one bridge across repeated dev-server evaluations', async () => {
-    const start = vi.fn(async () => {})
-    const factory = vi.fn(() => ({ start, dispose: vi.fn(async () => {}), runtimeId: 'rt-1' }))
-    _setBridgeFactoryForTesting(factory)
-    vi.stubEnv('NEXT_PHASE', DEV_PHASE)
+    const { start, factory } = stubBridge()
 
-    withCortex({})
-    withCortex({})
+    evalPhase(withCortex({}), DEV_PHASE)
+    evalPhase(withCortex({}), DEV_PHASE)
     await flushAsync()
 
-    // Construction is memoized synchronously (bridgeStartup) so two evaluations
+    // Construction is memoized synchronously (state.startup) so two evaluations
     // share ONE bridge even before the first construction resolves...
     expect(factory).toHaveBeenCalledOnce()
     // ...but each evaluation still calls start() (which memoizes internally).
@@ -243,8 +411,8 @@ describe('withCortex bridge lifecycle', () => {
   })
 
   it('shares ONE runtimeId between the bridge and the loader options across repeated evaluations', async () => {
-    // Regression: runtimeId was generated per withCortex() call while the bridge
-    // is memoized, so a second evaluation handed the loaders a fresh id while the
+    // Regression: runtimeId was generated per evaluation while the bridge is
+    // memoized, so a second evaluation handed the loaders a fresh id while the
     // bridge kept the first — defeating the ZF0-1851 lock-refusal gate. The id
     // must be memoized alongside the bridge.
     let factoryRuntimeId: string | undefined
@@ -253,14 +421,13 @@ describe('withCortex bridge lifecycle', () => {
       return { start: vi.fn(async () => {}), dispose: vi.fn(async () => {}), runtimeId: opts.runtimeId }
     })
     _setBridgeFactoryForTesting(factory)
-    vi.stubEnv('NEXT_PHASE', DEV_PHASE)
 
     const loaderRuntimeId = (config: NextConfig): unknown =>
       (config.turbopack as { rules: Record<string, { loaders: Array<{ options: Record<string, unknown> }> }> })
         .rules['*.tsx']!.loaders[0]!.options.runtimeId
 
-    const config1 = withCortex({})
-    const config2 = withCortex({})
+    const config1 = evalPhase(withCortex({}), DEV_PHASE)
+    const config2 = evalPhase(withCortex({}), DEV_PHASE)
     await flushAsync()
 
     expect(factory).toHaveBeenCalledOnce()
@@ -271,20 +438,47 @@ describe('withCortex bridge lifecycle', () => {
     expect(loaderRuntimeId(config2)).toBe(factoryRuntimeId)
   })
 
+  it('shares one bridge across dual module instances via the globalThis registry', async () => {
+    // Next loads next.config through the package's CJS build while other
+    // imports can evaluate the ESM build — two module instances in ONE process,
+    // each with its own module scope. Module-scoped memoization missed there,
+    // constructing a second bridge whose lock acquire raced the first (the
+    // nondeterministic "Another cortex instance" warning on real Next boots).
+    // The registry lives on globalThis, so a FRESH module instance must find
+    // the first instance's startup promise and construct nothing.
+    const { start, factory } = stubBridge()
+    const config1 = evalPhase(withCortex({}), DEV_PHASE)
+    await flushAsync()
+    expect(factory).toHaveBeenCalledOnce()
+
+    vi.resetModules()
+    const second = await import('../../src/adapters/next.js')
+    const config2 = second.withCortex({})(DEV_PHASE, phaseContext) as NextConfig
+    await flushAsync()
+
+    // The second instance's own (real) factory never ran — no second bridge…
+    expect(factory).toHaveBeenCalledOnce()
+    expect(start).toHaveBeenCalledTimes(2)
+    // …and both instances hand the loaders the SAME runtimeId.
+    const idOf = (config: NextConfig): unknown =>
+      (config.turbopack as { rules: Record<string, { loaders: Array<{ options: Record<string, unknown> }> }> })
+        .rules['*.tsx']!.loaders[0]!.options.runtimeId
+    expect(idOf(config2)).toBe(idOf(config1))
+  })
+
   it('does not throw out of config building when the bridge fails to start', async () => {
     const error = vi.spyOn(console, 'error').mockImplementation(() => {})
-    _setBridgeFactoryForTesting(() => ({
+    _setBridgeFactoryForTesting((opts) => ({
       start: async () => { throw new Error('EADDRINUSE') },
       dispose: async () => {},
-      runtimeId: 'rt-1',
+      runtimeId: opts.runtimeId,
     }))
-    vi.stubEnv('NEXT_PHASE', DEV_PHASE)
 
-    const config = withCortex({})
+    const config = evalPhase(withCortex({}), DEV_PHASE)
 
     expect(config.webpack).toBeTypeOf('function')
     // start() is fire-and-forget; let its internal catch run.
-    await new Promise((r) => setTimeout(r, 0))
+    await flushAsync()
     expect(error).toHaveBeenCalledWith(expect.stringContaining('Bridge failed to start'), 'EADDRINUSE')
   })
 
@@ -294,11 +488,9 @@ describe('withCortex bridge lifecycle', () => {
     // trace. The adapter's resilience contract (startBridge swallows port/EACCES)
     // must extend here: warn, fall back to the default, never take down dev.
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
-    const factory = vi.fn(() => ({ start: vi.fn(async () => {}), dispose: vi.fn(async () => {}), runtimeId: 'rt-1' }))
-    _setBridgeFactoryForTesting(factory)
-    vi.stubEnv('NEXT_PHASE', DEV_PHASE)
+    const { factory } = stubBridge()
 
-    const config = withCortex({}, { toggleShortcut: 'Cmd+.' })
+    const config = evalPhase(withCortex({}, { toggleShortcut: 'Cmd+.' }), DEV_PHASE)
 
     expect(typeof config).toBe('object')
     expect(config.webpack).toBeTypeOf('function')
@@ -307,11 +499,9 @@ describe('withCortex bridge lifecycle', () => {
   })
 
   it('passes port, toggleShortcut, and projectRoot through to the bridge', async () => {
-    const factory = vi.fn(() => ({ start: vi.fn(async () => {}), dispose: vi.fn(async () => {}), runtimeId: 'rt-1' }))
-    _setBridgeFactoryForTesting(factory)
-    vi.stubEnv('NEXT_PHASE', DEV_PHASE)
+    const { factory } = stubBridge()
 
-    withCortex({}, { port: 4141, toggleShortcut: '$mod+Shift+Comma', projectRoot: '/my/app' })
+    evalPhase(withCortex({}, { port: 4141, toggleShortcut: '$mod+Shift+Comma', projectRoot: '/my/app' }), DEV_PHASE)
     await flushAsync()
 
     // runtimeId is generated in next.ts and passed into the factory so the loader
@@ -327,7 +517,6 @@ describe('withCortex bridge lifecycle', () => {
 })
 
 describe('withCortex termination handling', () => {
-  const DEV_PHASE = 'phase-development-server'
   let onceHandlers: Partial<Record<string, () => void>>
   let killSpy: MockInstance
 
@@ -351,9 +540,8 @@ describe('withCortex termination handling', () => {
   })
 
   it('re-raises the signal only when cortex is the last handler', () => {
-    _setBridgeFactoryForTesting(() => ({ start: vi.fn(async () => {}), dispose: vi.fn(async () => {}), runtimeId: 'rt-1' }))
-    vi.stubEnv('NEXT_PHASE', DEV_PHASE)
-    withCortex({})
+    stubBridge()
+    evalPhase(withCortex({}), DEV_PHASE)
 
     // Peers remain → do NOT re-raise (they already received the original signal).
     vi.spyOn(process, 'listenerCount').mockReturnValue(1)
@@ -373,14 +561,13 @@ describe('withCortex termination handling', () => {
     let resolveFactory!: (h: { start: typeof start; dispose: typeof dispose; runtimeId: string }) => void
     // Async factory we hold open to simulate the lazy-import window.
     _setBridgeFactoryForTesting(() => new Promise((res) => { resolveFactory = res }))
-    vi.stubEnv('NEXT_PHASE', DEV_PHASE)
 
-    withCortex({})
+    evalPhase(withCortex({}), DEV_PHASE)
     // Signal fires while construction is still pending (bridge is null here).
     onceHandlers['SIGINT']!()
     // Construction now resolves — must dispose, not start.
     resolveFactory({ start, dispose, runtimeId: 'rt-1' })
-    await new Promise((r) => setTimeout(r, 0))
+    await flushAsync()
 
     expect(start).not.toHaveBeenCalled()
     expect(dispose).toHaveBeenCalledOnce()
@@ -392,14 +579,14 @@ type TurbopackRuleForTest = {
   [key: string]: unknown
 }
 
-async function turbopackRules(config: ReturnType<typeof withCortex>): Promise<Record<string, TurbopackRuleForTest>> {
-  const resolvedConfig = await resolved(config)
-  return (resolvedConfig.turbopack as { rules: Record<string, TurbopackRuleForTest> }).rules
+function turbopackRules(fn: NextPhaseConfigFunction): Record<string, TurbopackRuleForTest> {
+  const config = evalPhase(fn, TEST_PHASE)
+  return (config.turbopack as { rules: Record<string, TurbopackRuleForTest> }).rules
 }
 
 describe('withCortex turbopack rules', () => {
-  it('adds loader rules for *.tsx and *.jsx globs pointing at next-source-loader', async () => {
-    const rules = await turbopackRules(withCortex({}))
+  it('adds loader rules for *.tsx and *.jsx globs pointing at next-source-loader', () => {
+    const rules = turbopackRules(withCortex({}))
     for (const glob of ['*.tsx', '*.jsx']) {
       const rule = rules[glob]!
       expect(rule.loaders).toHaveLength(1)
@@ -408,17 +595,17 @@ describe('withCortex turbopack rules', () => {
     }
   })
 
-  it('omits `as` from generated rules', async () => {
+  it('omits `as` from generated rules', () => {
     // `as` renames the virtual module (App.tsx → App.tsx.tsx under as:'*.tsx'),
     // which breaks relative-import resolution. Verified empirically in the
     // 2026-07-18 Turbopack spike — same-format transforms must omit it.
-    const rules = await turbopackRules(withCortex({}))
+    const rules = turbopackRules(withCortex({}))
     expect(rules['*.tsx']).not.toHaveProperty('as')
     expect(rules['*.jsx']).not.toHaveProperty('as')
   })
 
-  it('produces serializable loader options and omits absent optionals entirely', async () => {
-    const rules = await turbopackRules(withCortex({}))
+  it('produces serializable loader options and omits absent optionals entirely', () => {
+    const rules = turbopackRules(withCortex({}))
     const item = rules['*.tsx']!.loaders[0] as { options: Record<string, unknown> }
     // Turbopack rejects undefined-valued keys; absent options must be omitted,
     // not passed as { resolveAlias: undefined }.
@@ -426,8 +613,8 @@ describe('withCortex turbopack rules', () => {
     expect(JSON.parse(JSON.stringify(item.options))).toEqual(item.options)
   })
 
-  it('passes resolveAlias and includeNodeModules through when provided', async () => {
-    const rules = await turbopackRules(
+  it('passes resolveAlias and includeNodeModules through when provided', () => {
+    const rules = turbopackRules(
       withCortex({}, { resolveAlias: { '@': '/project/src' }, includeNodeModules: ['@acme/ui'] })
     )
     const item = rules['*.jsx']!.loaders[0] as { options: Record<string, unknown> }
@@ -435,29 +622,30 @@ describe('withCortex turbopack rules', () => {
     expect(item.options.includeNodeModules).toEqual(['@acme/ui'])
   })
 
-  it('uses options.projectRoot for rule options, defaulting to process.cwd()', async () => {
-    const explicit = await turbopackRules(withCortex({}, { projectRoot: '/my/app' }))
+  it('uses options.projectRoot for rule options, defaulting to process.cwd()', () => {
+    const explicit = turbopackRules(withCortex({}, { projectRoot: '/my/app' }))
     const explicitItem = explicit['*.tsx']!.loaders[0] as { options: Record<string, unknown> }
     expect(explicitItem.options.projectRoot).toBe('/my/app')
 
-    const defaulted = await turbopackRules(withCortex({}))
+    const defaulted = turbopackRules(withCortex({}))
     const defaultedItem = defaulted['*.tsx']!.loaders[0] as { options: Record<string, unknown> }
     expect(defaultedItem.options.projectRoot).toBe(process.cwd())
   })
 
-  it('preserves unrelated turbopack config keys and rules', async () => {
+  it('preserves unrelated turbopack config keys and rules', () => {
     const svgRule = { loaders: ['@svgr/webpack'], as: '*.js' }
-    const config = await resolved(
-      withCortex({ turbopack: { resolveAlias: { underscore: 'lodash' }, rules: { '*.svg': svgRule } } })
+    const config = evalPhase(
+      withCortex({ turbopack: { resolveAlias: { underscore: 'lodash' }, rules: { '*.svg': svgRule } } }),
+      TEST_PHASE,
     )
     expect((config.turbopack as Record<string, unknown>).resolveAlias).toEqual({ underscore: 'lodash' })
     expect((config.turbopack as { rules: Record<string, unknown> }).rules['*.svg']).toEqual(svgRule)
   })
 
-  it('appends the cortex loader after existing loaders on a colliding rule object', async () => {
+  it('appends the cortex loader after existing loaders on a colliding rule object', () => {
     // Webpack-compat loader chains execute right-to-left: appending last means
     // cortex runs first, on raw source, before user loaders transform it.
-    const rules = await turbopackRules(
+    const rules = turbopackRules(
       withCortex({ turbopack: { rules: { '*.tsx': { loaders: ['user-loader'], foo: 'bar' } } } })
     )
     const rule = rules['*.tsx']!
@@ -466,33 +654,31 @@ describe('withCortex turbopack rules', () => {
     expect(rule.foo).toBe('bar')
   })
 
-  it('appends to loader-array shorthand rules', async () => {
-    const rules = await turbopackRules(withCortex({ turbopack: { rules: { '*.jsx': ['user-loader'] } } }))
+  it('appends to loader-array shorthand rules', () => {
+    const rules = turbopackRules(withCortex({ turbopack: { rules: { '*.jsx': ['user-loader'] } } }))
     const rule = rules['*.jsx'] as unknown as Array<string | { loader: string }>
     expect(rule[0]).toBe('user-loader')
     expect((rule[1] as { loader: string }).loader).toMatch(/next-source-loader/)
   })
 
-  it('warns and leaves unrecognized rule shapes untouched', async () => {
+  it('warns and leaves unrecognized rule shapes untouched', () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
     const weird = { as: '*.js' } // object without a loaders array
-    const rules = await turbopackRules(withCortex({ turbopack: { rules: { '*.tsx': weird } } }))
+    const rules = turbopackRules(withCortex({ turbopack: { rules: { '*.tsx': weird } } }))
     expect(rules['*.tsx']).toEqual(weird)
     expect(warn).toHaveBeenCalledWith(expect.stringContaining("turbopack.rules['*.tsx']"))
   })
 
-  it('does not mutate the caller-supplied config object', async () => {
+  it('does not mutate the caller-supplied config object', () => {
     const originalRules = { '*.tsx': { loaders: ['user-loader'] } }
     const original = { turbopack: { rules: originalRules } }
-    await resolved(withCortex(original))
+    evalPhase(withCortex(original), TEST_PHASE)
     expect(originalRules['*.tsx'].loaders).toEqual(['user-loader'])
     expect(Object.keys(originalRules)).toEqual(['*.tsx'])
   })
 })
 
 describe('withCortex loader runtimeId threading (ZF0-1851)', () => {
-  const DEV_PHASE = 'phase-development-server'
-
   it('threads one generated runtimeId into turbopack + webpack loader options AND the bridge factory', async () => {
     // The lock-refusal gate (source-loader isRuntimeDisabled) keys on runtimeId.
     // next.ts generates ONE id and threads it into both loader entry points AND
@@ -504,9 +690,8 @@ describe('withCortex loader runtimeId threading (ZF0-1851)', () => {
       capturedRuntimeId = opts.runtimeId
       return { start: vi.fn(async () => {}), dispose: vi.fn(async () => {}), runtimeId: opts.runtimeId }
     })
-    vi.stubEnv('NEXT_PHASE', DEV_PHASE)
 
-    const config = withCortex({})
+    const config = evalPhase(withCortex({}), DEV_PHASE)
 
     const rules = (config.turbopack as { rules: Record<string, TurbopackRuleForTest> }).rules
     const turbopackItem = rules['*.tsx']!.loaders[0] as { options: Record<string, unknown> }
@@ -527,9 +712,7 @@ describe('withCortex loader runtimeId threading (ZF0-1851)', () => {
   it('omits runtimeId from loader options when no bridge is active (non-dev phase)', () => {
     // No bridge means no lock to refuse — isRuntimeDisabled(undefined) is always
     // false, which is correct here.
-    vi.stubEnv('NEXT_PHASE', 'phase-production-build')
-
-    const config = withCortex({})
+    const config = evalPhase(withCortex({}), TEST_PHASE)
 
     const rules = (config.turbopack as { rules: Record<string, TurbopackRuleForTest> }).rules
     const turbopackItem = rules['*.tsx']!.loaders[0] as { options: Record<string, unknown> }
@@ -543,8 +726,6 @@ describe('withCortex loader runtimeId threading (ZF0-1851)', () => {
 })
 
 describe('withCortex termination signal handling', () => {
-  const DEV_PHASE = 'phase-development-server'
-
   // Adding a SIGINT/SIGTERM listener suppresses Node's default die-on-signal.
   // The handler must NOT call process.exit — a synchronous exit preempts Next's
   // own async graceful shutdown (Turbopack engine / child teardown) on EVERY
@@ -554,8 +735,7 @@ describe('withCortex termination signal handling', () => {
     'disposes then re-raises %s (removing our listener) rather than process.exit',
     async (signal) => {
       const dispose = vi.fn(async () => {})
-      _setBridgeFactoryForTesting(() => ({ start: vi.fn(async () => {}), dispose, runtimeId: 'rt-1' }))
-      vi.stubEnv('NEXT_PHASE', DEV_PHASE)
+      _setBridgeFactoryForTesting((opts) => ({ start: vi.fn(async () => {}), dispose, runtimeId: opts.runtimeId }))
 
       // Spy the re-raise so it does not actually signal the vitest process.
       const kill = vi.spyOn(process, 'kill').mockImplementation((() => true) as never)
@@ -563,7 +743,7 @@ describe('withCortex termination signal handling', () => {
       const exit = vi.spyOn(process, 'exit').mockImplementation((() => undefined) as never)
 
       const before = process.listeners(signal)
-      withCortex({})
+      evalPhase(withCortex({}), DEV_PHASE)
       // Signal handlers are installed synchronously, but the bridge is
       // constructed asynchronously (lazy webpack import) — let it resolve so the
       // handler's bridge?.dispose() actually reaches the bridge.

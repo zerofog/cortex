@@ -1,3 +1,4 @@
+import fs from 'fs'
 import path from 'path'
 import { randomUUID } from 'node:crypto'
 import { fileURLToPath } from 'url'
@@ -8,6 +9,9 @@ import { shouldExcludeCortexSource } from './source-loader-utils.js'
 // module — e.g. `import { CortexDevScripts } from 'cortex-editor/next'` in a
 // user's root layout — never evaluates the bridge graph in an RSC worker. (3F)
 import { DEFAULT_TOGGLE_SHORTCUT, validateToggleShortcut } from './injection-snippet.js'
+// cortex-lock is dependency-light (node:fs/path/crypto) — safe for this
+// config-eval module; the heavy bridge graph stays behind the lazy import.
+import { advertiseLockFamilyNonce, inheritedLockFamilyNonce } from '../core/cortex-lock.js'
 
 export { CortexDevScripts, type CortexDevScriptsProps } from './next-dev-scripts.js'
 
@@ -18,11 +22,34 @@ export { CortexDevScripts, type CortexDevScriptsProps } from './next-dev-scripts
  * with this interface since we only declare what we actually use.
  */
 export interface NextConfig {
-  webpack?: (config: WebpackConfig, context: WebpackContext) => WebpackConfig
+  /** `| null` is load-bearing: Next's own NextConfig declares webpack as
+   *  `NextJsWebpackConfig | null | undefined`, so without it
+   *  `withCortex(realNextConfig)` fails tsc in strict host repos. Only a
+   *  function value is ever invoked (buildWrappedConfig type-guards). */
+  webpack?: ((config: WebpackConfig, context: WebpackContext) => WebpackConfig) | null
   turbopack?: TurbopackConfig
   serverExternalPackages?: string[]
   [key: string]: unknown
 }
+
+/** Context Next passes to a phase-function config (`(phase, { defaultConfig }) => cfg`). */
+export interface NextConfigPhaseContext {
+  defaultConfig: Record<string, unknown>
+  [key: string]: unknown
+}
+
+/** The phase-function config form — Next's public contract for phase-aware
+ *  configuration. withCortex RETURNS this shape, and ACCEPTS it as input so an
+ *  already-function-shaped user config keeps working. */
+export type NextPhaseConfigFunction = (
+  phase: string,
+  context: NextConfigPhaseContext,
+) => NextConfig | Promise<NextConfig>
+
+/** Everything withCortex accepts: a plain config object, a promise of one
+ *  (`export default (async () => cfg)()`), or the phase-function form — the
+ *  same three shapes Next's own config loader awaits. */
+export type NextConfigInput = NextConfig | Promise<NextConfig> | NextPhaseConfigFunction
 
 export interface TurbopackConfig {
   rules?: Record<string, unknown>
@@ -138,33 +165,21 @@ function withCortexTurbopack(
   return { ...(existing ?? {}), rules }
 }
 
-/** Value of PHASE_DEVELOPMENT_SERVER in next/constants — hardcoded because
- *  `next` is an optional peer and this module must load without it. */
+/** Phase values from next/constants — hardcoded (not imported) because `next`
+ *  is an optional peer and this module must load without it. These are public,
+ *  frozen API strings: every phase-function next.config in the ecosystem
+ *  matches on them, so Next cannot change them without breaking all of those.
+ *
+ *  History (do not regress): 0.3.0 originally detected the dev server via
+ *  `process.env.__NEXT_DEV_SERVER === '1' || process.env.NEXT_PHASE === ...`.
+ *  Probe-verified on a real Next 16.1.6 app: NEITHER var exists at config-eval
+ *  time — `__NEXT_DEV_SERVER` was only introduced around Next 16.2 and
+ *  NEXT_PHASE is never exported to the environment. The phase arrives solely as
+ *  the ARGUMENT to a phase-function config, which is why withCortex now returns
+ *  that form. */
 const PHASE_DEVELOPMENT_SERVER = 'phase-development-server'
-
-/** True when THIS process is the Next dev server evaluating next.config.
- *
- *  `next dev` does NOT set NEXT_PHASE in the environment at config-eval time
- *  (verified empirically on Next 16.2: NEXT_PHASE is only passed as the argument
- *  to the phase-FUNCTION config form). We avoid the phase-function form on
- *  purpose — it would make withCortex return a function, which breaks
- *  composition with wrappers that spread the config (withBundleAnalyzer(...),
- *  withPWA(...)). The reliable eval-time signal the dev server DOES set is the
- *  internal `__NEXT_DEV_SERVER=1`; NEXT_PHASE is also accepted so the unit tests
- *  (which stub it) and any Next build that does export it still work. The
- *  production early-return in withCortex short-circuits before this is consulted,
- *  so a stray var cannot start the bridge during `next build`.
- *
- *  Reliance note: `__NEXT_DEV_SERVER` is a private Next internal. If a future
- *  Next renames it, cortex would go inert on `next dev` (the exact failure this
- *  whole effort fixed) — so this predicate is the first thing to check when a
- *  Next upgrade breaks activation. Tracked for the re-review as a fragility. */
-function isNextDevServer(): boolean {
-  return (
-    process.env.__NEXT_DEV_SERVER === '1' ||
-    process.env.NEXT_PHASE === PHASE_DEVELOPMENT_SERVER
-  )
-}
+const PHASE_PRODUCTION_BUILD = 'phase-production-build'
+const PHASE_PRODUCTION_SERVER = 'phase-production-server'
 
 interface BridgeHandle {
   /** ZF0-1851: per-runtime id keyed by the source-loader's isRuntimeDisabled
@@ -198,35 +213,81 @@ async function defaultBridgeFactory(opts: BridgeFactoryOptions): Promise<BridgeH
 }
 
 let bridgeFactory: BridgeFactory = defaultBridgeFactory
-let bridge: BridgeHandle | null = null
-let bridgeStartup: Promise<BridgeHandle | null> | null = null
-/** Memoized alongside the bridge: the ONE runtimeId shared by the bridge and the
- *  loader options. Generated once and reused on every later dev-server evaluation
- *  — regenerating per call would hand the loaders a fresh id while the memoized
- *  bridge keeps the first, defeating the ZF0-1851 lock-refusal gate. */
-let bridgeRuntimeId: string | null = null
-/** Set when a termination signal arrives. Read by startBridge so a bridge whose
- *  async construction was in flight when the signal fired is disposed instead of
- *  started — otherwise it would boot a server during graceful shutdown. */
-let terminating = false
-let signalHandlersInstalled = false
-let registeredSignalHandlers: Array<[NodeJS.Signals, () => void]> = []
+
+/** Per-project bridge singleton state.
+ *
+ *  runtimeId is memoized alongside the bridge: the ONE id shared by the bridge
+ *  and the loader options. Regenerating per evaluation would hand the loaders a
+ *  fresh id while the memoized bridge keeps the first, defeating the ZF0-1851
+ *  lock-refusal gate. `terminating` is set when a termination signal arrives —
+ *  read by startBridge so a bridge whose async construction was in flight when
+ *  the signal fired is disposed instead of started. */
+interface BridgeState {
+  runtimeId: string | null
+  bridge: BridgeHandle | null
+  startup: Promise<BridgeHandle | null> | null
+  terminating: boolean
+  signalHandlersInstalled: boolean
+  registeredSignalHandlers: Array<[NodeJS.Signals, () => void]>
+}
+
+/** Bridge state lives on globalThis (NOT module scope), keyed by canonicalized
+ *  project root. Next can evaluate next.config through BOTH package builds in
+ *  one process — the CJS build (config loader) and the ESM build — giving each
+ *  module instance its own module scope. Module-scoped memoization then misses,
+ *  a second bridge constructs, and its lock acquire races the first (the
+ *  nondeterministic "[cortex] Another cortex instance (pid N)…" warning seen on
+ *  real Next 16 boots). Symbol.for + globalThis is the one per-realm scope both
+ *  module instances share. The symbol is deliberately versionless: the
+ *  realistic dual-instance is the CJS+ESM pair of ONE installed version, whose
+ *  state shapes are identical. */
+const BRIDGE_REGISTRY_KEY = Symbol.for('cortex-editor.next-bridge-registry')
+
+function bridgeRegistry(): Map<string, BridgeState> {
+  const holder = globalThis as unknown as Record<symbol, Map<string, BridgeState> | undefined>
+  return (holder[BRIDGE_REGISTRY_KEY] ??= new Map())
+}
+
+/** realpath so the same project reached via a symlink dedupes to one bridge;
+ *  resolve-only fallback keeps this best-effort (a vanished cwd must not throw
+ *  during config evaluation). */
+function canonicalProjectRoot(projectRoot: string): string {
+  try {
+    return fs.realpathSync(projectRoot)
+  } catch {
+    return path.resolve(projectRoot)
+  }
+}
+
+function bridgeStateFor(canonicalRoot: string): BridgeState {
+  const registry = bridgeRegistry()
+  let state = registry.get(canonicalRoot)
+  if (!state) {
+    state = {
+      runtimeId: null,
+      bridge: null,
+      startup: null,
+      terminating: false,
+      signalHandlersInstalled: false,
+      registeredSignalHandlers: [],
+    }
+    registry.set(canonicalRoot, state)
+  }
+  return state
+}
 
 /** Swap the bridge implementation and reset singleton state. Pass null to
  *  restore the real lazy-loaded CortexWebpackRuntime. @internal */
 export function _setBridgeFactoryForTesting(factory: BridgeFactory | null): void {
   bridgeFactory = factory ?? defaultBridgeFactory
-  bridge = null
-  bridgeStartup = null
-  bridgeRuntimeId = null
-  terminating = false
   // Detach any signal handlers a prior test installed so each test starts from a
   // clean process, and so no re-raising handler is left registered to exit the
   // vitest process on a real signal during the run. Inert in production (this is
   // never called there).
-  for (const [signal, handler] of registeredSignalHandlers) process.removeListener(signal, handler)
-  registeredSignalHandlers = []
-  signalHandlersInstalled = false
+  for (const state of bridgeRegistry().values()) {
+    for (const [signal, handler] of state.registeredSignalHandlers) process.removeListener(signal, handler)
+  }
+  bridgeRegistry().clear()
 }
 
 /** Dispose the bridge, then COOPERATIVELY re-raise the signal. Registering a
@@ -245,16 +306,16 @@ export function _setBridgeFactoryForTesting(factory: BridgeFactory | null): void
  *  Dispose is async and best-effort — we do not block termination on it (a hard
  *  signal leaves the .cortex/ lock behind; staleness detection recovers it on
  *  next start). */
-function handleTerminationSignal(signal: 'SIGINT' | 'SIGTERM'): void {
+function handleTerminationSignal(signal: 'SIGINT' | 'SIGTERM', state: BridgeState): void {
   // Flag first so a bridge still under async construction (startBridge awaiting
   // the lazy import) is disposed rather than started — see startBridge.
-  terminating = true
-  bridge?.dispose().catch(() => {})
+  state.terminating = true
+  state.bridge?.dispose().catch(() => {})
   // Remove our own listener(s) for this signal so the re-raise below reaches the
   // default/next handler instead of looping back into us. (process.once does not
   // auto-remove when the unwrapped listener is invoked directly, so this explicit
   // removal is load-bearing, not just belt-and-suspenders.)
-  registeredSignalHandlers = registeredSignalHandlers.filter(([sig, handler]) => {
+  state.registeredSignalHandlers = state.registeredSignalHandlers.filter(([sig, handler]) => {
     if (sig !== signal) return true
     process.removeListener(signal, handler)
     return false
@@ -271,12 +332,12 @@ function handleTerminationSignal(signal: 'SIGINT' | 'SIGTERM'): void {
   }
 }
 
-function installSignalHandlers(): void {
-  if (signalHandlersInstalled) return
-  signalHandlersInstalled = true
+function installSignalHandlers(state: BridgeState): void {
+  if (state.signalHandlersInstalled) return
+  state.signalHandlersInstalled = true
   for (const signal of ['SIGINT', 'SIGTERM'] as const) {
-    const handler = () => handleTerminationSignal(signal)
-    registeredSignalHandlers.push([signal, handler])
+    const handler = () => handleTerminationSignal(signal, state)
+    state.registeredSignalHandlers.push([signal, handler])
     process.once(signal, handler)
   }
 }
@@ -310,9 +371,10 @@ function ensureBridge(
   options: CortexNextOptions,
   runtimeId: string,
   toggleShortcut: string,
+  state: BridgeState,
 ): Promise<BridgeHandle | null> {
-  if (!bridgeStartup) {
-    bridgeStartup = Promise.resolve(
+  if (!state.startup) {
+    state.startup = Promise.resolve(
       bridgeFactory({
         root: options.projectRoot ?? process.cwd(),
         mode: 'development',
@@ -321,11 +383,11 @@ function ensureBridge(
         runtimeId,
       }),
     ).then((constructed) => {
-      bridge = constructed
+      state.bridge = constructed
       return constructed
     })
   }
-  return bridgeStartup
+  return state.startup
 }
 
 /** Fire-and-forget bridge startup. Anything that goes wrong (lazy-import
@@ -336,10 +398,11 @@ async function startBridge(
   options: CortexNextOptions,
   runtimeId: string,
   toggleShortcut: string,
+  state: BridgeState,
 ): Promise<void> {
   let handle: BridgeHandle | null
   try {
-    handle = await ensureBridge(options, runtimeId, toggleShortcut)
+    handle = await ensureBridge(options, runtimeId, toggleShortcut, state)
   } catch (err) {
     console.error('[cortex] Bridge failed to construct — editor disabled:', err instanceof Error ? err.message : err)
     return
@@ -348,7 +411,7 @@ async function startBridge(
   // A termination signal may have fired during the async construction above
   // (the lazy import + factory). Starting now would boot a server mid-shutdown;
   // dispose what we constructed instead.
-  if (terminating) {
+  if (state.terminating) {
     handle.dispose().catch(() => {})
     return
   }
@@ -384,46 +447,103 @@ function withCortexServerExternals(nextConfig: NextConfig): string[] | undefined
   return existing?.includes('cortex-editor') ? existing : [...(existing ?? []), 'cortex-editor']
 }
 
-export function withCortex(nextConfig: NextConfig = {}, options: CortexNextOptions = {}): NextConfig {
-  // Production `next build`: `cortex init` leaves a permanent <CortexDevScripts/>
-  // import in the layout, so the bridge module graph (ws, edit pipeline) is
-  // still pulled into the RSC server graph. Externalize cortex-editor so it
-  // resolves at runtime — but add NO turbopack rules, NO webpack hook, and
-  // start NO bridge in production.
-  if (process.env.NODE_ENV === 'production') {
+/**
+ * Wrap a Next config with cortex source instrumentation + the dev bridge.
+ *
+ * Returns the PHASE-FUNCTION config form — `(phase, ctx) => finalConfig` —
+ * because the phase is Next's only public, version-stable signal for "this
+ * process is the dev server" (probe-verified: no env var carries it at
+ * config-eval time on Next 13–16.1; `__NEXT_DEV_SERVER` only exists from
+ * ~16.2). Consequences:
+ *
+ * - withCortex must be the OUTERMOST wrapper. Object-spreading wrappers
+ *   (withBundleAnalyzer(withCortex(cfg))) would spread a function into `{}` and
+ *   silently drop the config. Compose as withCortex(withBundleAnalyzer(cfg))
+ *   instead — the `cortex init` codemod already places it outermost.
+ * - A function-shaped user config is called with the ORIGINAL (phase, ctx) and
+ *   its sync/async shape is preserved: an object or sync-function input yields
+ *   a sync result (never an unexpected Promise); a Promise-returning input
+ *   yields a Promise. Exceptions/rejections propagate unchanged, and the
+ *   bridge only starts after the user config resolves successfully.
+ *
+ * The bridge is gated on PHASE_DEVELOPMENT_SERVER (+ a NODE_ENV=production
+ * belt-and-braces), which keeps it out of `next build`/`next start`, next-jest
+ * (PHASE_TEST), and every other non-dev phase. Some hosts DO evaluate the
+ * config with the dev phase without being the dev server — Next's detached
+ * telemetry flusher, the exiting `next dev` CLI parent, Storybook's nextjs
+ * framework. Two mitigations: the bridge's handles are unref'd (cortex never
+ * pins a process's event loop, so short-lived evaluators drain, exit, and
+ * release the lock — no zombie can hold `.cortex/` hostage), and
+ * `CORTEX_BRIDGE=0` is the explicit opt-out for long-lived non-dev-server
+ * hosts. Instrumentation transforms still apply under the opt-out (they are
+ * pure config); only the bridge is suppressed.
+ */
+export function withCortex(nextConfig: NextConfigInput = {}, options: CortexNextOptions = {}): NextPhaseConfigFunction {
+  return function cortexPhaseConfig(phase: string, phaseContext: NextConfigPhaseContext): NextConfig | Promise<NextConfig> {
+    // Do not evaluate a function-shaped user config early, and do not catch its
+    // errors — a broken user config must fail `next dev`/`next build` exactly
+    // as it would without cortex.
+    const resolved = typeof nextConfig === 'function' ? nextConfig(phase, phaseContext) : nextConfig
+    if (isPromiseLike(resolved)) {
+      return resolved.then((config) => finalizePhaseConfig(config, options, phase))
+    }
+    return finalizePhaseConfig(resolved, options, phase)
+  }
+}
+
+function isPromiseLike(value: NextConfig | Promise<NextConfig>): value is Promise<NextConfig> {
+  return typeof (value as { then?: unknown }).then === 'function'
+}
+
+function finalizePhaseConfig(nextConfig: NextConfig, options: CortexNextOptions, phase: string): NextConfig {
+  // Production (`next build` / `next start`): `cortex init` leaves a permanent
+  // <CortexDevScripts/> import in the layout, so the bridge module graph (ws,
+  // edit pipeline) is still pulled into the RSC server graph. Externalize
+  // cortex-editor so it resolves at runtime — but add NO turbopack rules, NO
+  // webpack hook, and start NO bridge. Gated on BOTH the phase and NODE_ENV:
+  // Next forces NODE_ENV=production for build/start, but an explicitly forced
+  // NODE_ENV=development build must still not bake data-cortex-source
+  // attributes (leaking source paths) into production output.
+  if (
+    process.env.NODE_ENV === 'production' ||
+    phase === PHASE_PRODUCTION_BUILD ||
+    phase === PHASE_PRODUCTION_SERVER
+  ) {
     return { ...nextConfig, serverExternalPackages: withCortexServerExternals(nextConfig) }
   }
 
-  // withCortex must ALWAYS return a plain object so it composes with wrappers
-  // that spread the result — withBundleAnalyzer(withCortex(cfg)), withPWA(...):
-  // spreading a function yields {} and silently drops the entire config. Gate
-  // the bridge on a reliable dev-server signal (isNextDevServer) instead of the
-  // return shape. start() is fire-and-forget (it already swallows/logs its own
-  // errors) so config return stays synchronous — the .cortex/ discovery files
-  // being ready before first render is best-effort (<CortexDevScripts/> renders
-  // null + warns when they are absent).
+  // Instrumentation transforms apply on EVERY non-production phase — only the
+  // bridge below is phase-gated. Phase-gating the transforms too would let the
+  // dev server's multiple config evaluations disagree about the module graph.
   //
-  // The bridge is now constructed ASYNCHRONOUSLY (the factory lazy-imports
-  // webpack.ts — 3F), so we can't read runtimeId back off the instance
-  // synchronously. Instead we GENERATE it here and pass it into the factory, and
-  // use the same id for the loader options built below. Both loader entry points
-  // must carry the SAME id the bridge was given so the ZF0-1851 lock-refusal gate
-  // (source-loader isRuntimeDisabled) can key on it — a second `next dev` that
-  // loses the .cortex/ lock then goes inert instead of injecting the other
-  // server's port/token. Non-dev-server processes start no bridge, so there is no
-  // lock to refuse and runtimeId is left undefined.
+  // The bridge is constructed ASYNCHRONOUSLY (the factory lazy-imports
+  // webpack.ts — 3F), so runtimeId can't be read back off the instance
+  // synchronously. It is GENERATED here, memoized in the per-project global
+  // state, and passed both into the factory and into the loader options so the
+  // ZF0-1851 lock-refusal gate (source-loader isRuntimeDisabled) keys on ONE
+  // shared id. Non-dev-server phases start no bridge, so there is no lock to
+  // refuse and runtimeId stays undefined.
   //
-  // Toggle validation + signal-handler install stay SYNCHRONOUS (they don't need
-  // the heavy module) so a bad shortcut warns and signal handlers are armed
-  // immediately, regardless of when the async bridge construction resolves.
+  // Toggle validation + signal-handler install stay SYNCHRONOUS (they don't
+  // need the heavy module) so a bad shortcut warns and signal handlers are
+  // armed immediately, regardless of when the async construction resolves.
   let runtimeId: string | undefined
-  if (isNextDevServer()) {
-    // Memoize the id: a later dev-server evaluation must reuse it so the loader
-    // options and the (already-memoized) bridge keep ONE shared id.
-    runtimeId = bridgeRuntimeId ??= randomUUID()
+  if (phase === PHASE_DEVELOPMENT_SERVER && process.env.CORTEX_BRIDGE !== '0') {
+    const state = bridgeStateFor(canonicalProjectRoot(options.projectRoot ?? process.cwd()))
+    // ADOPT an inherited family nonce when one exists (we were spawned by a
+    // cortex-advertising process — the same boot): using the SAME nonce as
+    // our lock nonce makes family classification direction-independent. A
+    // fresh id is minted only at the family root. See inheritedLockFamilyNonce.
+    runtimeId = state.runtimeId ??= inheritedLockFamilyNonce() ?? randomUUID()
+    // Advertise SYNCHRONOUSLY, before Next can spawn any sibling/child process:
+    // the bridge uses this same id as its lock nonce (lockOwnerNonce), so a
+    // same-boot process that loses the lock race classifies the holder as
+    // sameFamily (silent inert) even when it was spawned before the async
+    // bridge construction below finished acquiring.
+    advertiseLockFamilyNonce(runtimeId)
     const toggleShortcut = resolveToggleShortcut(options.toggleShortcut)
-    installSignalHandlers()
-    void startBridge(options, runtimeId, toggleShortcut)
+    installSignalHandlers(state)
+    void startBridge(options, runtimeId, toggleShortcut, state)
   }
 
   return buildWrappedConfig(nextConfig, options, runtimeId)

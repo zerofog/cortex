@@ -6,7 +6,9 @@ import { CortexDevScripts, _resetDevScriptsWarningForTesting } from '../../src/a
 
 let root: string
 
-function writeDiscovery(overrides: { port?: string; token?: string; injection?: string } = {}): void {
+function writeDiscovery(
+  overrides: { port?: string; token?: string; injection?: string; lock?: string | false } = {},
+): void {
   const cortexDir = path.join(root, '.cortex')
   fs.mkdirSync(cortexDir, { recursive: true })
   fs.writeFileSync(path.join(cortexDir, 'port'), overrides.port ?? '4321')
@@ -15,6 +17,15 @@ function writeDiscovery(overrides: { port?: string; token?: string; injection?: 
     path.join(cortexDir, 'injection.json'),
     overrides.injection ?? JSON.stringify({ sessionId: 'session-abc', toggleShortcut: '$mod+Shift+Period' })
   )
+  // The component only injects when a LIVE bridge owns the discovery files —
+  // the bridge's `.cortex/.lock` is that ownership record. Default fixture:
+  // a live lock owned by the test process itself. `lock: false` omits it.
+  if (overrides.lock !== false) {
+    fs.writeFileSync(
+      path.join(cortexDir, '.lock'),
+      overrides.lock ?? JSON.stringify({ pid: process.pid, nonce: 'test-nonce', startedAt: Date.now() }),
+    )
+  }
 }
 
 beforeEach(() => {
@@ -193,5 +204,64 @@ describe('CortexDevScripts', () => {
     const read = vi.spyOn(fs, 'readFileSync')
     expect(CortexDevScripts({ projectRoot: root })).toBeNull()
     expect(read).not.toHaveBeenCalled()
+  })
+
+  it('takes its final injection.json freshness snapshot AFTER the lock-liveness check (codex P2 TOCTOU)', () => {
+    // Liveness only proves SOME process owns the lock at check time — a bridge
+    // swap between reading the values and checking the lock would pair the OLD
+    // port/token with the NEW owner's live lock. The final injection.json
+    // re-read must therefore be the LAST gate. Pin the ORDER: without it this
+    // test's swap simulation could still pass by accident of scheduling.
+    writeDiscovery()
+    const reads: string[] = []
+    const realRead = fs.readFileSync
+    const realAccess = fs.accessSync
+    vi.spyOn(fs, 'readFileSync').mockImplementation(((p: unknown, ...rest: unknown[]) => {
+      reads.push(String(p))
+      return (realRead as (...a: unknown[]) => unknown)(p, ...rest)
+    }) as typeof fs.readFileSync)
+    vi.spyOn(fs, 'accessSync').mockImplementation(((p: unknown, ...rest: unknown[]) => {
+      reads.push(String(p))
+      return (realAccess as (...a: unknown[]) => unknown)(p, ...rest)
+    }) as typeof fs.accessSync)
+
+    expect(CortexDevScripts({ projectRoot: root })).not.toBeNull()
+
+    const lastInjectionRead = reads.map((p, i) => (p.endsWith('injection.json') ? i : -1)).reduce((a, b) => Math.max(a, b), -1)
+    const lockTouch = reads.findIndex((p) => p.endsWith('.lock'))
+    expect(lockTouch).toBeGreaterThan(-1)
+    expect(lastInjectionRead).toBeGreaterThan(lockTouch)
+  })
+
+  it('refuses to inject when the bridge lock is STALE (holder pid dead) — crashed-server leftovers', () => {
+    // A SIGKILLed dev server leaves port/token/injection.json AND a lock whose
+    // pid is dead. Injecting would hand the browser a dead (or since-reassigned)
+    // port plus a stale token. The liveness gate must fail closed.
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    // pid 2^30-ish is far above any real pid space in the test environment.
+    writeDiscovery({ lock: JSON.stringify({ pid: 1073676287, nonce: 'dead', startedAt: 0 }) })
+
+    expect(CortexDevScripts({ projectRoot: root })).toBeNull()
+    expect(warn).toHaveBeenCalledOnce()
+    expect(warn.mock.calls[0]![0]).toContain('no live bridge')
+  })
+
+  it('refuses to inject when the lock is MISSING — exit-handler released it but files remain', () => {
+    // An uncaught-exception exit runs the lock's process-exit release (unlink)
+    // but never CortexSession.dispose(), so discovery files survive without an
+    // owner. Presence of the files alone must not be trusted.
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    writeDiscovery({ lock: false })
+
+    expect(CortexDevScripts({ projectRoot: root })).toBeNull()
+    expect(warn.mock.calls[0]![0]).toContain('lock missing')
+  })
+
+  it('refuses to inject on a CORRUPT lock file', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    writeDiscovery({ lock: '{ not json' })
+
+    expect(CortexDevScripts({ projectRoot: root })).toBeNull()
+    expect(warn.mock.calls[0]![0]).toContain('lock corrupt')
   })
 })

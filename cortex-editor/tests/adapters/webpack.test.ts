@@ -7,9 +7,11 @@ import {
   cortexWebpack,
   createManualInjectionSnippet,
   injectWebpackHtml,
+  CortexWebpackRuntime,
   _getActiveStateForTesting,
   _getInjectedClientScriptForTesting,
 } from '../../src/adapters/webpack.js'
+import { isRuntimeDisabled, markRuntimeDisabled } from '../../src/adapters/source-loader-utils.js'
 
 const cleanupDirs: string[] = []
 
@@ -151,6 +153,137 @@ describe('cortexWebpack adapter', () => {
 
     expect(fs.existsSync(path.join(root, '.cortex', 'port'))).toBe(false)
     expect(fs.existsSync(tokenPath)).toBe(false)
+  })
+
+  it('dispose() serializes with an in-flight discovery write (no orphaned files)', async () => {
+    // Codex P2: writeDiscoveryFiles became async; a dispose racing it could
+    // remove the files and release the lock, after which the pending write
+    // resumes and re-creates orphaned discovery files. dispose must WAIT for
+    // the in-flight write, so all files it needs to remove exist and are
+    // removed. Deterministic via a held rename on injection.json.
+    const { promises: fsPromises } = await import('node:fs')
+    const realRename = fsPromises.rename.bind(fsPromises)
+    let releaseRename!: () => void
+    let renameHeld = false
+    const renameSpy = vi.spyOn(fsPromises, 'rename').mockImplementation(async (from, to) => {
+      if (String(to).endsWith('injection.json')) {
+        renameHeld = true
+        await new Promise<void>((res) => { releaseRename = res })
+      }
+      return realRename(from as string, to as string)
+    })
+    const root = makeTempProject()
+    const runtime = new CortexWebpackRuntime({
+      root, mode: 'development', toggleShortcut: '$mod+Shift+Period', runtimeId: 'rt-dispose-race',
+    })
+    try {
+      const startPromise = runtime.start()
+      await vi.waitFor(() => { if (!renameHeld) throw new Error('rename not reached yet') }, { timeout: 5000 })
+      const disposePromise = runtime.dispose()
+      // Give dispose a beat: without serialization it would already have
+      // removed port/token and released the lock by now.
+      await new Promise((r) => setTimeout(r, 25))
+      releaseRename()
+      await Promise.all([startPromise, disposePromise])
+
+      // Serialized order: write landed, THEN dispose removed the full set.
+      expect(fs.existsSync(path.join(root, '.cortex', 'injection.json'))).toBe(false)
+      expect(fs.existsSync(path.join(root, '.cortex', 'port'))).toBe(false)
+      expect(fs.existsSync(path.join(root, '.cortex', '.lock'))).toBe(false)
+    } finally {
+      renameSpy.mockRestore()
+      await runtime.dispose()
+    }
+  })
+
+  it('same-family lock refusal is SILENT and keeps instrumentation ENABLED', async () => {
+    // The normal `next dev` double evaluation: a sibling process of the same
+    // boot owns the lock (its nonce was inherited via __CORTEX_LOCK_FAMILY).
+    // The loser must not warn — this was the spurious "[cortex] Another cortex
+    // instance…" on real boots — and must keep its source-loader transforms
+    // on, because it may be the compiling process pairing its attributes with
+    // the sibling's discovery files.
+    const root = makeTempProject()
+    const cortexDir = path.join(root, '.cortex')
+    fs.mkdirSync(cortexDir, { recursive: true })
+    fs.writeFileSync(
+      path.join(cortexDir, '.lock'),
+      JSON.stringify({ pid: process.ppid, nonce: 'fam-nonce', startedAt: Date.now() }),
+    )
+    const familyBackup = process.env.__CORTEX_LOCK_FAMILY
+    process.env.__CORTEX_LOCK_FAMILY = 'fam-nonce'
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const runtime = new CortexWebpackRuntime({
+      root, mode: 'development', toggleShortcut: '$mod+Shift+Period', runtimeId: 'rt-samefamily-test',
+    })
+    // Pre-set a stale disabled flag (as left by an EARLIER foreign-conflict
+    // loss in this process): the same-family branch must assert enabled
+    // explicitly, not merely refrain from disabling (delta review P3).
+    markRuntimeDisabled('rt-samefamily-test')
+    try {
+      await runtime.start()
+      expect(errorSpy).not.toHaveBeenCalled()
+      expect(runtime.started).toBe(false)
+      expect(isRuntimeDisabled('rt-samefamily-test')).toBe(false)
+    } finally {
+      if (familyBackup === undefined) delete process.env.__CORTEX_LOCK_FAMILY
+      else process.env.__CORTEX_LOCK_FAMILY = familyBackup
+      errorSpy.mockRestore()
+      await runtime.dispose()
+    }
+  })
+
+  it('silently retries ONCE after a foreign refusal and self-heals when the transient holder vanishes', async () => {
+    // The realistic foreign holder during a Ctrl+C→restart is a short-lived
+    // config evaluator (Next's telemetry flusher) that won the just-freed lock
+    // for a second or two. Without a retry the real dev server stays inert for
+    // its whole session; with it, one silent unref'd re-attempt takes the lock
+    // back once the transient drains.
+    const root = makeTempProject()
+    const cortexDir = path.join(root, '.cortex')
+    fs.mkdirSync(cortexDir, { recursive: true })
+    const lockPath = path.join(cortexDir, '.lock')
+    fs.writeFileSync(lockPath, JSON.stringify({ pid: process.ppid, nonce: 'transient-holder', startedAt: Date.now() }))
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const runtime = new CortexWebpackRuntime({
+      root, mode: 'development', toggleShortcut: '$mod+Shift+Period', runtimeId: 'rt-retry-test', conflictRetryDelayMs: 60,
+    })
+    try {
+      await runtime.start()
+      expect(runtime.started).toBe(false)
+      expect(errorSpy).toHaveBeenCalledTimes(1)
+
+      fs.unlinkSync(lockPath) // transient holder drained and released
+
+      await vi.waitFor(() => { if (!runtime.started) throw new Error('retry has not healed yet') }, { timeout: 5000 })
+      expect(isRuntimeDisabled('rt-retry-test')).toBe(false)
+      expect(errorSpy).toHaveBeenCalledTimes(1) // the retry was silent
+    } finally {
+      errorSpy.mockRestore()
+      await runtime.dispose()
+    }
+  })
+
+  it('foreign lock refusal logs ONE actionable conflict and disables instrumentation', async () => {
+    const root = makeTempProject()
+    const cortexDir = path.join(root, '.cortex')
+    fs.mkdirSync(cortexDir, { recursive: true })
+    fs.writeFileSync(
+      path.join(cortexDir, '.lock'),
+      JSON.stringify({ pid: process.ppid, nonce: 'someone-elses-boot', startedAt: Date.now() }),
+    )
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const runtime = new CortexWebpackRuntime({
+      root, mode: 'development', toggleShortcut: '$mod+Shift+Period', runtimeId: 'rt-foreign-test',
+    })
+    try {
+      await runtime.start()
+      expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining('Another cortex instance'))
+      expect(isRuntimeDisabled('rt-foreign-test')).toBe(true)
+    } finally {
+      errorSpy.mockRestore()
+      await runtime.dispose()
+    }
   })
 
   it('keeps the bridge running when discovery files cannot be written', async () => {

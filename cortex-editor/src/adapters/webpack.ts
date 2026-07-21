@@ -395,6 +395,17 @@ export class CortexWebpackRuntime {
   private readonly invalidate?: () => void
   private readonly browserIIFEPath: string
   private session: CortexSession | null = null
+  /** In-flight discovery-file write, tracked so dispose() serializes with it
+   *  (see startInternal / dispose). */
+  private discoveryWrites: Promise<void> | null = null
+  /** One-shot flag for the silent post-foreign-conflict retry (see the
+   *  LockHeldError handling in startInternal). */
+  private conflictRetryScheduled = false
+  /** Set by startInternal's lock-refused path; consumed by start() to
+   *  un-memoize AFTER the assignment settles (see start()). */
+  private lockRefusedLastStart = false
+  /** Retry delay for the transient-holder self-heal; injectable for tests. */
+  private readonly conflictRetryDelayMs: number
   private httpServer: HttpServer | null = null
   private browserWss: WebSocketServer | null = null
   private cliWss: WebSocketServer | null = null
@@ -403,13 +414,14 @@ export class CortexWebpackRuntime {
   private startPromise: Promise<void> | null = null
   private heartbeatTimer: ReturnType<typeof setInterval> | null = null
 
-  constructor(options: { root: string; mode: string; port?: number; toggleShortcut: string; invalidate?: () => void; runtimeId?: string }) {
+  constructor(options: { root: string; mode: string; port?: number; toggleShortcut: string; invalidate?: () => void; runtimeId?: string; conflictRetryDelayMs?: number }) {
     this.root = options.root
     this.mode = options.mode
     this.requestedPort = options.port
     this.toggleShortcut = options.toggleShortcut
     this.invalidate = options.invalidate
     this.runtimeId = options.runtimeId ?? randomUUID()
+    this.conflictRetryDelayMs = options.conflictRetryDelayMs ?? 4000
     this.browserIIFEPath = resolveBrowserIIFEPath()
   }
 
@@ -437,11 +449,26 @@ export class CortexWebpackRuntime {
 
   async start(): Promise<void> {
     if (this.startPromise) return this.startPromise
-    this.startPromise = this.startInternal().catch(async err => {
-      await this.dispose().catch(() => {})
-      this.startPromise = null
-      throw err
-    })
+    this.startPromise = this.startInternal()
+      .then(() => {
+        // A lock-refused run completes "successfully" but must NOT stay
+        // memoized — a later start() (next watchRun, the conflict-retry
+        // timer) needs to re-attempt acquisition. This clearing must happen
+        // HERE, after the memoizing assignment settles: the old pattern of
+        // clearing startPromise synchronously inside startInternal was
+        // overwritten by this very assignment (the constructor-throw path is
+        // fully synchronous), so the documented ZF0-1851 retry never actually
+        // fired.
+        if (this.lockRefusedLastStart) {
+          this.lockRefusedLastStart = false
+          this.startPromise = null
+        }
+      })
+      .catch(async err => {
+        await this.dispose().catch(() => {})
+        this.startPromise = null
+        throw err
+      })
     return this.startPromise
   }
 
@@ -462,21 +489,57 @@ export class CortexWebpackRuntime {
         mode: this.mode,
         annotationsFilePath,
         cortexDir: path.join(this.root, '.cortex'),
+        // Use the runtimeId as the lock's owner nonce so the Next adapter can
+        // ADVERTISE it in __CORTEX_LOCK_FAMILY synchronously at config-eval
+        // time — before any child process is spawned — instead of only after
+        // this async construction acquires the lock. Same-boot double evals
+        // then classify sameFamily even when the spawn wins the race.
+        lockOwnerNonce: this.runtimeId,
       })
     } catch (err) {
       if (err instanceof LockHeldError) {
-        console.error(err.message)
-        // ZF0-1851: clear the cached startPromise so a later start() (next
-        // watchRun, recompile, etc.) re-attempts acquisition. Returning
-        // cleanly without this would memoize a fulfilled promise even though
-        // no session was created, leaving cortex disabled for the rest of the
-        // webpack process even after the conflicting instance exits.
-        this.startPromise = null
-        // Disable this runtime's source-loader transforms — the loader was
+        // ZF0-1851: flag the refusal so start() un-memoizes AFTER its
+        // assignment settles and a later start() (next watchRun, the
+        // conflict-retry timer) re-attempts acquisition. (Clearing
+        // this.startPromise directly here is ineffective — this catch runs
+        // synchronously inside the startInternal() call, before start()'s
+        // memoizing assignment, which would overwrite the cleared slot.)
+        this.lockRefusedLastStart = true
+        if (err.sameFamily) {
+          // A same-family refusal is a NORMAL `next dev` boot: Next evaluates
+          // next.config more than once per boot across the CLI/dev-server
+          // processes, and exactly one evaluation may own the bridge. The
+          // loser goes inert SILENTLY (warning here on every boot was the
+          // ZF0-1851 misfire the 0.3.0 validation caught) and — critically —
+          // keeps its source-loader transforms ENABLED: this process may be
+          // the one compiling, and its data-cortex-source attributes pair
+          // with the sibling's discovery files as ONE logical session.
+          // Enabled must be asserted EXPLICITLY (not merely "not disabled") —
+          // a stale disabled flag from an earlier foreign-conflict loss in
+          // this process would otherwise survive into the same-family state.
+          markRuntimeEnabled(this.runtimeId)
+          return
+        }
+        // Genuine conflict (a second dev server): one actionable message, and
+        // disable this runtime's source-loader transforms — the loader was
         // attached at apply() time and would otherwise still rewrite JSX with
-        // data-cortex-* attributes for a build whose bridge/client are absent.
-        // Symmetric to Vite's cortexDisabledByLock flag.
+        // data-cortex-* attributes for a build whose bridge/client are absent,
+        // while <CortexDevScripts/> injects the OTHER server's port/token.
+        // Symmetric to Vite's cortexDisabledByLock flag. Warn ONCE per
+        // runtime; the silent retry below re-attempts without re-warning.
+        if (!this.conflictRetryScheduled) console.error(err.message)
         markRuntimeDisabled(this.runtimeId)
+        // Transient-holder self-heal: the realistic foreign holder during a
+        // dev boot is a short-lived config evaluator (Next's telemetry
+        // flusher / exiting CLI parent) that won the just-freed lock for a
+        // second or two before draining. One silent, unref'd retry gives this
+        // runtime the lock back without user action; a GENUINE second dev
+        // server is still held then, and we stay refused (already warned).
+        if (!this.conflictRetryScheduled) {
+          this.conflictRetryScheduled = true
+          const timer = setTimeout(() => { void this.start() }, this.conflictRetryDelayMs)
+          timer.unref()
+        }
         return
       }
       throw err
@@ -545,8 +608,32 @@ export class CortexWebpackRuntime {
         resolve()
       })
     })
+    // The bridge must NEVER be the reason a Node process stays alive. Next
+    // evaluates next.config with the dev-server phase in processes that are
+    // not the dev server and that rely on natural event-loop drain to exit —
+    // the detached telemetry flusher, the exiting `next dev` CLI parent. A
+    // ref'd listening handle would pin such a process forever: a zombie
+    // holding a live .cortex/.lock that turns every subsequent `next dev`
+    // inert (P0, 0.3.0 activation review). The real dev server keeps its own
+    // process alive, so unref'ing costs nothing there.
+    this.httpServer.unref()
+    // ACCEPTED sockets must be unref'd too (codex P1): unref() only covers the
+    // listening handle. A connected client — the MCP CLI of a still-open
+    // Claude Code session is the realistic one — would otherwise re-pin a
+    // draining inspector process for as long as the client stays connected,
+    // resurrecting the zombie through the front door. In the real dev server
+    // the process is kept alive by its own handles, so client sockets never
+    // needed to be ref'd here in the first place.
+    this.httpServer.on('connection', (socket) => socket.unref())
 
-    this.writeDiscoveryFiles(session)
+    // Track the in-flight write so dispose() can serialize against it, and
+    // re-check ownership after the await: a signal or in-process restart may
+    // have disposed this runtime while the writes were pending. Continuing
+    // would start a heartbeat on a torn-down session — and a successor
+    // bridge's fresh discovery files could be clobbered by our stale write.
+    this.discoveryWrites = this.writeDiscoveryFiles(session)
+    await this.discoveryWrites
+    if (this.session !== session) return
     this.startHeartbeat(session)
     this.initializePipeline(session)
   }
@@ -564,7 +651,11 @@ export class CortexWebpackRuntime {
     }
   }
 
-  private writeDiscoveryFiles(session: CortexSession): void {
+  /** Discovery writes are ATOMIC (tmp + rename) so readers — <CortexDevScripts/>
+   *  per render, the MCP CLI at connect — can never observe a torn/partial file.
+   *  The client-side torn-read guards remain as defense in depth for the
+   *  cross-FILE window (three files still change non-atomically as a set). */
+  private async writeDiscoveryFiles(session: CortexSession): Promise<void> {
     const cortexDir = path.join(this.root, '.cortex')
     const portFilePath = path.join(cortexDir, 'port')
     const tokenFilePath = path.join(cortexDir, 'token')
@@ -575,13 +666,13 @@ export class CortexWebpackRuntime {
       return
     }
     try {
-      fs.writeFileSync(portFilePath, String(this.port))
+      await atomicWrite(portFilePath, String(this.port))
       session.portFilePath = portFilePath
     } catch (err) {
       console.warn('[cortex] Could not write port file:', err instanceof Error ? err.message : err)
     }
     try {
-      fs.writeFileSync(tokenFilePath, session.token, { mode: 0o600 })
+      await atomicWrite(tokenFilePath, session.token, { mode: 0o600 })
       fs.chmodSync(tokenFilePath, 0o600)
       session.tokenFilePath = tokenFilePath
     } catch (err) {
@@ -592,7 +683,7 @@ export class CortexWebpackRuntime {
     // 0600 like the token file (it names a live session id).
     const injectionFilePath = path.join(cortexDir, 'injection.json')
     try {
-      fs.writeFileSync(
+      await atomicWrite(
         injectionFilePath,
         JSON.stringify({ port: this.port, sessionId: session.sessionId, toggleShortcut: this.toggleShortcut }),
         { mode: 0o600 },
@@ -1192,6 +1283,11 @@ export class CortexWebpackRuntime {
   }
 
   async dispose(): Promise<void> {
+    // Let any in-flight discovery write LAND before session.dispose() removes
+    // the files — an unserialized write would resume after removal and
+    // re-create orphaned discovery files (or overwrite a successor bridge's
+    // fresh set, leaving a live lock pointing at dead port/token data).
+    if (this.discoveryWrites) await this.discoveryWrites.catch(() => {})
     if (this.heartbeatTimer) {
       clearInterval(this.heartbeatTimer)
       this.heartbeatTimer = null
