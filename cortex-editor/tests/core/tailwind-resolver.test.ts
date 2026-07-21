@@ -976,21 +976,32 @@ describe('findNearestColor tolerance (±10 for gamut mapping gaps)', () => {
 // TailwindResolver.resolveSpacingTokens
 // ---------------------------------------------------------------------------
 
-// The v3 path imports `tailwindcss/resolveConfig`. tailwindcss isn't installed
-// in cortex-editor, so we mock it as a virtual module. The mock echoes the
-// supplied config back through unchanged — which means whatever `theme.spacing`
-// shape the test fixture provides is exactly what the v3 branch consumes.
-// Real Tailwind would generate the default scale from a bare config, but our
-// behavioral tests pass an explicit theme.spacing map so the assertions remain
-// deterministic and don't depend on Tailwind being a transitive dep.
-vi.mock('tailwindcss/resolveConfig', () => ({
-  default: (config: unknown) => {
-    if (config && typeof config === 'object' && 'theme' in config) {
-      return config
-    }
-    return { theme: {} }
-  },
-}), { virtual: true })
+// The v3 path resolves tailwindcss FROM THE PROJECT (createRequire), so a
+// virtual module mock no longer applies. Instead we scaffold a stub
+// `node_modules/tailwindcss` inside the temp project with the two subpaths our
+// code uses — `resolveConfig` (echoes the config; explicit theme.spacing makes
+// assertions deterministic) and `loadConfig` (Tailwind's own jiti-backed loader
+// in reality). For .js/.cjs the stub requires the config; for .ts it returns a
+// fixed sentinel config WITHOUT evaluating the file — the test only needs to
+// prove our code ROUTES a .ts config through the app's loadConfig instead of a
+// bare import() that throws on TypeScript. This exercises the real
+// resolve-from-project path a pnpm/npm app hits.
+const TS_CONFIG_SENTINEL = { theme: { spacing: { 'ts-only': '2rem' } } }
+
+function scaffoldStubTailwind(fs: typeof import('node:fs'), pathMod: typeof import('node:path'), dir: string): void {
+  const pkgDir = pathMod.join(dir, 'node_modules', 'tailwindcss')
+  fs.mkdirSync(pkgDir, { recursive: true })
+  fs.writeFileSync(pathMod.join(pkgDir, 'package.json'), JSON.stringify({ name: 'tailwindcss', version: '3.4.0', main: 'index.js' }))
+  fs.writeFileSync(pathMod.join(pkgDir, 'index.js'), 'module.exports = {}\n')
+  // Echo resolveConfig — real Tailwind merges defaults; explicit fixtures make this deterministic.
+  fs.writeFileSync(pathMod.join(pkgDir, 'resolveConfig.js'),
+    'module.exports = (c) => (c && typeof c === "object" && "theme" in c) ? c : { theme: {} }\n')
+  // loadConfig: require .js/.cjs directly; for .ts return a fixed sentinel so
+  // the test proves .ts is routed through the app loader (a bare import() would
+  // throw ERR_UNKNOWN_FILE_EXTENSION). No eval of file content.
+  fs.writeFileSync(pathMod.join(pkgDir, 'loadConfig.js'),
+    `module.exports = (p) => p.endsWith('.ts') ? ${JSON.stringify(TS_CONFIG_SENTINEL)} : require(p)\n`)
+}
 
 describe('TailwindResolver.resolveSpacingTokens', () => {
   // eslint-disable-next-line @typescript-eslint/no-var-requires
@@ -1026,8 +1037,9 @@ describe('TailwindResolver.resolveSpacingTokens', () => {
   })
 
   it('v3 path: surfaces explicit theme.spacing entries with px conversion', async () => {
-    // Write a tailwind.config.cjs with explicit theme.spacing — the virtual
-    // mock echoes this through resolveConfig, so the v3 branch sees it intact.
+    // Stub the project's own tailwindcss (createRequire resolves it from the
+    // project), then write a tailwind.config.cjs with explicit theme.spacing.
+    scaffoldStubTailwind(fs, pathMod, tmpDir)
     writeFixture('tailwind.config.cjs', `
       module.exports = {
         theme: {
@@ -1051,6 +1063,35 @@ describe('TailwindResolver.resolveSpacingTokens', () => {
     expect(byName.get('--spacing-8')).toEqual({ name: '--spacing-8', valuePx: 32, source: 'tailwind-v3' })
     expect(byName.get('--spacing-80')).toEqual({ name: '--spacing-80', valuePx: 320, source: 'tailwind-v3' })
     expect(byName.get('--spacing-gutter')).toEqual({ name: '--spacing-gutter', valuePx: 12, source: 'tailwind-v3' })
+  })
+
+  it('v3 path: reads a tailwind.config.TS through the app loader (the modern-Next-app bug)', async () => {
+    // The exact failure from the zerofog-web retest: a tailwind.config.ts could
+    // not be read because the old code used a bare import() (no runtime TS
+    // loader) and every modern Next+TS app fell through to "theme could not be
+    // resolved". Now the config is loaded via the app's own tailwindcss/loadConfig.
+    scaffoldStubTailwind(fs, pathMod, tmpDir)
+    writeFixture('tailwind.config.ts', `
+      import type { Config } from 'tailwindcss'
+      export default { theme: { spacing: { 'x': '1rem' } } } satisfies Config
+    `)
+    const result = await TailwindResolver.resolveSpacingTokens(tmpDir)
+    expect(result).not.toBeNull()
+    // The stub loadConfig returns TS_CONFIG_SENTINEL for a .ts path, proving the
+    // .ts config was routed through the app loader (a bare import would have
+    // thrown and produced null).
+    const byName = new Map(result!.map(t => [t.name, t]))
+    expect(byName.get('--spacing-ts-only')).toEqual({ name: '--spacing-ts-only', valuePx: 32, source: 'tailwind-v3' })
+  })
+
+  it('v3 path: returns null (not a throw) when the project has no tailwindcss installed', async () => {
+    // No stub node_modules/tailwindcss → createRequire can't resolve it →
+    // graceful null (caller falls back to the v4 parser), never a crash.
+    writeFixture('tailwind.config.cjs', `module.exports = { theme: { spacing: { '4': '1rem' } } }`)
+    const result = await TailwindResolver.resolveSpacingTokens(tmpDir)
+    // No tailwindcss and no v4 @theme CSS → no v3 tokens surface.
+    const names = new Set((result ?? []).map(t => t.name))
+    expect(names.has('--spacing-4')).toBe(false)
   })
 
   it('v4 path: canonical singular `--spacing: <base>` generates the multiplier scale', async () => {

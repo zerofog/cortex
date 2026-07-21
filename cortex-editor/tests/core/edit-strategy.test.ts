@@ -59,6 +59,15 @@ describe('classifyEdit', () => {
       .toBe('deferred')
   })
 
+  it('returns immediate (inline override) for Tailwind without resolver AND without AI when inline is available (P1-2b)', () => {
+    // The zerofog-web scenario: Tailwind app, theme unresolved, no Claude Code
+    // API key. Previously this returned 'unsupported' and killed EVERY edit,
+    // even a plain inline override that never needed the theme. Now the manual
+    // override stages — it just doesn't touch the utility classes.
+    expect(classifyEdit(base, { hasCSSModules: false, hasTailwind: true, hasCSSInJS: false, hasComponentLibrary: false, hasPlainCSS: false, summary: '' }, { resolverAvailable: false, aiAvailable: false, inlineStyleAvailable: true }))
+      .toBe('immediate')
+  })
+
   it('prefers Tailwind resolver over inlineStyle when both available', () => {
     expect(classifyEdit(base, { hasCSSModules: false, hasTailwind: true, hasCSSInJS: false, hasComponentLibrary: false, hasPlainCSS: false, summary: '' }, { resolverAvailable: true, inlineStyleAvailable: true }))
       .toBe('immediate')

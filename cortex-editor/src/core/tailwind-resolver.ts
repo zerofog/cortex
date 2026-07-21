@@ -14,6 +14,72 @@
  */
 
 import { parseBoxShadow, serializeBoxShadow } from './shadow-utils.js'
+import { createRequire } from 'node:module'
+import { join } from 'node:path'
+import { existsSync } from 'node:fs'
+
+/** Tailwind config filenames in the order Tailwind itself checks them. */
+const TAILWIND_CONFIG_NAMES = [
+  'tailwind.config.ts',
+  'tailwind.config.js',
+  'tailwind.config.mjs',
+  'tailwind.config.cjs',
+] as const
+
+/**
+ * Load the PROJECT's own Tailwind v3 toolchain and resolved config.
+ *
+ * Cortex must leverage the app's toolchain, not reinvent it (the v3-broken
+ * lesson): (1) resolve `tailwindcss` FROM projectRoot via createRequire — not
+ * from cortex-editor's node_modules — so it works under pnpm / yarn-pnp /
+ * isolated layouts where cortex can't see a package it doesn't declare;
+ * (2) load the config with Tailwind's OWN `tailwindcss/loadConfig` (jiti-backed
+ * in v3.3+), which evaluates `tailwind.config.ts` (and .js/.mjs/.cjs) — a bare
+ * `import()` cannot run a TypeScript config at dev-server runtime, which is why
+ * every modern Next+TS app fell through to the v4 parser and reported "theme
+ * could not be resolved".
+ *
+ * Returns null when the app has no resolvable v3 tailwindcss or no config file
+ * (caller then falls back to the v4 @theme parser).
+ */
+function loadProjectTailwindV3(projectRoot: string): { theme?: Record<string, unknown> } | null {
+  // createRequire needs a path INSIDE the project; the file need not exist —
+  // resolution walks up from its directory, exactly like the app's own code.
+  const projectRequire = createRequire(join(projectRoot, 'noop.js'))
+
+  let resolveConfig: (config: unknown) => { theme?: Record<string, unknown> }
+  try {
+    resolveConfig = projectRequire('tailwindcss/resolveConfig') as typeof resolveConfig
+  } catch {
+    // tailwindcss not installed in the project, or it's v4 (no resolveConfig).
+    return null
+  }
+
+  const configPath = TAILWIND_CONFIG_NAMES.map((name) => join(projectRoot, name)).find((p) => existsSync(p))
+  if (!configPath) return null
+
+  let rawConfig: unknown
+  try {
+    // Tailwind's own jiti-backed loader — handles .ts/.js/.mjs/.cjs. Present
+    // since v3.3; older v3 falls back to a bare require for non-TS configs.
+    const loadConfig = projectRequire('tailwindcss/loadConfig') as (path: string) => unknown
+    rawConfig = loadConfig(configPath)
+  } catch {
+    if (configPath.endsWith('.ts')) return null // no TS loader available — can't read it
+    try {
+      rawConfig = projectRequire(configPath)
+      rawConfig = (rawConfig as { default?: unknown }).default ?? rawConfig
+    } catch {
+      return null
+    }
+  }
+
+  try {
+    return resolveConfig(rawConfig)
+  } catch {
+    return null
+  }
+}
 
 /**
  * A spacing token resolved from Tailwind v3, v4, or plain CSS variables.
@@ -334,52 +400,9 @@ export class TailwindResolver {
   }
 
   private static async tryV3(projectRoot: string, options?: ResolverOptions): Promise<TailwindResolver | null> {
-    let resolveConfig: (config: unknown) => { theme?: ResolvedTheme }
-    try {
-      // @ts-expect-error — tailwindcss v3 API; v4 removed this export
-      const mod = await import('tailwindcss/resolveConfig')
-      resolveConfig = mod.default
-    } catch (err: unknown) {
-      if (err && typeof err === 'object' && 'code' in err) {
-        const code = (err as { code: string }).code
-        // ERR_MODULE_NOT_FOUND: tailwindcss not installed
-        // ERR_PACKAGE_PATH_NOT_EXPORTED: tailwindcss v4 (removed resolveConfig export)
-        if (code === 'ERR_MODULE_NOT_FOUND' || code === 'ERR_PACKAGE_PATH_NOT_EXPORTED') {
-          return null
-        }
-      }
-      throw err
-    }
-
-    const config = await TailwindResolver.loadConfig(projectRoot)
-    if (!config) return null
-    const resolved = resolveConfig(config)
-    return TailwindResolver.fromTheme(resolved.theme ?? {}, options)
-  }
-
-  private static async loadConfig(projectRoot: string): Promise<Record<string, unknown> | null> {
-    const { join } = await import('path')
-
-    const configNames = [
-      'tailwind.config.ts',
-      'tailwind.config.js',
-      'tailwind.config.mjs',
-      'tailwind.config.cjs',
-    ]
-
-    for (const name of configNames) {
-      try {
-        const configPath = join(projectRoot, name)
-        const mod = await import(configPath)
-        return mod.default ?? mod
-      } catch (err: unknown) {
-        if (err && typeof err === 'object' && 'code' in err && (err as { code: string }).code === 'ERR_MODULE_NOT_FOUND') {
-          continue // file doesn't exist, try next
-        }
-        throw err // file exists but is broken — surface the error
-      }
-    }
-    return null
+    const resolved = loadProjectTailwindV3(projectRoot)
+    if (!resolved) return null
+    return TailwindResolver.fromTheme((resolved.theme as ResolvedTheme) ?? {}, options)
   }
 
   /**
@@ -578,42 +601,23 @@ export class TailwindResolver {
     }
 
     // ── Source 2: Tailwind v3 ───────────────────────────────────────────────
-    // Use resolveConfig + theme.spacing to extract the spacing scale.
-    try {
-      // @ts-expect-error — tailwindcss v3 API; v4 removed this export
-      const mod = await import('tailwindcss/resolveConfig')
-      const resolveConfig: (config: unknown) => { theme?: { spacing?: Record<string, string> } } = mod.default
-      const config = await TailwindResolver.loadConfig(projectRoot)
-      if (config) {
-        const resolved = resolveConfig(config)
-        const spacing = resolved.theme?.spacing
-        if (spacing && typeof spacing === 'object') {
-          for (const [key, value] of Object.entries(spacing)) {
-            // v3 default theme always carries DEFAULT (alias for the base step) and
-            // sometimes px (literal '1px'). Neither belongs in the popover — they
-            // duplicate the canonical chip set without adding signal.
-            if (key === 'DEFAULT' || key === 'px') continue
-            const name = `--spacing-${key}`
-            if (name.startsWith('--cx-')) continue
-            const px = TailwindResolver.parseToPx(value, detectedRemPx)
-            if (px === null) continue
-            addToken({ name, valuePx: px, source: 'tailwind-v3' })
-          }
-        }
+    // Resolve the project's own Tailwind config (createRequire + jiti loader,
+    // same as fromConfig) and read theme.spacing. loadProjectTailwindV3 returns
+    // null — never throws — when tailwindcss is absent or only v4 is present.
+    const v3 = loadProjectTailwindV3(projectRoot)
+    const spacing = (v3?.theme as { spacing?: Record<string, string> } | undefined)?.spacing
+    if (spacing && typeof spacing === 'object') {
+      for (const [key, value] of Object.entries(spacing)) {
+        // v3 default theme always carries DEFAULT (alias for the base step) and
+        // sometimes px (literal '1px'). Neither belongs in the popover — they
+        // duplicate the canonical chip set without adding signal.
+        if (key === 'DEFAULT' || key === 'px') continue
+        const name = `--spacing-${key}`
+        if (name.startsWith('--cx-')) continue
+        const px = TailwindResolver.parseToPx(value, detectedRemPx)
+        if (px === null) continue
+        addToken({ name, valuePx: px, source: 'tailwind-v3' })
       }
-    } catch (err: unknown) {
-      // Expected codes when tailwindcss isn't installed or only v4 is present:
-      //   ERR_MODULE_NOT_FOUND  — ESM resolver, package missing
-      //   MODULE_NOT_FOUND      — CJS resolver fallback (legacy / older Node)
-      //   ERR_PACKAGE_PATH_NOT_EXPORTED — tailwindcss v4 has no resolveConfig export
-      const expected = new Set(['ERR_MODULE_NOT_FOUND', 'MODULE_NOT_FOUND', 'ERR_PACKAGE_PATH_NOT_EXPORTED'])
-      if (err && typeof err === 'object' && 'code' in err) {
-        const code = (err as { code: string }).code
-        if (!expected.has(code)) {
-          throw err
-        }
-      }
-      // fall through
     }
 
     // ── Source 3: Plain CSS variables ──────────────────────────────────────
@@ -855,22 +859,9 @@ export class TailwindResolver {
   }
 
   private static async tryV3Colors(projectRoot: string): Promise<string[] | null> {
-    let resolveConfig: (config: unknown) => { theme?: Record<string, unknown> }
-    try {
-      // @ts-expect-error — tailwindcss v3 API
-      const mod = await import('tailwindcss/resolveConfig')
-      resolveConfig = mod.default
-    } catch {
-      return null
-    }
-
-    const config = await TailwindResolver.loadConfig(projectRoot)
-    if (!config) return null
-
-    const resolved = resolveConfig(config)
-    const colors = (resolved.theme as Record<string, unknown>)?.colors
+    const resolved = loadProjectTailwindV3(projectRoot)
+    const colors = (resolved?.theme as Record<string, unknown> | undefined)?.colors
     if (!colors || typeof colors !== 'object') return null
-
     return flattenColors(colors as Record<string, unknown>)
   }
 

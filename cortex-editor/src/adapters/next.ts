@@ -21,12 +21,30 @@ export { CortexDevScripts, type CortexDevScriptsProps } from './next-dev-scripts
  * When users have next installed the real NextConfig is assignment-compatible
  * with this interface since we only declare what we actually use.
  */
+/** Next's own webpack callback type, DERIVED from the `next` package rather
+ *  than hand-rolled — a narrower re-declaration is not assignment-compatible
+ *  with Next's real `WebpackConfigContext` (missing buildId/config/…), which is
+ *  why `withCortex(realNextConfig)` failed tsc twice. `import('next')` in a
+ *  type position is erased at runtime (next stays an OPTIONAL peer, never a
+ *  runtime dep) and resolves against the CONSUMER's installed next, so the type
+ *  always matches whatever Next version they run. A compile-time test
+ *  (tests/adapters/next-type-contract.test-d.ts) asserts a real NextConfig is
+ *  assignable, so this can't regress a third time. */
+type NextWebpack = NonNullable<import('next').NextConfig['webpack']>
+
+/** `webpack` is DERIVED from the consumer's own `next` — a hand-rolled narrower
+ *  webpack context (missing buildId/config/defaultLoaders/…) is NOT
+ *  assignment-compatible with Next's real WebpackConfigContext, which is the
+ *  P1-1 bug that broke `withCortex(realNextConfig)` under strict `next build`.
+ *  `turbopack`/`serverExternalPackages` stay on cortex's own permissive types:
+ *  deriving them from Next drags in Next's strict TurbopackRuleConfigCollection,
+ *  which cortex's rule-merging builds structurally but doesn't type nominally —
+ *  a separate refactor, and NOT the reported failure (that was webpack only).
+ *  The `[key: string]: unknown` index signature keeps every other Next config
+ *  property accepted, and the compile-time contract test
+ *  (next-type-contract.test.ts) covers a real NextConfig incl. a turbopack key. */
 export interface NextConfig {
-  /** `| null` is load-bearing: Next's own NextConfig declares webpack as
-   *  `NextJsWebpackConfig | null | undefined`, so without it
-   *  `withCortex(realNextConfig)` fails tsc in strict host repos. Only a
-   *  function value is ever invoked (buildWrappedConfig type-guards). */
-  webpack?: ((config: WebpackConfig, context: WebpackContext) => WebpackConfig) | null
+  webpack?: import('next').NextConfig['webpack']
   turbopack?: TurbopackConfig
   serverExternalPackages?: string[]
   [key: string]: unknown
@@ -64,18 +82,6 @@ export interface TurbopackRuleObject {
 }
 
 export type TurbopackLoaderItem = string | { loader: string; options?: Record<string, unknown> }
-
-interface WebpackConfig {
-  module: { rules: unknown[] }
-  [key: string]: unknown
-}
-
-interface WebpackContext {
-  dir: string
-  dev: boolean
-  isServer: boolean
-  [key: string]: unknown
-}
 
 export interface CortexNextOptions {
   /** Resolve JSX CSS Module aliases. Example: { '@': '/abs/project/src' }. */
@@ -638,7 +644,10 @@ function buildWrappedConfig(nextConfig: NextConfig, options: CortexNextOptions, 
     // thoughts/shared/research/2026-07-18-nextjs-analysis-review-addendum.md.
     turbopack: withCortexTurbopack(nextConfig.turbopack, options, runtimeId),
 
-    webpack(config: WebpackConfig, context: WebpackContext) {
+    // Signature DERIVED from Next (NextWebpack) — config is Next's webpack
+    // Configuration, context its real WebpackConfigContext. `config` is loosely
+    // typed by Next (module.rules is accessible), so no local re-declaration.
+    webpack: ((config, context) => {
       // Apply user's webpack config first
       if (typeof nextConfig.webpack === 'function') {
         config = nextConfig.webpack(config, context)
@@ -662,6 +671,6 @@ function buildWrappedConfig(nextConfig: NextConfig, options: CortexNextOptions, 
       })
 
       return config
-    },
+    }) as NextWebpack,
   }
 }
