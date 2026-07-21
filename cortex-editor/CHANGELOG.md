@@ -2,6 +2,20 @@
 
 All notable changes to cortex-editor. Follows [Keep a Changelog](https://keepachangelog.com) loosely; versions follow [SemVer](https://semver.org) (pre-1.0: breaking changes may land in MINOR).
 
+## 0.3.1 — 2026-07-21
+
+Fast-follow from the 0.3.0 real-app retest (a production Next 16.1.6 app). Activation was confirmed working; these fix the gaps the retest surfaced.
+
+### Fixed
+- **Strict repos can `next build` again.** The exported `NextConfig`'s `webpack` type was hand-rolled with a context narrower than Next's `WebpackConfigContext`, so `withCortex(realNextConfig)` failed tsc in any `typescript.ignoreBuildErrors:false` project. The `webpack` prop is now derived from the consumer's own `next` types (`import('next').NextConfig['webpack']`), with a compile-time contract test in CI so it can't regress.
+- **Tailwind v3 apps can edit again.** The v3 resolver used a bare `import()` (couldn't evaluate a `tailwind.config.ts` at dev-server runtime) and resolved `tailwindcss` from cortex's own `node_modules` (invisible under pnpm). It now resolves the **project's** `tailwindcss` via `createRequire(projectRoot)` and loads the config through Tailwind's own `loadConfig` — handling `.ts`/`.js`/`.mjs`/`.cjs` under any package manager.
+- **Unresolvable Tailwind theme no longer kills all editing.** Previously any Tailwind app whose theme wouldn't resolve degraded to preview-only and staged nothing — even inline overrides that never needed the theme. Now an unresolved theme disables utility-CLASS editing only; inline-style and CSS-module overrides still stage and save.
+- **No more spurious WS/lock warnings on Next.** The WebSocket-fallback bootstrap warning (Vite-specific advice) no longer fires on every Next page load — WS is the intended Next transport. The quick-restart "Another cortex instance…" warning is suppressed when a transient predecessor drains and the retry reclaims; it fires only for a genuine second dev server.
+- **MCP no longer errors on an immediate call.** A tools/call within ~1-2s of `cortex mcp` start now awaits the in-flight connection instead of returning "Not connected", while still failing fast when the dev server is genuinely down.
+
+### Changed
+- `next` added as a **devDependency** (types only; still an optional peer at runtime).
+
 ## 0.3.0 — 2026-07-19
 
 ### Added
