@@ -4,10 +4,10 @@ Cortex is a dev-time visual editor for web apps. It lets you select elements in 
 
 ## Support Status
 
-Cortex's complete install-to-Apply workflow currently targets Vite and standalone Webpack 5 apps.
+Cortex's complete install-to-Apply workflow currently targets Vite, standalone Webpack 5, and Next 16 App Router apps.
 
 - Vite: supported. `cortex init` can configure the Vite plugin automatically.
-- Next.js: experimental/partial. `cortex init` can wrap `next.config.*` for source instrumentation, but visual editor activation and Apply are not end-to-end supported yet.
+- Next.js: supported for Next 16 App Router in dev mode, on default `next dev` (Turbopack — no `--webpack` flag needed). `cortex init` wraps `next.config.*` with `withCortex()` and inserts `<CortexDevScripts />` into the root layout. Source attribution covers client and server components; activation and staged-edit Apply are verified end-to-end for client components. Not yet supported: Pages Router, Next 13–15, `.js` files containing JSX / custom `pageExtensions`, Sass modules, strict-CSP inline script policies, and `next dev --experimental-https`. Server-component edits reload the page instead of Fast Refresh patching, and post-Apply HMR verification is not Next-aware yet.
 - Standalone Webpack/CRA: supported for Webpack 5 projects where you can add a Webpack plugin and run the app over HTTP in development. `cortex init` can configure `cortexWebpack()` automatically when a `webpack.config.*` file is present. HtmlWebpackPlugin projects get automatic script injection; projects without HtmlWebpackPlugin get a generated manual snippet. HTTPS Webpack dev pages are not supported yet because the standalone bridge serves its injected script and WebSocket endpoint from local HTTP.
 
 ## Requirements

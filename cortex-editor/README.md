@@ -53,7 +53,7 @@ Cortex puts the editing surface on the live app itself. You adjust spacing, colo
 
 - **Vite**: fully supported. `cortex init` auto-configures the plugin.
 - **Webpack 5**: supported (HtmlWebpackPlugin or manual snippet).
-- **Next.js**: experimental. `cortex init` instruments source; full Apply flow not yet end-to-end.
+- **Next.js**: Next 16 App Router, dev mode. Works on default `next dev` (Turbopack) — source attribution for client and server components, editor activation, and staged-edit Apply verified end-to-end for client components. Requires `withCortex()` in `next.config` plus `<CortexDevScripts />` in the root layout (`cortex init` sets up both). `withCortex` returns Next's phase-function config form, so it must be the **outermost** wrapper when composing — `withCortex(withBundleAnalyzer(cfg))`, never the reverse; it accepts object, promise, and phase-function configs. Set `CORTEX_BRIDGE=0` to suppress the dev bridge (source attribution still applies). Not yet supported: Pages Router, Next 13–15, `.js`-files-with-JSX / custom `pageExtensions`, Sass modules, strict-CSP inline policies, `next dev --experimental-https`; server-component edits trigger a full reload rather than a Fast Refresh patch, and post-Apply HMR verification is not Next-aware yet.
 
 Works with **React, Vue, or Svelte**, styled with **Tailwind CSS** or **CSS Modules**.
 

@@ -7,7 +7,7 @@ import type { BuildOptions } from 'esbuild'
 // (4.35MB inlined across 8 bundles) and zod (locale re-exports defeat tree-shaking).
 // Both are declared in `dependencies` so they resolve from the consumer's tree;
 // externalizing them dropped the published package ~1.4MB → ~0.14MB packed. (ZF0-dist-externalize)
-const externals = ['vite', 'next', 'webpack', 'tailwindcss', 'ts-morph', 'ws', 'postcss', '@babel/parser', 'zod']
+const externals = ['vite', 'next', 'webpack', 'tailwindcss', 'ts-morph', 'ws', 'postcss', '@babel/parser', 'zod', 'react']
 
 // Source maps for the server-side (Node) bundles. Emitted for local dev / test /
 // CI so contributors can trace stack traces into real source, but OMITTED from

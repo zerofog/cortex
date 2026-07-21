@@ -1,5 +1,5 @@
 import { createSourceTransform } from './source-transform.js'
-import { isRuntimeDisabled } from './source-loader-utils.js'
+import { isRuntimeDisabled, shouldExcludeCortexSource } from './source-loader-utils.js'
 import type { SourceTransformOptions } from './types.js'
 
 export interface SourceLoaderOptions {
@@ -74,6 +74,16 @@ export default function cortexSourceLoader(this: LoaderContext, source: string) 
     return
   }
 
+  // node_modules exclusion lives IN the loader, not only at rule level: webpack
+  // rules filter via a function-valued `exclude`, but Turbopack rule config must
+  // be serializable, so under `turbopack.rules` this check is the only gate
+  // keeping node_modules sources uninstrumented (honoring includeNodeModules).
+  // Under webpack it is redundant with the rule's exclude — harmless.
+  if (shouldExcludeCortexSource(this.resourcePath, options.includeNodeModules)) {
+    this.callback(null, source)
+    return
+  }
+
   const key = cacheKey(options)
 
   if (!cachedTransform || cachedKey !== key) {
@@ -89,6 +99,12 @@ export default function cortexSourceLoader(this: LoaderContext, source: string) 
       this.callback(null, source)
     }
   } catch (err) {
+    // 3H (documented tradeoff, deliberate): the loader instruments BOTH the
+    // server and client compilations (the isServer skip was removed for
+    // hydration consistency — see the withCortex webpack-hook comment in
+    // next.ts), so a mishandled server-only file surfaces here as a build error
+    // rather than silently diverging SSR/client attribution. Failing loud is the
+    // intended behavior — the developer sees the exact file and reason.
     const message = err instanceof Error ? err.message : String(err)
     this.callback(new Error(`[cortex] Source transform failed for ${this.resourcePath}: ${message}`))
   }

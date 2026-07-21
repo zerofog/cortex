@@ -2,8 +2,23 @@ import { describe, it, expect, vi } from 'vitest'
 import fs from 'node:fs'
 import path from 'node:path'
 import os from 'node:os'
-import { runInit } from '../../src/cli/init.js'
+import { injectDevScriptsIntoLayout, runInit } from '../../src/cli/init.js'
 import { detectBundler, detectPackageManager } from '../../src/cli/detect.js'
+
+/** A minimal but complete App Router root layout, so a Next fixture reaches
+ *  setupComplete (config wired AND <CortexDevScripts/> injectable). Setup is
+ *  now correctly incomplete without an injectable layout (cubic P2), so
+ *  config-wrapping fixtures that assert setupComplete must include one. */
+const NEXT_LAYOUT = [
+  'export default function RootLayout({ children }: { children: React.ReactNode }) {',
+  '  return (',
+  '    <html lang="en">',
+  '      <body>{children}</body>',
+  '    </html>',
+  '  )',
+  '}',
+  '',
+].join('\n')
 
 /** Create a temp directory with optional files pre-seeded. */
 function makeTmpProject(files: Record<string, string> = {}): string {
@@ -253,7 +268,7 @@ describe('cortex init', () => {
       expect(result.vitePluginFound).toBe(true)
       expect(result.vitePluginInjected).toBe(true)
       const content = fs.readFileSync(path.join(dir, 'vite.config.ts'), 'utf8')
-      expect(content).toContain('import { cortexEditor } from "cortex-editor/vite"')
+      expect(content).toContain("import { cortexEditor } from 'cortex-editor/vite'")
       expect(content).toContain('plugins: [cortexEditor(), react()]')
     } finally {
       cleanup(dir)
@@ -278,7 +293,7 @@ describe('cortex init', () => {
       expect(result.vitePluginFound).toBe(true)
       expect(result.vitePluginInjected).toBe(true)
       const content = fs.readFileSync(path.join(dir, 'vite.config.ts'), 'utf8')
-      expect(content).toContain('import { cortexEditor } from "cortex-editor/vite"')
+      expect(content).toContain("import { cortexEditor } from 'cortex-editor/vite'")
       expect(content).toContain('plugins: [cortexEditor()]')
     } finally {
       cleanup(dir)
@@ -507,7 +522,7 @@ describe('cortex init', () => {
       expect(result.vitePluginFound).toBe(true)
       expect(result.vitePluginInjected).toBe(true)
       const content = fs.readFileSync(path.join(dir, 'vite.config.ts'), 'utf8')
-      expect(content).toContain('import { cortexEditor } from "cortex-editor/vite"')
+      expect(content).toContain("import { cortexEditor } from 'cortex-editor/vite'")
       expect(content).toContain('plugins: [cortexEditor()]')
     } finally {
       cleanup(dir)
@@ -529,7 +544,7 @@ describe('cortex init', () => {
       expect(result.vitePluginFound).toBe(true)
       expect(result.vitePluginInjected).toBe(true)
       const content = fs.readFileSync(path.join(dir, 'vite.config.js'), 'utf8')
-      expect(content).toContain('import { cortexEditor } from "cortex-editor/vite"')
+      expect(content).toContain("import { cortexEditor } from 'cortex-editor/vite'")
       expect(content).toContain('cortexEditor()')
       expect(content).toContain('somePlugin()')
     } finally {
@@ -548,7 +563,7 @@ describe('cortex init', () => {
       expect(result.vitePluginFound).toBe(true)
       expect(result.vitePluginInjected).toBe(true)
       const content = fs.readFileSync(path.join(dir, 'vite.config.js'), 'utf8')
-      expect(content).toContain('import { cortexEditor } from "cortex-editor/vite"')
+      expect(content).toContain("import { cortexEditor } from 'cortex-editor/vite'")
       expect(content).toContain('plugins: [cortexEditor()]')
     } finally {
       cleanup(dir)
@@ -595,7 +610,7 @@ describe('cortex init', () => {
       expect(result.vitePluginInjected).toBe(true)
       expect(result.setupComplete).toBe(true)
       const content = fs.readFileSync(path.join(dir, 'vite.config.cjs'), 'utf8')
-      expect(content).toContain('const { cortexEditor } = require("cortex-editor/vite")')
+      expect(content).toContain("const { cortexEditor } = require('cortex-editor/vite')")
       expect(content).toContain('plugins: [cortexEditor()]')
     } finally {
       cleanup(dir)
@@ -609,6 +624,7 @@ describe('cortex init', () => {
     ].join('\n')
     const dir = makeTmpProject({
       'package.json': '{"name":"test","type":"module","devDependencies":{"cortex-editor":"^0.1.0","next":"^16.0.0"}}',
+      'app/layout.tsx': NEXT_LAYOUT,
       'next.config.mjs': nextConfig,
     })
     try {
@@ -617,7 +633,7 @@ describe('cortex init', () => {
       expect(result.nextConfigInjected).toBe(true)
       expect(result.vitePluginFound).toBe(null)
       const content = fs.readFileSync(path.join(dir, 'next.config.mjs'), 'utf8')
-      expect(content).toContain('import { withCortex } from "cortex-editor/next"')
+      expect(content).toContain("import { withCortex } from 'cortex-editor/next'")
       expect(content).toContain('export default withCortex(nextConfig)')
       expect(content).toContain('reactStrictMode: true')
     } finally {
@@ -632,6 +648,7 @@ describe('cortex init', () => {
     ].join('\n')
     const dir = makeTmpProject({
       'package.json': '{"name":"test","devDependencies":{"cortex-editor":"^0.1.0","next":"^16.0.0"}}',
+      'app/layout.tsx': NEXT_LAYOUT,
       'next.config.cjs': nextConfig,
     })
     try {
@@ -639,7 +656,7 @@ describe('cortex init', () => {
       expect(result.nextConfigFound).toBe(true)
       expect(result.nextConfigInjected).toBe(true)
       const content = fs.readFileSync(path.join(dir, 'next.config.cjs'), 'utf8')
-      expect(content).toContain('const { withCortex } = require("cortex-editor/next")')
+      expect(content).toContain("const { withCortex } = require('cortex-editor/next')")
       expect(content).toContain('module.exports = withCortex(nextConfig)')
     } finally {
       cleanup(dir)
@@ -654,6 +671,7 @@ describe('cortex init', () => {
     ].join('\n')
     const dir = makeTmpProject({
       'package.json': '{"name":"test","devDependencies":{"cortex-editor":"^0.1.0","next":"^16.0.0"}}',
+      'app/layout.tsx': NEXT_LAYOUT,
       'next.config.cjs': nextConfig,
     })
     try {
@@ -675,6 +693,7 @@ describe('cortex init', () => {
     ].join('\n')
     const dir = makeTmpProject({
       'package.json': '{"name":"test","devDependencies":{"cortex-editor":"^0.1.0","next":"^16.0.0"}}',
+      'app/layout.tsx': NEXT_LAYOUT,
       'next.config.cjs': nextConfig,
     })
     try {
@@ -682,7 +701,7 @@ describe('cortex init', () => {
       expect(result.nextConfigFound).toBe(true)
       expect(result.nextConfigInjected).toBe(true)
       const content = fs.readFileSync(path.join(dir, 'next.config.cjs'), 'utf8')
-      expect(content).toContain('const { withCortex } = require("cortex-editor/next")')
+      expect(content).toContain("const { withCortex } = require('cortex-editor/next')")
       expect(content).toContain('module.exports = withCortex(nextConfig)')
     } finally {
       cleanup(dir)
@@ -700,6 +719,7 @@ describe('cortex init', () => {
     ].join('\n')
     const dir = makeTmpProject({
       'package.json': '{"name":"test","type":"module","devDependencies":{"cortex-editor":"^0.1.0","next":"^16.0.0","vite":"^6.0.0"}}',
+      'app/layout.tsx': NEXT_LAYOUT,
       'next.config.mjs': nextConfig,
       'vite.config.ts': viteConfig,
     })
@@ -757,10 +777,199 @@ describe('cortex init', () => {
     }
   })
 
+  it('recognizes imperative reassignment wrapping (config = withCortex(config)) as configured', async () => {
+    // Real configs wrap imperatively: `let config = base; config =
+    // withCortex(config); export default config`. Initializer-only resolution
+    // classified this 'none' and DOUBLE-wrapped a working config (delta
+    // review P2) — the classifier must follow assignments too.
+    const nextConfig = [
+      "import { withCortex } from 'cortex-editor/next'",
+      'let config = { reactStrictMode: true }',
+      'config = withCortex(config)',
+      'export default config',
+      '',
+    ].join('\n')
+    const dir = makeTmpProject({
+      'package.json': '{"name":"test","type":"module","devDependencies":{"cortex-editor":"^0.1.0","next":"^16.0.0"}}',
+      'app/layout.tsx': NEXT_LAYOUT,
+      'next.config.mjs': nextConfig,
+    })
+    try {
+      const result = await runInit(dir)
+      expect(result.nextConfigInjected).toBe(false)
+      expect(result.setupComplete).toBe(true)
+      expect(fs.readFileSync(path.join(dir, 'next.config.mjs'), 'utf8')).toBe(nextConfig)
+    } finally {
+      cleanup(dir)
+    }
+  })
+
+  it('does NOT bless a withCortex assignment that a LATER assignment overwrites (cubic P1)', async () => {
+    // `config = withCortex(c); config = plain(c); export default config`
+    // exports the UNWRAPPED value — any-assignment blessing would report this
+    // configured and leave cortex inactive. Source order decides: the final
+    // value is not a withCortex call → not outermost; the earlier call still
+    // registers as 'inner' → loud warn, no modification.
+    const nextConfig = [
+      "import { withCortex } from 'cortex-editor/next'",
+      'const plain = (config) => ({ ...config })',
+      'let config = { reactStrictMode: true }',
+      'config = withCortex(config)',
+      'config = plain(config)',
+      'export default config',
+      '',
+    ].join('\n')
+    const dir = makeTmpProject({
+      'package.json': '{"name":"test","type":"module","devDependencies":{"cortex-editor":"^0.1.0","next":"^16.0.0"}}',
+      'app/layout.tsx': NEXT_LAYOUT,
+      'next.config.mjs': nextConfig,
+    })
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    try {
+      const result = await runInit(dir)
+      expect(result.nextConfigInjected).toBe(false)
+      expect(warn.mock.calls.some(c => /NOT the outermost wrapper/.test(String(c[0])))).toBe(true)
+      expect(fs.readFileSync(path.join(dir, 'next.config.mjs'), 'utf8')).toBe(nextConfig)
+    } finally {
+      warn.mockRestore()
+      cleanup(dir)
+    }
+  })
+
+  it('classifies a cyclic self-referential config without crashing (delta review P3)', async () => {
+    // `const config = config` is a runtime TDZ error but parses cleanly; the
+    // outermost classifier's identifier recursion must terminate (visited
+    // guard), not abort cortex init with a RangeError.
+    const nextConfig = [
+      'const config = config',
+      'export default config',
+      '',
+    ].join('\n')
+    const dir = makeTmpProject({
+      'package.json': '{"name":"test","type":"module","devDependencies":{"cortex-editor":"^0.1.0","next":"^16.0.0"}}',
+      'app/layout.tsx': NEXT_LAYOUT,
+      'next.config.mjs': nextConfig,
+    })
+    try {
+      const result = await runInit(dir)
+      // Classified 'none' → injected (the config was already broken at
+      // runtime; init must simply not crash on it).
+      expect(result.nextConfigInjected).toBe(true)
+      const content = fs.readFileSync(path.join(dir, 'next.config.mjs'), 'utf8')
+      expect(content).toContain('withCortex(config)')
+    } finally {
+      cleanup(dir)
+    }
+  })
+
+  it('emits a semicolon-terminated import when the host config uses semicolons', async () => {
+    // Falsifiable semicolon coverage: toContain-without-semi assertions pass
+    // regardless of terminator, so this pins the EXACT emitted line.
+    const nextConfig = [
+      'const nextConfig = { reactStrictMode: true };',
+      'export default nextConfig;',
+      '',
+    ].join('\n')
+    const dir = makeTmpProject({
+      'package.json': '{"name":"test","type":"module","devDependencies":{"cortex-editor":"^0.1.0","next":"^16.0.0"}}',
+      'app/layout.tsx': NEXT_LAYOUT,
+      'next.config.mjs': nextConfig,
+    })
+    try {
+      const result = await runInit(dir)
+      expect(result.nextConfigInjected).toBe(true)
+      const content = fs.readFileSync(path.join(dir, 'next.config.mjs'), 'utf8')
+      expect(content).toContain("import { withCortex } from 'cortex-editor/next';")
+    } finally {
+      cleanup(dir)
+    }
+  })
+
+  it('omits the semicolon when the host config does not use them', async () => {
+    const nextConfig = [
+      'const nextConfig = { reactStrictMode: true }',
+      'export default nextConfig',
+      '',
+    ].join('\n')
+    const dir = makeTmpProject({
+      'package.json': '{"name":"test","type":"module","devDependencies":{"cortex-editor":"^0.1.0","next":"^16.0.0"}}',
+      'app/layout.tsx': NEXT_LAYOUT,
+      'next.config.mjs': nextConfig,
+    })
+    try {
+      const result = await runInit(dir)
+      expect(result.nextConfigInjected).toBe(true)
+      const content = fs.readFileSync(path.join(dir, 'next.config.mjs'), 'utf8')
+      expect(content).toContain("import { withCortex } from 'cortex-editor/next'")
+      expect(content).not.toContain("'cortex-editor/next';")
+    } finally {
+      cleanup(dir)
+    }
+  })
+
+  it('detects a non-outermost withCortex through IDENTIFIER indirection (codex P2)', async () => {
+    // `const inner = withCortex(base); export default wrapper(inner)` — the
+    // withCortex call reaches the export only through a local binding. The old
+    // classifier only resolved the whole-expression identifier case, saw
+    // 'none', and wrapped a SECOND withCortex around the already-damaged
+    // chain while reporting success.
+    const nextConfig = [
+      "import { withCortex } from 'cortex-editor/next'",
+      'const withFake = (config) => ({ ...config })',
+      'const inner = withCortex({ reactStrictMode: true })',
+      'export default withFake(inner)',
+      '',
+    ].join('\n')
+    const dir = makeTmpProject({
+      'package.json': '{"name":"test","type":"module","devDependencies":{"cortex-editor":"^0.1.0","next":"^16.0.0"}}',
+      'app/layout.tsx': NEXT_LAYOUT,
+      'next.config.mjs': nextConfig,
+    })
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    try {
+      const result = await runInit(dir)
+      expect(result.nextConfigInjected).toBe(false)
+      expect(warn.mock.calls.some(c => /NOT the outermost wrapper/.test(String(c[0])))).toBe(true)
+      expect(fs.readFileSync(path.join(dir, 'next.config.mjs'), 'utf8')).toBe(nextConfig)
+    } finally {
+      warn.mockRestore()
+      cleanup(dir)
+    }
+  })
+
+  it('bails loudly on a NON-OUTERMOST withCortex instead of blessing or re-wrapping it', async () => {
+    // withCortex returns the phase-function config form; a spreading wrapper
+    // AROUND it destroys the config. init must neither report this as
+    // configured (the old any-position check did) nor wrap the damaged chain
+    // again — warn with the fix and leave the file untouched.
+    const nextConfig = [
+      "import { withCortex } from 'cortex-editor/next'",
+      'const withFake = (config) => ({ ...config })',
+      'export default withFake(withCortex({ reactStrictMode: true }))',
+      '',
+    ].join('\n')
+    const dir = makeTmpProject({
+      'package.json': '{"name":"test","type":"module","devDependencies":{"cortex-editor":"^0.1.0","next":"^16.0.0"}}',
+      'app/layout.tsx': NEXT_LAYOUT,
+      'next.config.mjs': nextConfig,
+    })
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    try {
+      const result = await runInit(dir)
+      expect(result.nextConfigInjected).toBe(false)
+      expect(warn.mock.calls.some(c => /NOT the outermost wrapper/.test(String(c[0])))).toBe(true)
+      expect(fs.readFileSync(path.join(dir, 'next.config.mjs'), 'utf8')).toBe(nextConfig)
+    } finally {
+      warn.mockRestore()
+      cleanup(dir)
+    }
+  })
+
   it('wraps dynamic Next config functions without dropping runtime arguments', async () => {
     const nextConfig = 'export default () => ({ reactStrictMode: true })'
     const dir = makeTmpProject({
       'package.json': '{"name":"test","type":"module","devDependencies":{"cortex-editor":"^0.1.0","next":"^16.0.0"}}',
+      'app/layout.tsx': NEXT_LAYOUT,
       'next.config.mjs': nextConfig,
     })
     try {
@@ -769,7 +978,7 @@ describe('cortex init', () => {
       expect(result.nextConfigInjected).toBe(true)
       expect(result.setupComplete).toBe(true)
       const content = fs.readFileSync(path.join(dir, 'next.config.mjs'), 'utf8')
-      expect(content).toContain('export default async (...args) => withCortex(await (() => ({ reactStrictMode: true }))(...args))')
+      expect(content).toContain('export default withCortex(() => ({ reactStrictMode: true }))')
     } finally {
       cleanup(dir)
     }
@@ -782,6 +991,7 @@ describe('cortex init', () => {
     ].join('\n')
     const dir = makeTmpProject({
       'package.json': '{"name":"test","type":"module","devDependencies":{"cortex-editor":"^0.1.0","next":"^16.0.0"}}',
+      'app/layout.tsx': NEXT_LAYOUT,
       'next.config.mjs': nextConfig,
     })
     try {
@@ -791,7 +1001,7 @@ describe('cortex init', () => {
       expect(result.setupComplete).toBe(true)
       const content = fs.readFileSync(path.join(dir, 'next.config.mjs'), 'utf8')
       expect(content).toContain('const nextConfig = () => ({ reactStrictMode: true })')
-      expect(content).toContain('export default async (...args) => withCortex(await (nextConfig)(...args))')
+      expect(content).toContain('export default withCortex(nextConfig)')
     } finally {
       cleanup(dir)
     }
@@ -809,7 +1019,7 @@ describe('cortex init', () => {
       expect(result.vitePluginFound).toBe(null)
       expect(result.nextConfigFound).toBe(null)
       const content = fs.readFileSync(path.join(dir, 'webpack.config.js'), 'utf8')
-      expect(content).toContain('const { cortexWebpack } = require("cortex-editor/webpack")')
+      expect(content).toContain("const { cortexWebpack } = require('cortex-editor/webpack')")
       expect(content).toContain('plugins: [cortexWebpack()]')
     } finally {
       cleanup(dir)
@@ -855,7 +1065,7 @@ describe('cortex init', () => {
       const content = fs.readFileSync(path.join(dir, 'webpack.config.cjs'), 'utf8')
       expect(content.startsWith('#!/usr/bin/env node\n')).toBe(true)
       expect(content.indexOf("'use strict'")).toBeLessThan(
-        content.indexOf('const { cortexWebpack } = require("cortex-editor/webpack")')
+        content.indexOf("const { cortexWebpack } = require('cortex-editor/webpack')")
       )
       expect(content).toContain('plugins: [cortexWebpack()]')
     } finally {
@@ -997,6 +1207,7 @@ describe('cortex init', () => {
       'Next.js',
       {
         'package.json': '{"name":"test","devDependencies":{"next":"^16.0.0"}}',
+        'app/layout.tsx': NEXT_LAYOUT,
         'next.config.mjs': 'export default { reactStrictMode: true }\n',
       },
       'next.config.mjs',
@@ -1243,6 +1454,7 @@ describe('cortex init', () => {
   it('wraps an existing Next.js config with withCortex instead of trying the Vite path', async () => {
     const dir = makeTmpProject({
       'package.json': '{"name":"test","devDependencies":{"cortex-editor":"^0.1.0","next":"^16.0.0"}}',
+      'app/layout.tsx': NEXT_LAYOUT,
       'next.config.mjs': 'export default { reactStrictMode: true }\n',
     })
     try {
@@ -1254,7 +1466,7 @@ describe('cortex init', () => {
       expect(result.setupComplete).toBe(true)
 
       const content = fs.readFileSync(path.join(dir, 'next.config.mjs'), 'utf8')
-      expect(content).toContain('import { withCortex } from "cortex-editor/next"')
+      expect(content).toContain("import { withCortex } from 'cortex-editor/next'")
       expect(content).toContain('export default withCortex({ reactStrictMode: true })')
     } finally {
       cleanup(dir)
@@ -1269,6 +1481,7 @@ describe('cortex init', () => {
     ].join('\n')
     const dir = makeTmpProject({
       'package.json': '{"name":"test","devDependencies":{"cortex-editor":"^0.1.0","next":"^16.0.0"}}',
+      'app/layout.tsx': NEXT_LAYOUT,
       'next.config.mjs': nextConfig,
     })
     try {
@@ -1277,7 +1490,7 @@ describe('cortex init', () => {
       expect(result.nextConfigInjected).toBe(true)
       expect(result.setupComplete).toBe(true)
       const content = fs.readFileSync(path.join(dir, 'next.config.mjs'), 'utf8')
-      expect(content).toContain('import { withCortex } from "cortex-editor/next"')
+      expect(content).toContain("import { withCortex } from 'cortex-editor/next'")
       expect(content).toContain('export default withCortex({ reactStrictMode: true })')
     } finally {
       cleanup(dir)
@@ -1292,6 +1505,7 @@ describe('cortex init', () => {
     ].join('\n')
     const dir = makeTmpProject({
       'package.json': '{"name":"test","devDependencies":{"cortex-editor":"^0.1.0","next":"^16.0.0"}}',
+      'app/layout.tsx': NEXT_LAYOUT,
       'next.config.mjs': nextConfig,
     })
     try {
@@ -1300,7 +1514,7 @@ describe('cortex init', () => {
       expect(result.nextConfigInjected).toBe(true)
       expect(result.setupComplete).toBe(true)
       const content = fs.readFileSync(path.join(dir, 'next.config.mjs'), 'utf8')
-      expect(content).toContain('import { withCortex } from "cortex-editor/next"')
+      expect(content).toContain("import { withCortex } from 'cortex-editor/next'")
       expect(content).toContain('export default withCortex({ reactStrictMode: true })')
       expect(content).not.toContain('module.exports = withCortex')
     } finally {
@@ -1317,6 +1531,7 @@ describe('cortex init', () => {
     ].join('\n')
     const dir = makeTmpProject({
       'package.json': '{"name":"test","devDependencies":{"cortex-editor":"^0.1.0","next":"^16.0.0"}}',
+      'app/layout.tsx': NEXT_LAYOUT,
       'next.config.mjs': nextConfig,
     })
     try {
@@ -1341,6 +1556,7 @@ describe('cortex init', () => {
     ].join('\n')
     const dir = makeTmpProject({
       'package.json': '{"name":"test","devDependencies":{"cortex-editor":"^0.1.0","next":"^16.0.0"}}',
+      'app/layout.tsx': NEXT_LAYOUT,
       'next.config.mjs': nextConfig,
     })
     try {
@@ -1365,6 +1581,7 @@ describe('cortex init', () => {
     ].join('\n')
     const dir = makeTmpProject({
       'package.json': '{"name":"test","devDependencies":{"cortex-editor":"^0.1.0","next":"^16.0.0"}}',
+      'app/layout.tsx': NEXT_LAYOUT,
       'next.config.js': nextConfig,
     })
     try {
@@ -1388,6 +1605,7 @@ describe('cortex init', () => {
   it('wraps a CommonJS Next.js config with withCortex', async () => {
     const dir = makeTmpProject({
       'package.json': '{"name":"test","devDependencies":{"cortex-editor":"^0.1.0","next":"^16.0.0"}}',
+      'app/layout.tsx': NEXT_LAYOUT,
       'next.config.js': 'module.exports = { reactStrictMode: true }\n',
     })
     try {
@@ -1398,7 +1616,7 @@ describe('cortex init', () => {
       expect(result.setupComplete).toBe(true)
 
       const content = fs.readFileSync(path.join(dir, 'next.config.js'), 'utf8')
-      expect(content).toContain('const { withCortex } = require("cortex-editor/next")')
+      expect(content).toContain("const { withCortex } = require('cortex-editor/next')")
       expect(content).toContain('module.exports = withCortex({ reactStrictMode: true })')
     } finally {
       cleanup(dir)
@@ -1413,6 +1631,7 @@ describe('cortex init', () => {
     ].join('\n')
     const dir = makeTmpProject({
       'package.json': '{"name":"test","devDependencies":{"cortex-editor":"^0.1.0","next":"^16.0.0"}}',
+      'app/layout.tsx': NEXT_LAYOUT,
       'next.config.js': nextConfig,
     })
     try {
@@ -1437,6 +1656,7 @@ describe('cortex init', () => {
     ].join('\n')
     const dir = makeTmpProject({
       'package.json': '{"name":"test","devDependencies":{"cortex-editor":"^0.1.0","next":"^16.0.0"}}',
+      'app/layout.tsx': NEXT_LAYOUT,
       'next.config.js': nextConfig,
     })
     try {
@@ -1461,6 +1681,7 @@ describe('cortex init', () => {
     const originalConfig = 'module.exports = { reactStrictMode: true }\n'
     const dir = makeTmpProject({
       'package.json': '{"name":"test","devDependencies":{"cortex-editor":"^0.1.0","next":"^16.0.0"}}',
+      'app/layout.tsx': NEXT_LAYOUT,
       'next.config.cjs': originalConfig,
     })
     try {
@@ -1473,7 +1694,7 @@ describe('cortex init', () => {
       expect(result.setupComplete).toBe(true)
       expect(fs.existsSync(path.join(dir, 'next.config.mjs'))).toBe(false)
       const content = fs.readFileSync(path.join(dir, 'next.config.cjs'), 'utf8')
-      expect(content).toContain('const { withCortex } = require("cortex-editor/next")')
+      expect(content).toContain("const { withCortex } = require('cortex-editor/next')")
       expect(content).toContain('module.exports = withCortex({ reactStrictMode: true })')
     } finally {
       cleanup(dir)
@@ -1489,6 +1710,7 @@ describe('cortex init', () => {
     ].join('\n')
     const dir = makeTmpProject({
       'package.json': '{"name":"test","devDependencies":{"cortex-editor":"^0.1.0","next":"^16.0.0"}}',
+      'app/layout.tsx': NEXT_LAYOUT,
       'next.config.mjs': nextConfig,
     })
     try {
@@ -1498,8 +1720,8 @@ describe('cortex init', () => {
       expect(result.setupComplete).toBe(true)
 
       const content = fs.readFileSync(path.join(dir, 'next.config.mjs'), 'utf8')
-      expect(content).toContain('export default async (...args) => withCortex(await ((phase, { defaultConfig }) => {')
-      expect(content).toContain('})(...args))')
+      expect(content).toContain('export default withCortex((phase, { defaultConfig }) => {')
+      expect(content).not.toContain('(...args)')
       expect(content).toContain('phase === "phase-development-server"')
     } finally {
       cleanup(dir)
@@ -1515,6 +1737,7 @@ describe('cortex init', () => {
     ].join('\n')
     const dir = makeTmpProject({
       'package.json': '{"name":"test","devDependencies":{"cortex-editor":"^0.1.0","next":"^16.0.0"}}',
+      'app/layout.tsx': NEXT_LAYOUT,
       'next.config.js': nextConfig,
     })
     try {
@@ -1524,8 +1747,8 @@ describe('cortex init', () => {
       expect(result.setupComplete).toBe(true)
 
       const content = fs.readFileSync(path.join(dir, 'next.config.js'), 'utf8')
-      expect(content).toContain('module.exports = async (...args) => withCortex(await (async (phase) => {')
-      expect(content).toContain('})(...args))')
+      expect(content).toContain('module.exports = withCortex(async (phase) => {')
+      expect(content).not.toContain('(...args)')
       expect(content).toContain('phase === "phase-production-build"')
     } finally {
       cleanup(dir)
@@ -1535,6 +1758,7 @@ describe('cortex init', () => {
   it('creates a Next.js config when Next is detected without a config file', async () => {
     const dir = makeTmpProject({
       'package.json': '{"name":"test","devDependencies":{"cortex-editor":"^0.1.0","next":"^16.0.0"}}',
+      'app/layout.tsx': NEXT_LAYOUT,
     })
     try {
       const result = await runInit(dir)
@@ -1549,6 +1773,27 @@ describe('cortex init', () => {
     } finally {
       cleanup(dir)
     }
+  })
+
+  it('does NOT report setupComplete when the config is wired but layout injection bails (cubic P2)', () => {
+    // A Next app whose root layout has no <body> — config wraps fine, but
+    // <CortexDevScripts/> can't be injected, so the editor would never load.
+    // Reporting "Setup complete" there is a lie; setup must be flagged
+    // incomplete with the manual-step status.
+    const dir = makeTmpProject({
+      'package.json': '{"name":"test","devDependencies":{"cortex-editor":"^0.1.0","next":"^16.0.0"}}',
+      'next.config.mjs': 'export default { reactStrictMode: true }\n',
+      'app/layout.tsx': 'export default function RootLayout() { return null }\n',
+    })
+    return runInit(dir).then((result) => {
+      try {
+        expect(result.nextConfigInjected).toBe(true)
+        expect(result.nextLayoutStatus).toBe('manual-required')
+        expect(result.setupComplete).toBe(false)
+      } finally {
+        cleanup(dir)
+      }
+    })
   })
 
   it.each([
@@ -1607,7 +1852,7 @@ describe('cortex init', () => {
       expect(result.webpackConfigInjected).toBe(true)
       expect(fs.existsSync(path.join(dir, 'vite.config.ts'))).toBe(false)
       const content = fs.readFileSync(path.join(dir, 'webpack.config.js'), 'utf8')
-      expect(content).toContain('const { cortexWebpack } = require("cortex-editor/webpack")')
+      expect(content).toContain("const { cortexWebpack } = require('cortex-editor/webpack')")
       expect(content).toContain('plugins: [cortexWebpack()]')
     } finally {
       cleanup(dir)
@@ -1642,6 +1887,443 @@ describe('cortex init', () => {
     })
     try {
       await expect(runInit(dir)).rejects.toThrow('root value must be a JSON object')
+    } finally {
+      cleanup(dir)
+    }
+  })
+})
+
+describe('injectDevScriptsIntoLayout', () => {
+  const LAYOUT = [
+    'export default function RootLayout({ children }: { children: React.ReactNode }) {',
+    '  return (',
+    '    <html lang="en">',
+    '      <body className="antialiased">{children}</body>',
+    '    </html>',
+    '  )',
+    '}',
+    '',
+  ].join('\n')
+
+  it('inserts the import and element inside <body> of app/layout.tsx', () => {
+    const dir = makeTmpProject({ 'app/layout.tsx': LAYOUT })
+    try {
+      const result = injectDevScriptsIntoLayout(dir)
+      expect(result.status).toBe('inserted')
+      const content = fs.readFileSync(path.join(dir, 'app', 'layout.tsx'), 'utf8')
+      expect(content.startsWith("import { CortexDevScripts } from 'cortex-editor/next'")).toBe(true)
+      expect(content).toContain('<body className="antialiased">\n        <CortexDevScripts />')
+    } finally {
+      cleanup(dir)
+    }
+  })
+
+  it('finds src/app/layout.tsx when app/ is nested under src/', () => {
+    const dir = makeTmpProject({ 'src/app/layout.tsx': LAYOUT })
+    try {
+      const result = injectDevScriptsIntoLayout(dir)
+      expect(result.status).toBe('inserted')
+      expect(fs.readFileSync(path.join(dir, 'src', 'app', 'layout.tsx'), 'utf8')).toContain('<CortexDevScripts />')
+    } finally {
+      cleanup(dir)
+    }
+  })
+
+  it('is idempotent — reports already when the component is present', () => {
+    const dir = makeTmpProject({ 'app/layout.tsx': LAYOUT })
+    try {
+      injectDevScriptsIntoLayout(dir)
+      const afterFirst = fs.readFileSync(path.join(dir, 'app', 'layout.tsx'), 'utf8')
+      expect(injectDevScriptsIntoLayout(dir).status).toBe('already')
+      expect(fs.readFileSync(path.join(dir, 'app', 'layout.tsx'), 'utf8')).toBe(afterFirst)
+    } finally {
+      cleanup(dir)
+    }
+  })
+
+  it('reports not-found when no root layout exists', () => {
+    const dir = makeTmpProject({})
+    try {
+      expect(injectDevScriptsIntoLayout(dir).status).toBe('not-found')
+    } finally {
+      cleanup(dir)
+    }
+  })
+
+  it('bails without writing when the layout has no <body> tag', () => {
+    const custom = 'export default function RootLayout() { return null }\n'
+    const dir = makeTmpProject({ 'app/layout.tsx': custom })
+    try {
+      expect(injectDevScriptsIntoLayout(dir).status).toBe('no-body-tag')
+      expect(fs.readFileSync(path.join(dir, 'app', 'layout.tsx'), 'utf8')).toBe(custom)
+    } finally {
+      cleanup(dir)
+    }
+  })
+
+  it('inserts correctly when <body> has a > inside an attribute expression', () => {
+    const layout = [
+      'export default function RootLayout(',
+      '  { children, count }: { children: React.ReactNode; count: number },',
+      ') {',
+      '  return (',
+      '    <html lang="en">',
+      "      <body className={count > 2 ? 'a' : 'b'}>{children}</body>",
+      '    </html>',
+      '  )',
+      '}',
+      '',
+    ].join('\n')
+    const dir = makeTmpProject({ 'app/layout.tsx': layout })
+    try {
+      const result = injectDevScriptsIntoLayout(dir)
+      expect(result.status).toBe('inserted')
+      const content = fs.readFileSync(path.join(dir, 'app', 'layout.tsx'), 'utf8')
+      // The element is inserted exactly once...
+      expect((content.match(/<CortexDevScripts/g) ?? []).length).toBe(1)
+      // ...the className attribute survives intact (the old regex split it at `count >`)...
+      expect(content).toContain("className={count > 2 ? 'a' : 'b'}")
+      // ...and the element lands as a child of <body>, not inside the attribute.
+      expect(content).toContain("<body className={count > 2 ? 'a' : 'b'}>\n        <CortexDevScripts />")
+    } finally {
+      cleanup(dir)
+    }
+  })
+
+  it.each([['use client'], ['use server']] as const)(
+    "rejects a '%s' root layout and leaves it byte-for-byte unchanged",
+    (directive) => {
+      const layout = [
+        `'${directive}'`,
+        '',
+        'export default function RootLayout({ children }: { children: React.ReactNode }) {',
+        '  return (',
+        '    <html lang="en">',
+        '      <body>{children}</body>',
+        '    </html>',
+        '  )',
+        '}',
+        '',
+      ].join('\n')
+      const dir = makeTmpProject({ 'app/layout.tsx': layout })
+      try {
+        const result = injectDevScriptsIntoLayout(dir)
+        // CortexDevScripts transitively imports server-only fs/path; importing it
+        // into a client-component graph makes Next FAIL compilation. Bail without
+        // touching the file.
+        expect(result.status).toBe('client-layout-unsupported')
+        expect(fs.readFileSync(path.join(dir, 'app', 'layout.tsx'), 'utf8')).toBe(layout)
+      } finally {
+        cleanup(dir)
+      }
+    }
+  )
+
+  it('inserts when CortexDevScripts appears only in a comment (not a rendered element)', () => {
+    const layout = [
+      '// TODO: render CortexDevScripts somewhere in here',
+      'export default function RootLayout({ children }: { children: React.ReactNode }) {',
+      '  return (',
+      '    <html lang="en">',
+      '      <body>{children}</body>',
+      '    </html>',
+      '  )',
+      '}',
+      '',
+    ].join('\n')
+    const dir = makeTmpProject({ 'app/layout.tsx': layout })
+    try {
+      const result = injectDevScriptsIntoLayout(dir)
+      expect(result.status).toBe('inserted')
+      const content = fs.readFileSync(path.join(dir, 'app', 'layout.tsx'), 'utf8')
+      expect(content).toContain('<CortexDevScripts />')
+      expect(content).toContain("import { CortexDevScripts } from 'cortex-editor/next'")
+    } finally {
+      cleanup(dir)
+    }
+  })
+
+  it('reports already without rewriting when a real <CortexDevScripts /> element is present', () => {
+    const layout = [
+      "import { CortexDevScripts } from 'cortex-editor/next'",
+      'export default function RootLayout({ children }: { children: React.ReactNode }) {',
+      '  return (',
+      '    <html lang="en">',
+      '      <body>',
+      '        <CortexDevScripts />',
+      '        {children}',
+      '      </body>',
+      '    </html>',
+      '  )',
+      '}',
+      '',
+    ].join('\n')
+    const dir = makeTmpProject({ 'app/layout.tsx': layout })
+    try {
+      const before = fs.readFileSync(path.join(dir, 'app', 'layout.tsx'), 'utf8')
+      const result = injectDevScriptsIntoLayout(dir)
+      expect(result.status).toBe('already')
+      expect(fs.readFileSync(path.join(dir, 'app', 'layout.tsx'), 'utf8')).toBe(before)
+    } finally {
+      cleanup(dir)
+    }
+  })
+
+  it('returns parse-error (not false success) on a syntactically broken layout (silent-failure review)', () => {
+    // ts-morph parses leniently; without an assertParseable guard a broken
+    // layout could match <body>, get an insertion, and report 'inserted'.
+    const broken = 'export default function RootLayout({ children }) { return ( <html><body>{children</body' // unclosed
+    const dir = makeTmpProject({ 'app/layout.tsx': broken })
+    try {
+      const result = injectDevScriptsIntoLayout(dir)
+      expect(result.status).toBe('parse-error')
+      // File left untouched.
+      expect(fs.readFileSync(path.join(dir, 'app', 'layout.tsx'), 'utf8')).toBe(broken)
+    } finally {
+      cleanup(dir)
+    }
+  })
+
+  it('bails with name-conflict on a type-only CortexDevScripts import (codex delta P2)', () => {
+    // `import type` cannot render the element at runtime, and a value import of
+    // the same name would collide with it — unfixable without editing the
+    // user's imports. Must NOT report already/inserted (both would be lies).
+    const layout = [
+      "import type { CortexDevScripts } from 'cortex-editor/next'",
+      'export default function RootLayout({ children }: { children: React.ReactNode }) {',
+      '  return (',
+      '    <html lang="en">',
+      '      <body>{children}</body>',
+      '    </html>',
+      '  )',
+      '}',
+      '',
+    ].join('\n')
+    const dir = makeTmpProject({ 'app/layout.tsx': layout })
+    try {
+      const before = fs.readFileSync(path.join(dir, 'app', 'layout.tsx'), 'utf8')
+      const result = injectDevScriptsIntoLayout(dir)
+      expect(result.status).toBe('name-conflict')
+      expect(fs.readFileSync(path.join(dir, 'app', 'layout.tsx'), 'utf8')).toBe(before)
+    } finally {
+      cleanup(dir)
+    }
+  })
+
+  it('bails with name-conflict on an ambient `declare` CortexDevScripts (cubic P2)', () => {
+    // `declare const` is a type-space assertion with NO runtime binding —
+    // rendering against it references a phantom value, and adding our import
+    // would collide with the ambient name. Same bail as type-only imports.
+    const layout = [
+      'declare const CortexDevScripts: () => null',
+      'export default function RootLayout({ children }: { children: React.ReactNode }) {',
+      '  return (',
+      '    <html lang="en">',
+      '      <body>{children}</body>',
+      '    </html>',
+      '  )',
+      '}',
+      '',
+    ].join('\n')
+    const dir = makeTmpProject({ 'app/layout.tsx': layout })
+    try {
+      const before = fs.readFileSync(path.join(dir, 'app', 'layout.tsx'), 'utf8')
+      const result = injectDevScriptsIntoLayout(dir)
+      expect(result.status).toBe('name-conflict')
+      expect(fs.readFileSync(path.join(dir, 'app', 'layout.tsx'), 'utf8')).toBe(before)
+    } finally {
+      cleanup(dir)
+    }
+  })
+
+  it('treats a local CortexDevScripts declaration as a usable binding — no conflicting import (codex delta P2)', () => {
+    // A locally-declared component named CortexDevScripts renders itself;
+    // inserting our import would duplicate the identifier.
+    const layout = [
+      'function CortexDevScripts() { return null }',
+      'export default function RootLayout({ children }: { children: React.ReactNode }) {',
+      '  return (',
+      '    <html lang="en">',
+      '      <body>',
+      '        <CortexDevScripts />',
+      '        {children}',
+      '      </body>',
+      '    </html>',
+      '  )',
+      '}',
+      '',
+    ].join('\n')
+    const dir = makeTmpProject({ 'app/layout.tsx': layout })
+    try {
+      const before = fs.readFileSync(path.join(dir, 'app', 'layout.tsx'), 'utf8')
+      const result = injectDevScriptsIntoLayout(dir)
+      expect(result.status).toBe('already')
+      expect(fs.readFileSync(path.join(dir, 'app', 'layout.tsx'), 'utf8')).toBe(before)
+    } finally {
+      cleanup(dir)
+    }
+  })
+
+  it('does not insert a duplicate import when CortexDevScripts is already bound from another module (review [0]/[2])', () => {
+    // The element is rendered and CortexDevScripts is already in scope from a
+    // re-export barrel. Inserting our own import would duplicate the local name
+    // (TS2300). Report 'already' and leave the file untouched.
+    const layout = [
+      "import { CortexDevScripts } from '@/lib/cortex'",
+      'export default function RootLayout({ children }: { children: React.ReactNode }) {',
+      '  return (',
+      '    <html lang="en">',
+      '      <body>',
+      '        <CortexDevScripts />',
+      '        {children}',
+      '      </body>',
+      '    </html>',
+      '  )',
+      '}',
+      '',
+    ].join('\n')
+    const dir = makeTmpProject({ 'app/layout.tsx': layout })
+    try {
+      const before = fs.readFileSync(path.join(dir, 'app', 'layout.tsx'), 'utf8')
+      const result = injectDevScriptsIntoLayout(dir)
+      expect(result.status).toBe('already')
+      expect(fs.readFileSync(path.join(dir, 'app', 'layout.tsx'), 'utf8')).toBe(before)
+    } finally {
+      cleanup(dir)
+    }
+  })
+
+  it('inserts the element but no duplicate import when a barrel binding exists without a rendered element (review [0]/[2])', () => {
+    const layout = [
+      "import { CortexDevScripts } from '@/lib/cortex'",
+      'export default function RootLayout({ children }: { children: React.ReactNode }) {',
+      '  return (',
+      '    <html lang="en">',
+      '      <body>{children}</body>',
+      '    </html>',
+      '  )',
+      '}',
+      '',
+    ].join('\n')
+    const dir = makeTmpProject({ 'app/layout.tsx': layout })
+    try {
+      const result = injectDevScriptsIntoLayout(dir)
+      expect(result.status).toBe('inserted')
+      const content = fs.readFileSync(path.join(dir, 'app', 'layout.tsx'), 'utf8')
+      expect(content).toContain('<CortexDevScripts />')
+      // No second CortexDevScripts import — the barrel binding already resolves it.
+      expect((content.match(/import \{ CortexDevScripts \}/g) ?? []).length).toBe(1)
+      expect(content).not.toContain("from 'cortex-editor/next'")
+    } finally {
+      cleanup(dir)
+    }
+  })
+
+  it('reconciles a usable import when the element is present but only an aliased import exists (cubic P1)', () => {
+    // Element rendered, but the only import is aliased — the layout would not
+    // compile (`CortexDevScripts` is undefined). Reporting 'already' here would
+    // claim success on a broken layout; instead add a usable import.
+    const layout = [
+      "import { CortexDevScripts as CDS } from 'cortex-editor/next'",
+      'export default function RootLayout({ children }: { children: React.ReactNode }) {',
+      '  return (',
+      '    <html lang="en">',
+      '      <body>',
+      '        <CortexDevScripts />',
+      '        {children}',
+      '      </body>',
+      '    </html>',
+      '  )',
+      '}',
+      '',
+    ].join('\n')
+    const dir = makeTmpProject({ 'app/layout.tsx': layout })
+    try {
+      const result = injectDevScriptsIntoLayout(dir)
+      expect(result.status).toBe('inserted')
+      const content = fs.readFileSync(path.join(dir, 'app', 'layout.tsx'), 'utf8')
+      // A usable (non-aliased) CortexDevScripts import now exists.
+      expect(content).toContain("import { CortexDevScripts } from 'cortex-editor/next'")
+    } finally {
+      cleanup(dir)
+    }
+  })
+
+  it('inserts the element (without duplicating the import) when the import exists but nothing renders it', () => {
+    const layout = [
+      "import { CortexDevScripts } from 'cortex-editor/next'",
+      'export default function RootLayout({ children }: { children: React.ReactNode }) {',
+      '  return (',
+      '    <html lang="en">',
+      '      <body>{children}</body>',
+      '    </html>',
+      '  )',
+      '}',
+      '',
+    ].join('\n')
+    const dir = makeTmpProject({ 'app/layout.tsx': layout })
+    try {
+      const result = injectDevScriptsIntoLayout(dir)
+      expect(result.status).toBe('inserted')
+      const content = fs.readFileSync(path.join(dir, 'app', 'layout.tsx'), 'utf8')
+      expect(content).toContain('<CortexDevScripts />')
+      // The pre-existing import must not be duplicated (a second one is a TS redeclare error).
+      expect((content.match(/import \{ CortexDevScripts \}/g) ?? []).length).toBe(1)
+    } finally {
+      cleanup(dir)
+    }
+  })
+
+  it('adds a usable CortexDevScripts import when only an aliased import exists (3E)', () => {
+    const layout = [
+      "import { CortexDevScripts as CDS } from 'cortex-editor/next'",
+      'export default function RootLayout({ children }: { children: React.ReactNode }) {',
+      '  return (',
+      '    <html lang="en">',
+      '      <body>{children}</body>',
+      '    </html>',
+      '  )',
+      '}',
+      '',
+    ].join('\n')
+    const dir = makeTmpProject({ 'app/layout.tsx': layout })
+    try {
+      const result = injectDevScriptsIntoLayout(dir)
+      expect(result.status).toBe('inserted')
+      const content = fs.readFileSync(path.join(dir, 'app', 'layout.tsx'), 'utf8')
+      // The rendered <CortexDevScripts /> needs a binding by that exact name; the
+      // aliased import (CDS) alone would leave the JSX identifier undefined at
+      // build time. A usable non-aliased import must therefore be added.
+      expect(content).toContain('<CortexDevScripts />')
+      expect(content).toMatch(/import \{ CortexDevScripts \} from ['"]cortex-editor\/next['"]/)
+      // The pre-existing aliased import is preserved, not clobbered.
+      expect(content).toContain('CortexDevScripts as CDS')
+    } finally {
+      cleanup(dir)
+    }
+  })
+
+  it('targets the real <body>, not a commented-out one earlier in the JSX', () => {
+    const layout = [
+      'export default function RootLayout({ children }: { children: React.ReactNode }) {',
+      '  return (',
+      '    <html lang="en">',
+      '      {/* <body>old shell</body> */}',
+      '      <body className="real">{children}</body>',
+      '    </html>',
+      '  )',
+      '}',
+      '',
+    ].join('\n')
+    const dir = makeTmpProject({ 'app/layout.tsx': layout })
+    try {
+      const result = injectDevScriptsIntoLayout(dir)
+      expect(result.status).toBe('inserted')
+      const content = fs.readFileSync(path.join(dir, 'app', 'layout.tsx'), 'utf8')
+      expect((content.match(/<CortexDevScripts/g) ?? []).length).toBe(1)
+      // The element belongs to the real <body>, not lodged inside the JSX comment.
+      expect(content).toContain('<body className="real">\n        <CortexDevScripts />')
+      expect(content).toContain('{/* <body>old shell</body> */}')
     } finally {
       cleanup(dir)
     }

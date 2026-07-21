@@ -2,10 +2,10 @@ name: cortex-editor CI
 on:
   push:
     branches: [main]
-    paths: ["cortex-editor/**", ".github/workflows/cortex-editor-ci.yml"]
+    paths: ["cortex-editor/**", "dev-app-next/**", ".github/workflows/cortex-editor-ci.yml"]
   pull_request:
     branches: [main]
-    paths: ["cortex-editor/**", ".github/workflows/cortex-editor-ci.yml"]
+    paths: ["cortex-editor/**", "dev-app-next/**", ".github/workflows/cortex-editor-ci.yml"]
 
 permissions:
   contents: read
@@ -42,6 +42,9 @@ jobs:
           restore-keys: |
             playwright-${{ runner.os }}-
       - run: npx playwright install --with-deps chromium
+      - name: Install Next e2e fixture app
+        working-directory: dev-app-next
+        run: npm ci
       - run: npm run test:e2e
       - name: Upload Playwright report
         if: failure()

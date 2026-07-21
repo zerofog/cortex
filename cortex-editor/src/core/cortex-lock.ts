@@ -39,11 +39,22 @@ interface LockFileContents {
   /** OS process id of the cortex instance that owns the lock — cross-process
    *  liveness key (is the holder alive → conflict, vs dead → stale + reclaim). */
   pid: number
-  /** Unique per-CortexLock-instance id. pid alone is insufficient: a Vite dev
-   *  server restarts `configureServer` IN-PROCESS, so the old and new sessions
-   *  share a pid. release() matches on nonce so the old session's delayed
-   *  release cannot unlink the new session's freshly-acquired lock file. */
+  /** FAMILY nonce — identifies the boot family for same-boot conflict
+   *  classification (LockHeldError.sameFamily). Deliberately SHAREABLE: the
+   *  Next adapter passes its runtimeId here and advertises it to child
+   *  processes, so a same-boot sibling recognizes the holder. Because it is
+   *  shared, it must NOT be used to prove which GENERATION wrote a file — see
+   *  `generation`. */
   nonce: string
+  /** GENERATION id — fresh per acquire, never shared. Identifies THIS exact
+   *  lock acquisition. Used by release() (only unlink the file this instance
+   *  created) and by the discovery-ownership check (<CortexDevScripts/>
+   *  matches injection.json's generation to the live lock's, so a same-family
+   *  successor reclaiming a crashed predecessor's lock — same nonce — is still
+   *  distinguished during its acquire→publish window). Optional in the type
+   *  for backward-compat with pre-generation lock files (readLockFile falls
+   *  back to the nonce). */
+  generation: string
   /** Date.now() at acquisition — purely diagnostic (helps a human reading the file). */
   startedAt: number
 }
@@ -56,10 +67,20 @@ interface LockFileContents {
  *  would yank it from a still-live owner). For cross-process conflicts,
  *  deleting a genuinely-stale file is the correct manual recovery. */
 export class LockHeldError extends Error {
+  /**
+   * `sameFamily` is true when the live holder's nonce appears in this process's
+   * inherited `__CORTEX_LOCK_FAMILY` env — i.e. the holder is the SAME boot's
+   * bridge in an ancestor/sibling process, not a conflicting second dev server.
+   * `next dev` evaluates next.config in more than one process per boot (the CLI
+   * process and the dev server it spawns, which inherits the env); the losing
+   * evaluation must go inert SILENTLY. Callers should suppress the warning when
+   * this is set — a normal boot must never print a lock conflict.
+   */
   constructor(
     readonly lockPath: string,
     readonly holderPid: number,
     readonly inProcess: boolean = false,
+    readonly sameFamily: boolean = false,
   ) {
     const tail = inProcess
       ? `Another CortexSession instance in this Node process still holds the lock — ` +
@@ -97,7 +118,10 @@ function readLockFile(lockPath: string): LockFileContents | null {
       parsed.pid > 0 &&
       typeof parsed.nonce === 'string'
     ) {
-      return { pid: parsed.pid, nonce: parsed.nonce, startedAt: parsed.startedAt ?? 0 }
+      // generation is newer than nonce; a pre-generation lock file (mid-upgrade)
+      // falls back to the nonce, matching the old injection.json's lockNonce.
+      const generation = typeof parsed.generation === 'string' ? parsed.generation : parsed.nonce
+      return { pid: parsed.pid, nonce: parsed.nonce, generation, startedAt: parsed.startedAt ?? 0 }
     }
     return null
   } catch {
@@ -132,18 +156,141 @@ function isProcessAlive(pid: number): boolean {
  * the new one — that synchronously removes the old lock from this registry so
  * the new acquire sees an empty slot. Without that explicit handoff, the
  * second acquire is treated (correctly) as a concurrent conflict.
+ *
+ * Parked on globalThis, NOT module scope: a dual-format package can be loaded
+ * twice into one process (the CJS build by Next's config loader, the ESM build
+ * elsewhere). With a module-scoped Map, the second module instance would miss
+ * the in-process guard, read its OWN pid from the live lock file, classify it
+ * "stale (our own leak)" and steal a live lock. One per-realm registry closes
+ * that hole. Only .has/.get/.set/.delete are used, so structurally-identical
+ * CortexLock instances from either module copy interoperate.
  */
-const activeLocks = new Map<string, CortexLock>()
+const LOCK_REGISTRY_KEY = Symbol.for('cortex-editor.lock-registry')
+
+function activeLocks(): Map<string, CortexLock> {
+  const holder = globalThis as unknown as Record<symbol, Map<string, CortexLock> | undefined>
+  return (holder[LOCK_REGISTRY_KEY] ??= new Map())
+}
+
+/**
+ * Boot-family nonce propagation. When a lock is acquired, its nonce is appended
+ * to `__CORTEX_LOCK_FAMILY` in this process's env; children spawned AFTER that
+ * inherit it. A later acquire that loses to a live holder whose nonce is in the
+ * inherited list knows the holder is the same boot's bridge (the `next dev` CLI
+ * process vs the dev-server child it spawns) rather than a second dev server —
+ * and refuses silently. Capped so long-lived test processes acquiring many
+ * locks don't grow the env var unboundedly.
+ */
+const FAMILY_ENV = '__CORTEX_LOCK_FAMILY'
+/** Leak guard, not a working-set bound: eviction of a nonce whose lock is
+ *  still ACTIVE would make a same-boot sibling classify that holder as a
+ *  foreign conflict (cubic P2). With dedupe + adoption a family carries ~one
+ *  nonce per project root, so 32 makes live-nonce eviction implausible while
+ *  still capping pathological growth. */
+const FAMILY_MAX = 32
+
+function familyNonces(): string[] {
+  return (process.env[FAMILY_ENV] ?? '').split(',').filter(Boolean)
+}
+
+/** Nonces THIS module instance advertised itself — everything else in the env
+ *  list was inherited from an ancestor (or a sibling module instance, which is
+ *  equally "same family"). */
+const selfAdvertisedNonces = new Set<string>()
+
+function addFamilyNonce(nonce: string): void {
+  selfAdvertisedNonces.add(nonce)
+  if (familyNonces().includes(nonce)) return
+  process.env[FAMILY_ENV] = [...familyNonces(), nonce].slice(-FAMILY_MAX).join(',')
+}
+
+/** Most recent INHERITED family nonce (present in env, not advertised by this
+ *  module instance), or null.
+ *
+ *  A config-evaluating process spawned by a cortex-advertising parent should
+ *  ADOPT this as its own lock nonce instead of minting a fresh one — that
+ *  makes the family classification work in BOTH race directions. Env flows
+ *  parent→child only: if the child locks with a fresh nonce B and wins, the
+ *  parent (family = [A]) would classify B as foreign, warn, and disable its
+ *  loader — the codex P1. With adoption both processes lock as A, so
+ *  whichever loses finds the winner's nonce in its family list. */
+export function inheritedLockFamilyNonce(): string | null {
+  const nonces = familyNonces()
+  for (let i = nonces.length - 1; i >= 0; i--) {
+    if (!selfAdvertisedNonces.has(nonces[i]!)) return nonces[i]!
+  }
+  return null
+}
+
+/** Advertise a nonce to future child processes BEFORE the (async) bridge
+ *  construction acquires the lock with it. The Next adapter calls this
+ *  synchronously during config evaluation with the runtimeId it will pass as
+ *  `lockOwnerNonce` — so even a sibling process spawned in the window between
+ *  config eval and lock acquisition inherits the nonce and classifies the
+ *  eventual holder as sameFamily. Idempotent. */
+export function advertiseLockFamilyNonce(nonce: string): void {
+  addFamilyNonce(nonce)
+}
+
+function removeFamilyNonce(nonce: string): void {
+  const remaining = familyNonces().filter((candidate) => candidate !== nonce)
+  if (remaining.length === 0) delete process.env[FAMILY_ENV]
+  else process.env[FAMILY_ENV] = remaining.join(',')
+}
+
+/** Liveness classification of a project's `.cortex/.lock` for consumers that
+ *  need to know whether the discovery files next to it belong to a RUNNING
+ *  bridge (e.g. <CortexDevScripts/> refusing to inject a dead port/token left
+ *  behind by a hard-killed dev server).
+ *
+ *  Windows caveat: `live` relies on pid-existence, which PID reuse can fake.
+ *  That errs on the safe side for every consumer here — a false `live` merely
+ *  injects a snippet whose WS connect fails, and a false conflict refuses
+ *  startup with a remediation message; neither deletes another owner's state. */
+export type CortexLockLiveness = 'live' | 'stale' | 'missing' | 'corrupt'
+
+export interface CortexLockInspection {
+  liveness: CortexLockLiveness
+  /** Owner GENERATION when the lock file is readable; null for missing/corrupt.
+   *  Consumers bind discovery-file CONTENTS to the live owner by matching the
+   *  generation the bridge stamped into injection.json — so files written by a
+   *  predecessor generation are detected even while a successor's lock is live
+   *  (the acquire→publish handoff window), INCLUDING a same-family successor
+   *  that reuses the shared family nonce. */
+  holderGeneration: string | null
+}
+
+export function inspectCortexLock(cortexDir: string): CortexLockInspection {
+  const lockPath = path.join(cortexDir, '.lock')
+  try {
+    fs.accessSync(lockPath)
+  } catch {
+    return { liveness: 'missing', holderGeneration: null }
+  }
+  const holder = readLockFile(lockPath)
+  if (holder === null) return { liveness: 'corrupt', holderGeneration: null }
+  return { liveness: isProcessAlive(holder.pid) ? 'live' : 'stale', holderGeneration: holder.generation }
+}
+
+export function checkCortexLockLiveness(cortexDir: string): CortexLockLiveness {
+  return inspectCortexLock(cortexDir).liveness
+}
 
 export class CortexLock {
   private released = false
   private readonly onExit: () => void
 
+  /** This acquisition's generation id — exposed so the session can stamp it
+   *  into injection.json for the discovery-ownership check. */
+  readonly generation: string
+
   private constructor(
     private readonly lockPath: string,
     private readonly nonce: string,
     private readonly registryKey: string,
+    generation: string,
   ) {
+    this.generation = generation
     // Best-effort synchronous release for exit paths the adapter's
     // SIGTERM/SIGINT → dispose() handler didn't already cover (e.g. an
     // uncaught-exception exit). `process.on('exit')` callbacks may only do
@@ -162,8 +309,18 @@ export class CortexLock {
    *   but so is every other `.cortex/` write, so the caller runs lock-less and
    *   degraded — exactly the pre-existing read-only-root behavior. This is the
    *   ONE non-throwing degrade; lock-*held* always throws (no silent downgrade).
+   * - Filesystems where the atomic link/rename protocol is unsupported but the
+   *   directory IS writable (hard-link-less network mounts, AV-held files on
+   *   Windows) fall back to MARKER MODE: a plain overwrite of the lock file.
+   *   That forfeits race-proof exclusivity but preserves the ownership record —
+   *   which <CortexDevScripts/>'s liveness gate and conflict warnings depend
+   *   on. Degrading to lock-LESS there would make the gate permanently refuse
+   *   a live bridge's discovery files.
+   *
+   * `ownerNonce` (optional) is stamped into the lock file instead of a fresh
+   * UUID — see {@link advertiseLockFamilyNonce}.
    */
-  static acquire(cortexDir: string): CortexLock | null {
+  static acquire(cortexDir: string, ownerNonce?: string): CortexLock | null {
     const lockPath = path.join(cortexDir, '.lock')
 
     // Any non-EEXIST filesystem error during lock I/O means locking is
@@ -208,15 +365,41 @@ export class CortexLock {
     // instance in this process still holds it" — refuse rather than reclaim.
     // Adapters that intend a handoff (Vite restart) call
     // CortexSession.releaseLockForHandoff() on the old session first.
-    if (activeLocks.has(registryKey)) {
+    if (activeLocks().has(registryKey)) {
       throw new LockHeldError(lockPath, process.pid, /* inProcess */ true)
+    }
+
+    // Marker-mode fallback for environments where the atomic protocol below is
+    // unsupported but plain writes work. Advisory-only (last-writer-wins), and
+    // only reached on filesystem capability errors — never for a held lock.
+    const markerFallback = (contents: LockFileContents, reason: unknown): CortexLock | null => {
+      // Held-always-throws applies in marker mode too: never overwrite a lock
+      // whose owner is alive in another process (reachable when the temp-file
+      // create failed but the existing lock file itself is writable).
+      const holder = readLockFile(lockPath)
+      if (holder !== null && holder.pid !== process.pid && isProcessAlive(holder.pid)) {
+        throw new LockHeldError(lockPath, holder.pid, false, familyNonces().includes(holder.nonce))
+      }
+      try {
+        fs.writeFileSync(lockPath, JSON.stringify(contents), { mode: 0o600 })
+      } catch {
+        return degrade(reason)
+      }
+      console.warn(
+        '[cortex] Filesystem does not support atomic lock placement — using best-effort marker mode:',
+        reason instanceof Error ? reason.message : String(reason),
+      )
+      const lock = new CortexLock(lockPath, contents.nonce, registryKey, contents.generation)
+      activeLocks().set(registryKey, lock)
+      addFamilyNonce(contents.nonce)
+      return lock
     }
 
     // Two passes: the first may find a stale lock and reclaim it; the second
     // then succeeds. A second EEXIST means another instance reclaimed in the
     // same window — treat that as genuinely held rather than looping.
     for (let attempt = 0; attempt < 2; attempt++) {
-      const nonce = randomUUID()
+      const nonce = ownerNonce ?? randomUUID()
 
       // Materialize the new lock CONTENT in a uniquely-named temp file FIRST,
       // then atomically hard-link it to lockPath. This removes a race the
@@ -226,16 +409,24 @@ export class CortexLock {
       // stale" → reclaim the in-progress lock. linkSync atomically creates
       // lockPath with the temp file's full content; observers either see no
       // file (acquire empty slot) or a complete file (live holder / stale).
-      const tmpPath = `${lockPath}.creating-${process.pid}-${nonce}`
-      const contents: LockFileContents = { pid: process.pid, nonce, startedAt: Date.now() }
+      // The temp name uses its OWN random component, never the (possibly
+      // caller-fixed) owner nonce: a deterministic temp path could collide
+      // with a leaked temp from a crashed prior run and exhaust both attempts
+      // into a spurious LockHeldError(-1) on a FREE lock. Only the lock file
+      // CONTENT carries the owner nonce — temp naming needs uniqueness alone.
+      const tmpPath = `${lockPath}.creating-${process.pid}-${randomUUID()}`
+      // generation is ALWAYS fresh (never the shared ownerNonce) — it is the
+      // per-acquisition identity release() and the discovery-ownership check
+      // rely on.
+      const contents: LockFileContents = { pid: process.pid, nonce, generation: randomUUID(), startedAt: Date.now() }
       try {
         fs.writeFileSync(tmpPath, JSON.stringify(contents), { mode: 0o600, flag: 'wx' })
       } catch (writeErr) {
-        // EEXIST = UUID collision on the temp path (vanishingly rare) → retry.
-        // Any other error means the dir is unwritable (existing-but-readonly
-        // .cortex/ etc.) — degrade, same as mkdir failure.
+        // EEXIST = collision on the temp path (vanishingly rare) → retry.
+        // Any other error: the exclusive-create protocol is unavailable —
+        // try marker mode before giving up (degrade happens inside).
         if (isErrno(writeErr, 'EEXIST')) continue
-        return degrade(writeErr)
+        return markerFallback(contents, writeErr)
       }
 
       let linked = false
@@ -246,10 +437,11 @@ export class CortexLock {
         linked = true
       } catch (linkErr) {
         // EEXIST = lockPath already exists → fall through to held/stale check.
-        // Anything else is an environmental "can't link" — degrade.
+        // Anything else is an environmental "can't link" (hard-link-less
+        // filesystem) — try marker mode before giving up.
         if (!isErrno(linkErr, 'EEXIST')) {
           try { fs.unlinkSync(tmpPath) } catch { /* harmless */ }
-          return degrade(linkErr)
+          return markerFallback(contents, linkErr)
         }
       } finally {
         // Always clean up the temp file; lockPath now has its own inode after a
@@ -257,14 +449,25 @@ export class CortexLock {
         try { fs.unlinkSync(tmpPath) } catch { /* harmless */ }
       }
       if (linked) {
-        const lock = new CortexLock(lockPath, nonce, registryKey)
-        activeLocks.set(registryKey, lock)
+        const lock = new CortexLock(lockPath, nonce, registryKey, contents.generation)
+        activeLocks().set(registryKey, lock)
+        // Advertise ownership to processes we spawn from here on (see FAMILY_ENV).
+        addFamilyNonce(nonce)
         return lock
       }
 
       const holder = readLockFile(lockPath)
       if (holder !== null && holder.pid !== process.pid && isProcessAlive(holder.pid)) {
-        throw new LockHeldError(lockPath, holder.pid)
+        // A live holder whose nonce we inherited via env is this same boot's
+        // bridge in another process — normal `next dev` double evaluation, not
+        // a conflict. The caller suppresses the warning for sameFamily.
+        throw new LockHeldError(lockPath, holder.pid, false, familyNonces().includes(holder.nonce))
+      }
+      if (holder === null && fs.existsSync(lockPath)) {
+        // Present but unreadable/unparseable — warn before reclaiming so a
+        // recurring corruption source (crashing writer, disk issue) stays
+        // visible instead of being silently absorbed every boot.
+        console.warn(`[cortex] The lock file at ${lockPath} is corrupt — reclaiming it.`)
       }
       // Stale: the holder process is dead, the file is corrupt, or it carries
       // OUR pid — a lock leaked by a crashed prior run, or (the common case) a
@@ -281,11 +484,12 @@ export class CortexLock {
       } catch (renameErr) {
         // ENOENT = another reclaimer took the file → loop to retry the linkSync.
         // Anything else (e.g. EPERM on Windows when the file is still open by
-        // another process) is an environmental "can't reclaim" — degrade to
-        // null with a warning, same as every other non-EEXIST lock-IO error,
-        // rather than throw and crash adapter startup.
+        // another process) is an environmental "can't reclaim". We only reach
+        // this branch for a STALE/corrupt holder, so a marker-mode overwrite
+        // IS the reclaim (non-atomic); if even that fails, degrade with a
+        // warning rather than throw and crash adapter startup.
         if (isErrno(renameErr, 'ENOENT')) continue
-        return degrade(renameErr)
+        return markerFallback(contents, renameErr)
       }
       try { fs.unlinkSync(reclaimPath) } catch { /* harmless — file gone */ }
     }
@@ -302,10 +506,14 @@ export class CortexLock {
   release(): void {
     if (this.released) return
     this.released = true
-    activeLocks.delete(this.registryKey)
+    activeLocks().delete(this.registryKey)
+    removeFamilyNonce(this.nonce)
     process.removeListener('exit', this.onExit)
     try {
-      if (readLockFile(this.lockPath)?.nonce === this.nonce) {
+      // Match on GENERATION, not the (shareable) family nonce: only unlink the
+      // exact acquisition this instance created, so a same-family successor's
+      // lock is never removed by a predecessor's delayed release.
+      if (readLockFile(this.lockPath)?.generation === this.generation) {
         fs.unlinkSync(this.lockPath)
       }
     } catch {

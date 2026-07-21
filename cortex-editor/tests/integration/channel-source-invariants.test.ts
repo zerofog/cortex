@@ -58,13 +58,35 @@ describe('channel.ts source-level invariants (ZF0-1326 Task 1)', () => {
     expect(matches.length).toBe(4)
   })
 
-  it('contains exactly 2 references to `window.__cortex_send__` (capture + delete in createViteChannel only — WebSocket channel uses native WebSocket, not the HMR primitive)', () => {
-    // Vite channel: capture (line 35) + delete (line 37) = 2
-    // WS channel: 0 references (uses native WebSocket, not the HMR primitive)
-    // Total: 2. A regression that re-reads window.__cortex_send__ at
-    // send time bumps the count to 3+.
+  it('contains exactly 5 references to `window.__cortex_send__` (Vite capture+delete; WS install + dispose identity-check + dispose delete)', () => {
+    // Vite channel: capture + delete = 2
+    // WS channel (3B): 3 references —
+    //   1. install:          window.__cortex_send__ = activationBridge
+    //   2. dispose id-check:  window.__cortex_send__ === activationBridge
+    //   3. dispose delete:    delete window.__cortex_send__
+    //   The install + dispose delete clear the sentinel bootstrap() uses to
+    //   detect the Vite adapter; the identity-check guards against clobbering a
+    //   foreign primitive. NONE reads the primitive to forward a message.
+    // Total: 5. A regression that re-READS window.__cortex_send__ to SEND at
+    // send time bumps the count and trips the "never a read" test below.
     const matches = code.match(/window\.__cortex_send__/g) ?? []
-    expect(matches.length).toBe(2)
+    expect(matches.length).toBe(5)
+  })
+
+  it('the WebSocket channel never READS `window.__cortex_send__` to forward a message', () => {
+    // The ZF0-1326 property this file guards: nothing may use the HMR send
+    // primitive off window to transmit after capture. Classify every reference:
+    //   1. Vite capture:    const capturedSend = window.__cortex_send__
+    //   2. Vite delete:     delete window.__cortex_send__
+    //   3. WS install:      window.__cortex_send__ = activationBridge   (assignment)
+    //   4. WS dispose id:   window.__cortex_send__ === activationBridge (identity check, not a send)
+    //   5. WS dispose del:  delete window.__cortex_send__
+    // References NOT immediately followed by `=`/`===` are the reads and
+    // delete-operands: the Vite capture (1) and the two delete operands (2, 5).
+    // The install (3) and the dispose identity-check (4) are followed by `=`.
+    // None of the five uses the primitive to send.
+    const nonAssignmentRefs = [...code.matchAll(/window\.__cortex_send__(?!\s*=)/g)]
+    expect(nonAssignmentRefs.length).toBe(3)
   })
 
   it('contains the delete statements that the tombstone semantic depends on', () => {

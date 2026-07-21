@@ -8,9 +8,12 @@ import {
   SyntaxKind,
   ts,
   type Expression,
+  type JsxOpeningElement,
+  type JsxSelfClosingElement,
   type Node,
   type ObjectLiteralExpression,
   type SourceFile,
+  type Statement,
 } from 'ts-morph'
 import {
   NEXT_CONFIG_FILES,
@@ -159,6 +162,69 @@ function hasNamedImport(sourceFile: SourceFile, functionName: string, moduleSpec
   )
 }
 
+/**
+ * True only when `functionName` is importable under that EXACT local name from
+ * `moduleSpecifier` — i.e. a named import whose local binding is `functionName`
+ * (not an alias like `CortexDevScripts as CDS`). The layout codemod renders a
+ * literal `<CortexDevScripts />`, so an aliased-only import does NOT satisfy the
+ * requirement: `hasNamedImport` reports the import present (getName() returns the
+ * imported name, ignoring the alias), the codemod skips adding a binding, and the
+ * rendered element resolves to an undefined identifier at build time.
+ */
+function hasUsableNamedImport(sourceFile: SourceFile, functionName: string, moduleSpecifier: string): boolean {
+  return sourceFile.getImportDeclarations().some(declaration =>
+    declaration.getModuleSpecifierValue() === moduleSpecifier &&
+    declaration.getNamedImports().some(namedImport =>
+      namedImport.getName() === functionName && !namedImport.getAliasNode()
+    )
+  )
+}
+
+/** How `localName` is bound in the file, considering imports AND local
+ *  declarations:
+ *  - 'value'     — a usable runtime binding exists (value import from any module,
+ *                  or a local function/class/variable declaration). The rendered
+ *                  element resolves; inserting our import would be a duplicate
+ *                  identifier (TS2300).
+ *  - 'type-only' — ONLY type-space bindings exist (`import type`). The element
+ *                  cannot resolve at runtime, and adding a value import of the
+ *                  same name still collides with the type import — unfixable
+ *                  without editing the user's imports, so callers must bail.
+ *  - null        — the name is free; our import can be added safely. */
+function localBindingKind(sourceFile: SourceFile, localName: string): 'value' | 'type-only' | null {
+  // Ambient `declare` declarations are type-space assertions with NO runtime
+  // binding (cubic P2): counting them as 'value' would skip the required
+  // import and ship a layout whose rendered element references a phantom
+  // value — while adding our import anyway would collide with the ambient
+  // name. They join the type-only bucket, which callers bail 'name-conflict'.
+  const locals = [
+    { node: sourceFile.getFunction(localName), ambient: sourceFile.getFunction(localName)?.hasDeclareKeyword() ?? false },
+    { node: sourceFile.getClass(localName), ambient: sourceFile.getClass(localName)?.hasDeclareKeyword() ?? false },
+    {
+      node: sourceFile.getVariableDeclaration(localName),
+      ambient: sourceFile.getVariableDeclaration(localName)?.getVariableStatement()?.hasDeclareKeyword() ?? false,
+    },
+  ].filter((local) => local.node)
+  if (locals.some((local) => !local.ambient)) return 'value'
+  let sawTypeOnly = locals.length > 0
+  for (const declaration of sourceFile.getImportDeclarations()) {
+    const declTypeOnly = declaration.isTypeOnly()
+    if (declaration.getDefaultImport()?.getText() === localName ||
+        declaration.getNamespaceImport()?.getText() === localName) {
+      if (!declTypeOnly) return 'value'
+      sawTypeOnly = true
+      continue
+    }
+    for (const namedImport of declaration.getNamedImports()) {
+      const local = namedImport.getAliasNode()?.getText() ?? namedImport.getName()
+      if (local !== localName) continue
+      if (declTypeOnly || namedImport.isTypeOnly()) sawTypeOnly = true
+      else return 'value'
+    }
+  }
+  return sawTypeOnly ? 'type-only' : null
+}
+
 function hasNamedRequire(sourceFile: SourceFile, functionName: string, moduleSpecifier: string): boolean {
   return sourceFile.getVariableDeclarations().some(declaration => {
     const nameNode = declaration.getNameNode()
@@ -169,24 +235,64 @@ function hasNamedRequire(sourceFile: SourceFile, functionName: string, moduleSpe
   })
 }
 
-function getCommonJSHelperInsertIndex(sourceFile: SourceFile): number {
+/**
+ * Index of the first statement after any leading directive prologue
+ * (`'use client'`, `'use server'`, CommonJS `"use strict"`). Statements must be
+ * inserted here, not at 0: prepending above a directive demotes it off line 1,
+ * so it stops being a directive prologue and silently loses effect.
+ */
+/** The directive-prologue string value of a leading statement (e.g. `'use client'`,
+ *  `"use strict"`), or null if the statement is not a directive-prologue string
+ *  literal. Shared by getInsertIndexAfterDirectives and hasClientOrServerDirective
+ *  so the "is this a directive prologue statement" rule lives in one place. */
+function directivePrologueValue(statement: Statement): string | null {
+  if (statement.getKind() !== SyntaxKind.ExpressionStatement) return null
+  const expression = statement.asKindOrThrow(SyntaxKind.ExpressionStatement).getExpression()
+  const kind = expression.getKind()
+  if (kind !== SyntaxKind.StringLiteral && kind !== SyntaxKind.NoSubstitutionTemplateLiteral) return null
+  // getText() includes the quotes/backticks; slice them off to get the value.
+  return expression.getText().slice(1, -1)
+}
+
+function getInsertIndexAfterDirectives(sourceFile: SourceFile): number {
   const statements = sourceFile.getStatements()
   let insertIndex = 0
-
-  while (insertIndex < statements.length) {
-    const statement = statements[insertIndex]!
-    if (statement.getKind() !== SyntaxKind.ExpressionStatement) break
-    const expression = statement.asKindOrThrow(SyntaxKind.ExpressionStatement).getExpression()
-    if (
-      expression.getKind() !== SyntaxKind.StringLiteral &&
-      expression.getKind() !== SyntaxKind.NoSubstitutionTemplateLiteral
-    ) {
-      break
-    }
+  while (insertIndex < statements.length && directivePrologueValue(statements[insertIndex]!) !== null) {
     insertIndex++
   }
-
   return insertIndex
+}
+
+/** Quote char + statement terminator matching the HOST file's own style, so
+ *  emitted lines survive the host repo's prettier/lint pass instead of fighting
+ *  it. Quote: first string literal in the file (imports/requires cover the
+ *  common case). Semicolon: majority vote over the statement kinds where a
+ *  terminator is grammatical — functions/classes never end in `;` even in
+ *  semicolon repos, so counting ALL statements would skew no-semi. Files with
+ *  no signal fall back to single quotes + semicolons. */
+interface EmitStyle {
+  quote: string
+  semi: string
+}
+
+const SEMI_STATEMENT_KINDS = new Set<SyntaxKind>([
+  SyntaxKind.ImportDeclaration,
+  SyntaxKind.VariableStatement,
+  SyntaxKind.ExpressionStatement,
+  SyntaxKind.ExportAssignment,
+])
+
+function detectEmitStyle(sourceFile: SourceFile): EmitStyle {
+  // Skip JSX attribute strings: `lang="en"` is conventionally double-quoted
+  // even in single-quote repos, so it is noise for import-statement style.
+  const firstString = sourceFile
+    .getDescendantsOfKind(SyntaxKind.StringLiteral)
+    .find((literal) => literal.getParent()?.getKind() !== SyntaxKind.JsxAttribute)
+  const quote = firstString?.getText().startsWith('"') ? '"' : "'"
+  const candidates = sourceFile.getStatements().filter((s) => SEMI_STATEMENT_KINDS.has(s.getKind()))
+  const withSemi = candidates.filter((s) => s.getText().trimEnd().endsWith(';')).length
+  const semi = candidates.length === 0 || withSemi * 2 >= candidates.length ? ';' : ''
+  return { quote, semi }
 }
 
 function ensureHelperBinding(
@@ -200,32 +306,40 @@ function ensureHelperBinding(
     return
   }
 
-  if (moduleConfig) {
-    sourceFile.addImportDeclaration({
-      namedImports: [functionName],
-      moduleSpecifier,
-    })
-  } else {
-    sourceFile.insertStatements(
-      getCommonJSHelperInsertIndex(sourceFile),
-      `const { ${functionName} } = require("${moduleSpecifier}")\n`
-    )
-  }
+  const { quote, semi } = detectEmitStyle(sourceFile)
+  const binding = moduleConfig
+    ? `import { ${functionName} } from ${quote}${moduleSpecifier}${quote}${semi}`
+    : `const { ${functionName} } = require(${quote}${moduleSpecifier}${quote})${semi}\n`
+  sourceFile.insertStatements(getInsertIndexAfterDirectives(sourceFile), binding)
 }
 
 function configExpressionUsesNamedCall(
   sourceFile: SourceFile,
   expression: Node,
-  name: string
+  name: string,
+  visited: Set<string> = new Set(),
 ): boolean {
   if (hasNamedCallExpression(expression, name)) return true
 
-  const identifier = expression.getText().trim()
-  if (!/^[A-Za-z_$][\w$]*$/.test(identifier)) return false
+  // Resolve identifiers through their local initializers — BOTH when the whole
+  // expression is one (`export default cfg`) AND when one is nested inside it
+  // (`export default wrapper(inner)` where `const inner = withCortex(base)`,
+  // the codex P2): the call is still in the chain either way, and classifying
+  // it 'none' would let init wrap a SECOND withCortex around a wrapper that
+  // already consumed (and likely spread away) the inner phase function.
+  const identifiers =
+    expression.getKind() === SyntaxKind.Identifier
+      ? [expression.getText().trim()]
+      : expression.getDescendantsOfKind(SyntaxKind.Identifier).map((id) => id.getText().trim())
 
-  const declaration = sourceFile.getVariableDeclaration(identifier)
-  const initializer = declaration?.getInitializer()
-  return Boolean(initializer && hasNamedCallExpression(initializer, name))
+  for (const identifier of identifiers) {
+    if (!/^[A-Za-z_$][\w$]*$/.test(identifier) || visited.has(identifier)) continue
+    visited.add(identifier)
+    for (const value of valueExpressionsFor(sourceFile, identifier)) {
+      if (configExpressionUsesNamedCall(sourceFile, value, name, visited)) return true
+    }
+  }
+  return false
 }
 
 function objectPropertyValueUsesNamedCall(
@@ -255,26 +369,96 @@ function viteConfigUsesCortexEditor(
   )
 }
 
+/** All expressions that may flow into the binding `name`: the declaration
+ *  initializer plus every `name = <expr>` assignment. Later assignments
+ *  (`let config = base; config = withCortex(config); export default config`)
+ *  are how real configs wrap imperatively — initializer-only resolution
+ *  classifies such a correctly-wrapped config 'none' and init double-wraps
+ *  it (delta review P2). */
+function valueExpressionsFor(sourceFile: SourceFile, name: string, beforePos?: number): Node[] {
+  const values: Node[] = []
+  const initializer = sourceFile.getVariableDeclaration(name)?.getInitializer()
+  if (initializer) values.push(initializer)
+  for (const binary of sourceFile.getDescendantsOfKind(SyntaxKind.BinaryExpression)) {
+    if (binary.getOperatorToken().getKind() !== SyntaxKind.EqualsToken) continue
+    if (binary.getLeft().getText().trim() !== name) continue
+    // Only assignments that FLOW INTO the export decide its value (cubic P2):
+    // (1) at module top level — a `name = …` inside a function/block reassigns
+    //     a different (shadowed) binding, not the exported one; (2) BEFORE the
+    //     export position — a post-export assignment cannot change what the
+    //     export already captured.
+    if (binary.getFirstAncestorByKind(SyntaxKind.FunctionDeclaration) ||
+        binary.getFirstAncestorByKind(SyntaxKind.ArrowFunction) ||
+        binary.getFirstAncestorByKind(SyntaxKind.FunctionExpression)) continue
+    if (beforePos !== undefined && binary.getStart() >= beforePos) continue
+    values.push(binary.getRight())
+  }
+  return values
+}
+
+/** True when the exported expression IS a withCortex(...) call (possibly via
+ *  parens/`as`/`satisfies`, or an identifier whose value flows from one —
+ *  initializer OR later assignment). Since withCortex returns Next's
+ *  phase-function config form, only the OUTERMOST position is a working
+ *  configuration — a spreading wrapper around it
+ *  (withBundleAnalyzer(withCortex(cfg))) silently destroys the config.
+ *  `visited` guards identifier cycles: `const config = config` parses cleanly
+ *  and must classify 'none', not crash init with a RangeError (delta review). */
+function isOutermostWithCortexCall(sourceFile: SourceFile, expression: Node, exportPos: number, visited: Set<string> = new Set()): boolean {
+  let expr: Node | undefined = expression
+  for (;;) {
+    const kind = expr.getKind()
+    if (kind === SyntaxKind.ParenthesizedExpression || kind === SyntaxKind.AsExpression || kind === SyntaxKind.SatisfiesExpression) {
+      expr = (expr as Node & { getExpression(): Node }).getExpression()
+      continue
+    }
+    break
+  }
+  const text = expr.getText().trim()
+  if (expr.getKind() === SyntaxKind.Identifier && /^[A-Za-z_$][\w$]*$/.test(text)) {
+    if (visited.has(text)) return false
+    visited.add(text)
+    // The LAST value expression that flows into the export (source order,
+    // pre-export, module-scope only) decides outermost-ness:
+    // `config = withCortex(c); config = plain(c)` exports the UNWRAPPED value,
+    // and blessing any-assignment would make init skip the required wrapper
+    // (cubic P1); a post-export or function-scoped reassignment does not affect
+    // it (cubic P2). The earlier withCortex still registers as 'inner' → warns.
+    const lastValue = valueExpressionsFor(sourceFile, text, exportPos).at(-1)
+    return lastValue ? isOutermostWithCortexCall(sourceFile, lastValue, exportPos, visited) : false
+  }
+  if (expr.getKind() !== SyntaxKind.CallExpression) return false
+  return expr.asKindOrThrow(SyntaxKind.CallExpression).getExpression().getText().trim() === 'withCortex'
+}
+
+type WithCortexUsage = 'outermost' | 'inner' | 'none'
+
 function nextConfigUsesWithCortex(
   content: string,
   basename: string,
   moduleConfig: boolean,
-): boolean {
+): WithCortexUsage {
   const sourceFile = createConfigSourceFile(basename, content)
   assertParseable(sourceFile, basename)
 
-  if (moduleConfig) {
-    const defaultExport = sourceFile.getFirstDescendantByKind(SyntaxKind.ExportAssignment)
-    return Boolean(
-      defaultExport &&
-      configExpressionUsesNamedCall(sourceFile, defaultExport.getExpression(), 'withCortex')
-    )
+  const classify = (expression: Node): WithCortexUsage => {
+    // The export expression's position bounds which assignments count as
+    // flowing into it (pre-export only) — see valueExpressionsFor.
+    if (isOutermostWithCortexCall(sourceFile, expression, expression.getStart())) return 'outermost'
+    return configExpressionUsesNamedCall(sourceFile, expression, 'withCortex') ? 'inner' : 'none'
   }
 
-  return sourceFile.getDescendantsOfKind(SyntaxKind.BinaryExpression).some(binaryExpression => (
-    isCommonJsExportAssignment(binaryExpression) &&
-    configExpressionUsesNamedCall(sourceFile, binaryExpression.getRight(), 'withCortex')
-  ))
+  if (moduleConfig) {
+    const defaultExport = sourceFile.getFirstDescendantByKind(SyntaxKind.ExportAssignment)
+    return defaultExport ? classify(defaultExport.getExpression()) : 'none'
+  }
+
+  for (const binaryExpression of sourceFile.getDescendantsOfKind(SyntaxKind.BinaryExpression)) {
+    if (!isCommonJsExportAssignment(binaryExpression)) continue
+    const usage = classify(binaryExpression.getRight())
+    if (usage !== 'none') return usage
+  }
+  return 'none'
 }
 
 function webpackConfigUsesCortexWebpack(
@@ -345,29 +529,14 @@ function injectVitePlugin(
   return { content: sourceFile.getFullText(), injected: true }
 }
 
-function isFunctionConfigExpression(sourceFile: SourceFile, expr: Expression): boolean {
-  const kind = expr.getKind()
-  if (kind === SyntaxKind.ArrowFunction || kind === SyntaxKind.FunctionExpression) return true
-  if (kind !== SyntaxKind.Identifier) return false
-
-  const name = expr.getText()
-  const variable = sourceFile.getVariableDeclaration(name)
-  const initializer = variable?.getInitializer()
-  if (initializer) {
-    const initializerKind = initializer.getKind()
-    return initializerKind === SyntaxKind.ArrowFunction ||
-      initializerKind === SyntaxKind.FunctionExpression
-  }
-
-  return Boolean(sourceFile.getFunction(name))
-}
-
-function wrapConfigExpression(sourceFile: SourceFile, expr: Expression, helperName: string): string {
-  const exprText = expr.getText()
-  if (isFunctionConfigExpression(sourceFile, expr)) {
-    return `async (...args) => ${helperName}(await (${exprText})(...args))`
-  }
-  return `${helperName}(${exprText})`
+/** withCortex accepts every export shape Next's config loader does — object,
+ *  promise, or phase function (NextConfigInput) — so wrapping is always a plain
+ *  call. Do NOT resurrect the old `async (...args) => withCortex(await
+ *  (expr)(...args))` form for function configs: withCortex returns the
+ *  phase-function form itself now, and that wrapper would hand Next a
+ *  Promise<function> instead of a config. */
+function wrapConfigExpression(expr: Expression, helperName: string): string {
+  return `${helperName}(${expr.getText()})`
 }
 
 function injectNextWrapper(
@@ -383,7 +552,7 @@ function injectNextWrapper(
     if (!defaultExport) return { content, injected: false }
 
     const expr = defaultExport.getExpression()
-    expr.replaceWithText(wrapConfigExpression(sourceFile, expr, 'withCortex'))
+    expr.replaceWithText(wrapConfigExpression(expr, 'withCortex'))
     ensureHelperBinding(sourceFile, 'withCortex', 'cortex-editor/next', moduleConfig)
     return { content: sourceFile.getFullText(), injected: true }
   }
@@ -393,7 +562,7 @@ function injectNextWrapper(
   if (!assignment) return { content, injected: false }
 
   const right = assignment.getRight()
-  right.replaceWithText(wrapConfigExpression(sourceFile, right, 'withCortex'))
+  right.replaceWithText(wrapConfigExpression(right, 'withCortex'))
   ensureHelperBinding(sourceFile, 'withCortex', 'cortex-editor/next', moduleConfig)
   return { content: sourceFile.getFullText(), injected: true }
 }
@@ -478,6 +647,10 @@ export interface InitResult {
   detectedBundler: BundlerKind
   packageManager: PackageManager
   setupComplete: boolean
+  /** Next-only: outcome of the root-layout <CortexDevScripts/> injection. null
+   *  for non-Next apps. 'manual-required' means the config was wired but the
+   *  layout injection bailed and the user must add the element by hand. */
+  nextLayoutStatus: 'inserted' | 'already' | 'manual-required' | null
 }
 
 function createInstallRequest(
@@ -596,14 +769,15 @@ async function ensurePackages(
 
 function writeViteConfig(cwd: string): string {
   const viteConfigPath = path.join(cwd, 'vite.config.ts')
+  // New file, no host style to match — the single-quote + semicolon fallback.
   const content = [
-    'import { defineConfig } from \'vite\'',
-    'import react from \'@vitejs/plugin-react\'',
-    'import { cortexEditor } from \'cortex-editor/vite\'',
+    'import { defineConfig } from \'vite\';',
+    'import react from \'@vitejs/plugin-react\';',
+    'import { cortexEditor } from \'cortex-editor/vite\';',
     '',
     'export default defineConfig({',
     '  plugins: [cortexEditor(), react()],',
-    '})',
+    '});',
     '',
   ].join('\n')
   fs.writeFileSync(viteConfigPath, content)
@@ -613,15 +787,162 @@ function writeViteConfig(cwd: string): string {
 
 function writeNextConfig(cwd: string): string {
   const nextConfigPath = path.join(cwd, 'next.config.mjs')
+  // New file, no host style to match — the single-quote + semicolon fallback.
   const content = [
-    'import { withCortex } from \'cortex-editor/next\'',
+    'import { withCortex } from \'cortex-editor/next\';',
     '',
-    'export default withCortex({})',
+    'export default withCortex({});',
     '',
   ].join('\n')
   fs.writeFileSync(nextConfigPath, content)
   console.log('  next.config.mjs: created with withCortex()')
   return nextConfigPath
+}
+
+/** True when the layout already renders a `<CortexDevScripts>` JSX element
+ *  (opening or self-closing). Idempotency keys on the rendered element — not a
+ *  substring — so a mention in a comment or a bare import never counts as
+ *  "already present". */
+function layoutRendersCortexDevScripts(sourceFile: SourceFile): boolean {
+  const namesCortex = (node: JsxOpeningElement | JsxSelfClosingElement): boolean =>
+    node.getTagNameNode().getText() === 'CortexDevScripts'
+  return (
+    sourceFile.getDescendantsOfKind(SyntaxKind.JsxOpeningElement).some(namesCortex) ||
+    sourceFile.getDescendantsOfKind(SyntaxKind.JsxSelfClosingElement).some(namesCortex)
+  )
+}
+
+/** True when the layout opens with a `'use client'` or `'use server'` directive
+ *  prologue. CortexDevScripts transitively imports server-only Node modules
+ *  (fs/path), so importing it into a client-component graph makes Next FAIL
+ *  compilation — the codemod must bail rather than inject an unusable import. */
+function hasClientOrServerDirective(sourceFile: SourceFile): boolean {
+  for (const statement of sourceFile.getStatements()) {
+    const value = directivePrologueValue(statement)
+    if (value === null) break // past the directive prologue
+    if (value === 'use client' || value === 'use server') return true
+  }
+  return false
+}
+
+/** The opening tag of the first `<body>` host element, located via the AST so a
+ *  `>` inside an attribute expression (`className={n > 2 ? …}`) cannot truncate
+ *  the match and a commented-out `<body>` is never mistaken for the real one. */
+function findBodyOpeningElement(sourceFile: SourceFile): JsxOpeningElement | undefined {
+  return sourceFile
+    .getDescendantsOfKind(SyntaxKind.JsxOpeningElement)
+    .find(opening => opening.getTagNameNode().getText() === 'body')
+}
+
+// One source of truth for the injected binding — a renamed export won't trip
+// the compiler on these string literals (repo Post-Fix "rename audit" rule).
+const CORTEX_DEV_SCRIPTS = 'CortexDevScripts'
+const CORTEX_NEXT_MODULE = 'cortex-editor/next'
+
+function cortexDevScriptsImport(style: EmitStyle): string {
+  return `import { ${CORTEX_DEV_SCRIPTS} } from ${style.quote}${CORTEX_NEXT_MODULE}${style.quote}${style.semi}`
+}
+
+/** Add a usable `import { CortexDevScripts }` after the directive prologue,
+ *  unless a non-aliased binding already exists. An aliased-only import
+ *  (`CortexDevScripts as CDS`) does NOT satisfy the rendered `<CortexDevScripts />`
+ *  element, so a proper import is still added; the two differ in local name so
+ *  there is no duplicate-identifier conflict. */
+function ensureCortexDevScriptsImport(sourceFile: SourceFile): void {
+  if (hasUsableNamedImport(sourceFile, CORTEX_DEV_SCRIPTS, CORTEX_NEXT_MODULE)) return
+  // The name is already VALUE-bound elsewhere (barrel re-export import, or a
+  // local function/class/variable): the rendered element resolves via that
+  // binding, and adding our import would duplicate the local identifier.
+  // (Type-only bindings are handled by the callers, which bail with
+  // 'name-conflict' BEFORE reaching here — see localBindingKind.)
+  if (localBindingKind(sourceFile, CORTEX_DEV_SCRIPTS) === 'value') return
+  sourceFile.insertStatements(
+    getInsertIndexAfterDirectives(sourceFile),
+    cortexDevScriptsImport(detectEmitStyle(sourceFile)),
+  )
+}
+
+/** Insert <CortexDevScripts/> into the App Router root layout. Deliberately
+ *  conservative: single unambiguous layout file, AST-located `<body>` element,
+ *  loud bail-out otherwise — a wrong guess in user JSX is worse than a manual
+ *  one-liner. Parses the source with ts-morph (like the config codemods above)
+ *  rather than regex/substring so `>` in attributes, directive prologues, and
+ *  comment mentions are handled correctly. */
+export function injectDevScriptsIntoLayout(cwd: string):
+  | { status: 'inserted'; layoutPath: string }
+  | { status: 'already'; layoutPath: string }
+  | { status: 'not-found' }
+  | { status: 'no-body-tag'; layoutPath: string }
+  | { status: 'client-layout-unsupported'; layoutPath: string }
+  | { status: 'parse-error'; layoutPath: string }
+  | { status: 'name-conflict'; layoutPath: string } {
+  const candidates = [
+    path.join('app', 'layout.tsx'),
+    path.join('app', 'layout.jsx'),
+    path.join('app', 'layout.js'),
+    path.join('src', 'app', 'layout.tsx'),
+    path.join('src', 'app', 'layout.jsx'),
+    path.join('src', 'app', 'layout.js'),
+  ]
+    .map((p) => path.join(cwd, p))
+    .filter((p) => fs.existsSync(p))
+
+  if (candidates.length === 0) return { status: 'not-found' }
+  const layoutPath = candidates[0]!
+
+  const content = fs.readFileSync(layoutPath, 'utf8')
+  // Parse as .tsx regardless of the on-disk extension so JSX is always
+  // recognized — a `.js` App Router layout still contains JSX that the plain
+  // TypeScript scanner would otherwise reject.
+  const sourceFile = createConfigSourceFile('layout.tsx', content)
+
+  // ts-morph parses leniently, so a syntactically-broken layout yields a
+  // partial AST — findBodyOpeningElement could still match a <body>, we'd
+  // insertText into a file we didn't understand, and report 'inserted' success.
+  // Every other codemod in this file guards with assertParseable; do the same,
+  // but return a status (not a throw — runInit switches on it) so init surfaces
+  // "couldn't parse your layout" instead of a false success.
+  try {
+    assertParseable(sourceFile, path.basename(layoutPath))
+  } catch {
+    return { status: 'parse-error', layoutPath }
+  }
+
+  // A 'use client'/'use server' root layout would pull the server-only
+  // CortexDevScripts into a client-component graph, breaking Next's build. Bail
+  // without modifying the file — the user must render it from a server layout.
+  if (hasClientOrServerDirective(sourceFile)) return { status: 'client-layout-unsupported', layoutPath }
+
+  // A type-only binding (`import type { CortexDevScripts }`) can neither render
+  // the element at runtime nor coexist with a value import of the same name
+  // (duplicate identifier). Unfixable without editing the user's imports — bail.
+  const bindingKind = localBindingKind(sourceFile, CORTEX_DEV_SCRIPTS)
+  if (bindingKind === 'type-only') return { status: 'name-conflict', layoutPath }
+
+  if (layoutRendersCortexDevScripts(sourceFile)) {
+    // The element is present, but a rendered `<CortexDevScripts />` with only an
+    // aliased/missing import does not compile. Reconcile the import before
+    // reporting 'already' — otherwise init would claim success on a layout that
+    // fails to build. A usable VALUE binding (ours, a barrel's, or a local
+    // declaration) means it is genuinely done.
+    if (hasUsableNamedImport(sourceFile, CORTEX_DEV_SCRIPTS, CORTEX_NEXT_MODULE) || bindingKind === 'value') {
+      return { status: 'already', layoutPath }
+    }
+    ensureCortexDevScriptsImport(sourceFile)
+    fs.writeFileSync(layoutPath, sourceFile.getFullText())
+    return { status: 'inserted', layoutPath }
+  }
+
+  const bodyOpen = findBodyOpeningElement(sourceFile)
+  if (!bodyOpen) return { status: 'no-body-tag', layoutPath }
+
+  // Insert the child at the exact end of the opening tag. The offset comes from
+  // the AST, so a `>` inside an attribute expression can't misplace it.
+  sourceFile.insertText(bodyOpen.getEnd(), `\n        <${CORTEX_DEV_SCRIPTS} />`)
+  ensureCortexDevScriptsImport(sourceFile)
+
+  fs.writeFileSync(layoutPath, sourceFile.getFullText())
+  return { status: 'inserted', layoutPath }
 }
 
 function selectBundler(
@@ -730,6 +1051,13 @@ export async function runInit(
   let nextConfigCreated = false
   let webpackConfigInjected = false
   let adapterConfigured = false
+  // Next-only: the layout must render <CortexDevScripts/> for the editor to
+  // load. Injection can bail (no layout, no <body>, client layout, conflict) —
+  // in which case setup is NOT complete even though next.config was wired
+  // (cubic P2). Stays null for non-Next apps and true until the Next branch
+  // observes a bail.
+  let nextLayoutStatus: InitResult['nextLayoutStatus'] = null
+  let layoutReady = true
 
   if (!depFound) {
     const installRequest = createInstallRequest(packageManager, ['cortex-editor'], cwd)
@@ -759,9 +1087,19 @@ export async function runInit(
       const content = fs.readFileSync(nextConfigPath, 'utf8')
       const moduleConfig = isModuleConfig(nextConfigPath, content, pkg.type)
 
-      if (nextConfigUsesWithCortex(content, basename, moduleConfig)) {
+      const withCortexUsage = nextConfigUsesWithCortex(content, basename, moduleConfig)
+      if (withCortexUsage === 'outermost') {
         console.log(`  ${basename}: withCortex config found`)
         adapterConfigured = true
+      } else if (withCortexUsage === 'inner') {
+        // Do NOT auto-rewrap: the inner withCortex already returned a phase
+        // function into a wrapper that likely spread it away; wrapping the
+        // damaged chain again would just bury the problem deeper. Bail loudly.
+        console.warn(
+          `  ${basename}: withCortex is present but NOT the outermost wrapper. withCortex returns ` +
+          `Next's phase-function config form, and wrappers that spread its result drop the entire ` +
+          `config. Move it outermost: withCortex(otherWrappers(config)).`
+        )
       } else {
         const result = injectNextWrapper(content, basename, moduleConfig)
         if (result.injected) {
@@ -775,6 +1113,53 @@ export async function runInit(
           )
         }
       }
+    }
+
+    // Next has no HTML-injection hook, so the editor bootstrap ships as a
+    // <CortexDevScripts/> server component the root layout must render.
+    const layoutResult = injectDevScriptsIntoLayout(cwd)
+    switch (layoutResult.status) {
+      case 'inserted':
+        console.log(`  ${path.relative(cwd, layoutResult.layoutPath)}: <CortexDevScripts /> added to <body>`)
+        break
+      case 'already':
+        console.log(`  ${path.relative(cwd, layoutResult.layoutPath)}: <CortexDevScripts /> already present`)
+        break
+      case 'not-found':
+        console.warn(
+          '  app/layout.tsx not found - add <CortexDevScripts /> (from cortex-editor/next) inside <body> of your root layout'
+        )
+        break
+      case 'no-body-tag':
+        console.warn(
+          `  ${path.relative(cwd, layoutResult.layoutPath)}: no <body> tag found - add <CortexDevScripts /> (from cortex-editor/next) inside <body> manually`
+        )
+        break
+      case 'client-layout-unsupported':
+        console.warn(
+          `  ${path.relative(cwd, layoutResult.layoutPath)}: root layout is a client component ('use client') - ` +
+          'CortexDevScripts is server-only. Add <CortexDevScripts /> to a server layout, or render it from a server component.'
+        )
+        break
+      case 'parse-error':
+        console.warn(
+          `  ${path.relative(cwd, layoutResult.layoutPath)}: could not parse - add <CortexDevScripts /> (from cortex-editor/next) inside <body> manually once the file compiles`
+        )
+        break
+      case 'name-conflict':
+        console.warn(
+          `  ${path.relative(cwd, layoutResult.layoutPath)}: 'CortexDevScripts' is bound as a type-only import - ` +
+          'remove the type-only import and add `import { CortexDevScripts } from \'cortex-editor/next\'` plus <CortexDevScripts /> inside <body> manually'
+        )
+        break
+    }
+    // Only 'inserted'/'already' leave the layout ready; every other status is a
+    // bail that requires a manual step, so setup is not complete (cubic P2).
+    if (layoutResult.status === 'inserted' || layoutResult.status === 'already') {
+      nextLayoutStatus = layoutResult.status
+    } else {
+      nextLayoutStatus = 'manual-required'
+      layoutReady = false
     }
   } else if (detectedBundler === 'vite') {
     if (webpackConfigPath && viteConfigPath) {
@@ -878,7 +1263,7 @@ export async function runInit(
     }
   }
 
-  const setupComplete = depFound && adapterConfigured
+  const setupComplete = depFound && adapterConfigured && layoutReady
   if (setupComplete) {
     console.log('  Setup complete. Restart your AI agent so it picks up .mcp.json.')
     // Fire-and-forget telemetry — never let it throw or block init.
@@ -893,6 +1278,15 @@ export async function runInit(
     } catch {
       // Swallow — telemetry must never break the init command.
     }
+  } else if (depFound && adapterConfigured && !layoutReady) {
+    // Config is wired; only the layout injection bailed. The user's manual fix
+    // (rendering <CortexDevScripts/> — possibly from a nested server component
+    // for a client root layout) is undetectable on re-run, so DON'T tell them
+    // to "re-run cortex init" — that would nag forever after a correct fix.
+    console.warn(
+      '  One manual step left: render <CortexDevScripts /> (from cortex-editor/next) ' +
+      'inside <body> of your root server layout. See the warning above for the specifics.'
+    )
   } else {
     console.warn('  Cortex setup incomplete. Resolve the warnings above, then re-run cortex init.')
   }
@@ -913,5 +1307,6 @@ export async function runInit(
     detectedBundler,
     packageManager,
     setupComplete,
+    nextLayoutStatus,
   }
 }

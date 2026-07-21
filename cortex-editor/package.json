@@ -1,6 +1,6 @@
 {
   "name": "cortex-editor",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Visual editor for Claude Code",
   "license": "MIT",
   "author": "Zerofog",
@@ -98,28 +98,34 @@
   "devDependencies": {
     "@playwright/test": "^1.59.1",
     "@types/node": "^20",
+    "@types/react": "^19.2.17",
     "@types/ws": "^8.18.1",
     "@vitest/coverage-v8": "^3.0.0",
     "cross-env": "^10.1.0",
     "happy-dom": "^15.0.0",
     "magic-string": "^0.30.21",
     "postcss": "^8.5.8",
+    "react": "^19.2.7",
     "tsup": "^8.3.5",
     "typescript": "^5.7.0",
     "vitest": "^3.0.0"
   },
   "peerDependencies": {
     "next": ">=13.0.0",
-    "webpack": ">=5.0.0",
     "postcss": "^8.4.0",
+    "react": ">=18.0.0",
     "tailwindcss": ">=3.0.0",
-    "vite": ">=5.1.0"
+    "vite": ">=5.1.0",
+    "webpack": ">=5.0.0"
   },
   "peerDependenciesMeta": {
     "vite": {
       "optional": true
     },
     "next": {
+      "optional": true
+    },
+    "react": {
       "optional": true
     },
     "webpack": {

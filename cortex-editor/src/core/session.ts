@@ -28,6 +28,12 @@ export interface CortexConfig {
    *  `.cortex/` writes. Adapters pass `path.join(root, '.cortex')`; unit tests
    *  leave it unset (no lock, no behavior change). */
   readonly cortexDir?: string
+  /** Pre-generated nonce to stamp into the lock file instead of a fresh UUID.
+   *  The Next adapter passes its runtimeId here, having already advertised it
+   *  in __CORTEX_LOCK_FAMILY at config-eval time — so a same-boot sibling
+   *  process spawned before this async acquire completes still classifies the
+   *  holder as sameFamily. Unset → random per-acquire nonce (Vite/webpack). */
+  readonly lockOwnerNonce?: string
 }
 
 /**
@@ -61,6 +67,13 @@ export class CortexSession {
    *  no cortexDir was given (unit tests) or the `.cortex/` dir was unwritable
    *  (read-only root — degraded, lock-less, same as the pre-ZF0-1851 behavior). */
   private readonly lock: CortexLock | null
+  /** This session's lock GENERATION id — stamped into injection.json so
+   *  <CortexDevScripts/> can prove the discovery files it read belong to the
+   *  live lock's exact acquisition. null when lock-less (read-only root). */
+  get lockGeneration(): string | null { return this.lock?.generation ?? null }
+  /** Best-effort discovery-file cleanup for natural-drain exits that never run
+   *  dispose() (see constructor); detached again in dispose(). */
+  private readonly onExitCleanup: () => void
 
   // --- Auth + Session ---
   /** Per-instance auth token — prevents cross-project writes on localhost. */
@@ -77,6 +90,8 @@ export class CortexSession {
   readonly aliveFlags: WeakMap<WebSocket, boolean> = new WeakMap()
   upgradeHandlerRef: ((req: IncomingMessage, socket: Duplex, head: Buffer) => void) | null = null
   portFilePath: string | null = null
+  /** Path to .cortex/injection.json (set by adapter, cleaned up on dispose). */
+  injectionFilePath: string | null = null
   /** Adapter-owned cleanup for pending httpServer lifecycle listeners. */
   listeningCleanup: (() => void) | null = null
 
@@ -136,7 +151,34 @@ export class CortexSession {
     // A live conflicting instance throws LockHeldError here, so the adapter's
     // `new CortexSession(...)` throws and it refuses to start. `acquire` returns
     // null (no throw) only when `.cortex/` itself is unwritable — see CortexLock.
-    this.lock = config.cortexDir ? CortexLock.acquire(config.cortexDir) : null
+    // Natural-drain exits (a transient config evaluator whose bridge is
+    // unref'd) run process-exit handlers but never dispose(). This handler
+    // removes the discovery files the session wrote, so such an evaluator
+    // leaves .cortex/ CLEAN instead of orphaned port/token/injection.json.
+    // Registered BEFORE the lock is acquired — exit handlers run in
+    // registration order, so the files are deleted while WE still hold the
+    // lock; registering after would delete them AFTER the lock's own exit
+    // handler released it, a window where a successor may already have
+    // acquired and published ITS files (cubic P2). Removed again in dispose()
+    // to keep long-lived restart patterns from accumulating listeners.
+    this.onExitCleanup = () => {
+      for (const filePath of [this.portFilePath, this.tokenFilePath, this.injectionFilePath]) {
+        if (!filePath) continue
+        try { fs.unlinkSync(filePath) } catch { /* already gone */ }
+      }
+    }
+    process.once('exit', this.onExitCleanup)
+    try {
+      this.lock = config.cortexDir ? CortexLock.acquire(config.cortexDir, config.lockOwnerNonce) : null
+    } catch (err) {
+      // A LockHeldError (or any acquire failure) aborts construction. Detach
+      // the exit handler we just registered — otherwise Next's conflict retry,
+      // which constructs a fresh session per attempt, leaks one 'exit' listener
+      // (and this partially-built session) per failed attempt, eventually
+      // tripping Node's MaxListenersExceededWarning (cubic P3).
+      process.removeListener('exit', this.onExitCleanup)
+      throw err
+    }
     this.token = randomUUID()
     this.sessionId = randomUUID()
     this.annotations = new AnnotationStore(
@@ -209,8 +251,12 @@ export class CortexSession {
     })
 
     // 5. Remove discovery files — ENOENT is expected (file may already be gone).
-    //    Other errors (EPERM, EACCES) surface via the errors array.
-    for (const [step, prop] of [['port-file', 'portFilePath'], ['token-file', 'tokenFilePath']] as const) {
+    //    Other errors (EPERM, EACCES) surface via the errors array. The
+    //    process-exit fallback handler is detached first: dispose() is doing
+    //    its job now, and long-lived restart patterns (Vite) must not
+    //    accumulate one listener per disposed session.
+    trySync('exit-cleanup-detach', () => process.removeListener('exit', this.onExitCleanup))
+    for (const [step, prop] of [['port-file', 'portFilePath'], ['token-file', 'tokenFilePath'], ['injection-file', 'injectionFilePath']] as const) {
       if (this[prop]) {
         try {
           fs.unlinkSync(this[prop]!)

@@ -4,7 +4,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { spawn } from 'node:child_process'
 import { once } from 'node:events'
-import { CortexLock, LockHeldError } from '../../src/core/cortex-lock.js'
+import { CortexLock, LockHeldError, checkCortexLockLiveness } from '../../src/core/cortex-lock.js'
 
 /** Spawn a trivial node process, wait for it to exit, and return its now-dead
  *  pid — a deterministic stand-in for "a cortex instance that crashed without
@@ -46,6 +46,38 @@ describe('CortexLock', () => {
 
     held!.release()
     expect(fs.existsSync(lockPath)).toBe(false)
+  })
+
+  it('mints a FRESH generation per acquire even with a fixed ownerNonce (family-shared nonce)', () => {
+    // Same-family bridges pass the SAME ownerNonce (adopted family nonce), so
+    // the nonce cannot distinguish acquisitions. generation must be unique per
+    // acquire so the discovery-ownership check and release() can tell a
+    // successor's lock from a crashed predecessor's (cubic P1).
+    const first = CortexLock.acquire(cortexDir, 'shared-family-nonce')!
+    const firstGen = first.generation
+    const firstOnDisk = JSON.parse(fs.readFileSync(lockPath, 'utf8')) as { nonce: string; generation: string }
+    expect(firstOnDisk.nonce).toBe('shared-family-nonce')
+    expect(firstOnDisk.generation).toBe(firstGen)
+    first.release()
+
+    const second = CortexLock.acquire(cortexDir, 'shared-family-nonce')!
+    held = second
+    expect(second.generation).not.toBe(firstGen) // fresh generation despite same nonce
+    const secondOnDisk = JSON.parse(fs.readFileSync(lockPath, 'utf8')) as { nonce: string; generation: string }
+    expect(secondOnDisk.nonce).toBe('shared-family-nonce')
+    expect(secondOnDisk.generation).toBe(second.generation)
+  })
+
+  it('release() only unlinks a lock whose GENERATION matches — a stale predecessor cannot remove a successor', () => {
+    const predecessor = CortexLock.acquire(cortexDir, 'shared-family-nonce')!
+    // Simulate a successor replacing the lock file with a fresh generation but
+    // the SAME family nonce (what a same-family reclaim produces).
+    fs.writeFileSync(lockPath, JSON.stringify({ pid: process.pid, nonce: 'shared-family-nonce', generation: 'successor-gen', startedAt: Date.now() }))
+    predecessor.release() // its generation no longer matches on disk
+    // The successor's lock file must survive the predecessor's delayed release.
+    expect(fs.existsSync(lockPath)).toBe(true)
+    expect((JSON.parse(fs.readFileSync(lockPath, 'utf8')) as { generation: string }).generation).toBe('successor-gen')
+    fs.unlinkSync(lockPath)
   })
 
   it('Vite in-process restart handoff: release-then-reacquire succeeds; old release no-ops', () => {
@@ -245,20 +277,16 @@ describe('CortexLock', () => {
     expect((thrown as LockHeldError).inProcess).toBe(true)
   })
 
-  it('degrades on non-ENOENT rename errors during stale reclaim', () => {
+  it('falls back to MARKER MODE on non-ENOENT rename errors during stale reclaim', () => {
     // EPERM on renameSync (e.g., Windows when the file is still open by
-    // another process) used to throw and crash adapter startup. It must now
-    // follow the same degrade-to-null path as every other non-EEXIST lock-IO
-    // error. Hand-write a stale (dead-pid) lock so the reclaim path is taken,
-    // then mock renameSync to throw EPERM.
+    // another process) must not throw and crash adapter startup. Since the
+    // holder here is stale/corrupt, a plain overwrite IS the reclaim: acquire
+    // returns a marker-mode lock (advisory, non-atomic) so the ownership
+    // record survives for <CortexDevScripts/>'s liveness gate — degrading to
+    // lock-LESS would make the gate permanently refuse a live bridge.
     fs.mkdirSync(cortexDir, { recursive: true })
-    fs.writeFileSync(
-      lockPath,
-      // pid 1 (init) is alive on every system, so this would normally throw
-      // LockHeldError — flip the order: pid -> dead via mock. Simpler: use a
-      // CORRUPT file (no nonce) so it takes the stale path without a kill check.
-      JSON.stringify({ pid: 'corrupt' }),
-    )
+    // A CORRUPT file (no valid pid/nonce) takes the stale path without a kill check.
+    fs.writeFileSync(lockPath, JSON.stringify({ pid: 'corrupt' }))
     vi.spyOn(fs, 'renameSync').mockImplementation(() => {
       const err: NodeJS.ErrnoException = new Error('EPERM: operation not permitted')
       err.code = 'EPERM'
@@ -266,8 +294,119 @@ describe('CortexLock', () => {
     })
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
 
-    const result = CortexLock.acquire(cortexDir)
-    expect(result).toBeNull()
-    expect(warnSpy.mock.calls.some(c => /without the single-writer lock/i.test(c[0]))).toBe(true)
+    held = CortexLock.acquire(cortexDir)
+    expect(held).not.toBeNull()
+    // The marker overwrote the corrupt file with this process's ownership record.
+    const onDisk = JSON.parse(fs.readFileSync(lockPath, 'utf8')) as { pid: number }
+    expect(onDisk.pid).toBe(process.pid)
+    expect(warnSpy.mock.calls.some(c => /marker mode/i.test(String(c[0])))).toBe(true)
+  })
+
+})
+
+describe('CortexLock boot-family classification', () => {
+  let tmpDir: string
+  let cortexDir: string
+  let lockPath: string
+  let held: CortexLock | null
+  let familyBackup: string | undefined
+
+  beforeEach(() => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cortex-lock-family-'))
+    cortexDir = path.join(tmpDir, '.cortex')
+    lockPath = path.join(cortexDir, '.lock')
+    held = null
+    familyBackup = process.env.__CORTEX_LOCK_FAMILY
+  })
+
+  afterEach(() => {
+    held?.release()
+    if (familyBackup === undefined) delete process.env.__CORTEX_LOCK_FAMILY
+    else process.env.__CORTEX_LOCK_FAMILY = familyBackup
+    fs.rmSync(tmpDir, { recursive: true, force: true })
+    vi.restoreAllMocks()
+  })
+
+  it('classifies a live conflict as sameFamily when the holder nonce was inherited via env', () => {
+    // Simulates the normal `next dev` double evaluation: the CLI process
+    // acquired the lock and exported its nonce; the dev-server child inherited
+    // the env and must lose the race SILENTLY (callers key the warning on
+    // sameFamily). process.ppid stands in for the live owning process.
+    fs.mkdirSync(cortexDir, { recursive: true })
+    fs.writeFileSync(lockPath, JSON.stringify({ pid: process.ppid, nonce: 'fam-1', startedAt: Date.now() }))
+    process.env.__CORTEX_LOCK_FAMILY = 'unrelated-nonce,fam-1'
+
+    let caught: unknown
+    try { CortexLock.acquire(cortexDir) } catch (err) { caught = err }
+
+    expect(caught).toBeInstanceOf(LockHeldError)
+    expect((caught as LockHeldError).sameFamily).toBe(true)
+  })
+
+  it('classifies a live conflict as NOT sameFamily for a foreign nonce (second dev server)', () => {
+    fs.mkdirSync(cortexDir, { recursive: true })
+    fs.writeFileSync(lockPath, JSON.stringify({ pid: process.ppid, nonce: 'foreign-owner', startedAt: Date.now() }))
+    process.env.__CORTEX_LOCK_FAMILY = 'our-own-nonce'
+
+    let caught: unknown
+    try { CortexLock.acquire(cortexDir) } catch (err) { caught = err }
+
+    expect(caught).toBeInstanceOf(LockHeldError)
+    expect((caught as LockHeldError).sameFamily).toBe(false)
+  })
+
+  it('acquire advertises its nonce in __CORTEX_LOCK_FAMILY and release withdraws it', () => {
+    held = CortexLock.acquire(cortexDir)
+    expect(held).not.toBeNull()
+    const nonce = (JSON.parse(fs.readFileSync(lockPath, 'utf8')) as { nonce: string }).nonce
+
+    expect((process.env.__CORTEX_LOCK_FAMILY ?? '').split(',')).toContain(nonce)
+
+    held!.release()
+    held = null
+    expect((process.env.__CORTEX_LOCK_FAMILY ?? '').split(',')).not.toContain(nonce)
+  })
+
+  it('warns when reclaiming a CORRUPT (present but unparseable) lock file', () => {
+    // A recurring corruption source (crashing writer, disk issue) must stay
+    // visible instead of being silently absorbed on every boot.
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    fs.mkdirSync(cortexDir, { recursive: true })
+    fs.writeFileSync(lockPath, '{ not json')
+
+    held = CortexLock.acquire(cortexDir)
+
+    expect(held).not.toBeNull()
+    expect(warn.mock.calls.some(c => /corrupt/i.test(String(c[0])))).toBe(true)
+  })
+})
+
+describe('checkCortexLockLiveness', () => {
+  let tmpDir: string
+  let cortexDir: string
+  let lockPath: string
+
+  beforeEach(() => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cortex-lock-liveness-'))
+    cortexDir = path.join(tmpDir, '.cortex')
+    lockPath = path.join(cortexDir, '.lock')
+  })
+
+  afterEach(() => {
+    fs.rmSync(tmpDir, { recursive: true, force: true })
+  })
+
+  it('classifies missing → corrupt → stale → live as the lock state evolves', async () => {
+    expect(checkCortexLockLiveness(cortexDir)).toBe('missing')
+
+    fs.mkdirSync(cortexDir, { recursive: true })
+    fs.writeFileSync(lockPath, '{ definitely not json')
+    expect(checkCortexLockLiveness(cortexDir)).toBe('corrupt')
+
+    fs.writeFileSync(lockPath, JSON.stringify({ pid: await deadPid(), nonce: 'n', startedAt: 0 }))
+    expect(checkCortexLockLiveness(cortexDir)).toBe('stale')
+
+    fs.writeFileSync(lockPath, JSON.stringify({ pid: process.pid, nonce: 'n', startedAt: 0 }))
+    expect(checkCortexLockLiveness(cortexDir)).toBe('live')
   })
 })
