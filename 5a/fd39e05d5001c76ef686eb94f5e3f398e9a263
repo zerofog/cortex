@@ -1,0 +1,39 @@
+cortex-editor/src/cli/init.ts
+  s_bbde566b990012::t_71484d331e8c89 761,763,765
+  s_bbde566b990012::t_149b0e59d813dd 743,745-747,751
+  s_bbde566b990012::t_65f667e7f95afa 507-514
+  s_bbde566b990012::t_193c5cec3e4a21 530
+  s_bbde566b990012::t_94813e69772f7e 259-278,284-290,302-306
+  s_bbde566b990012::t_79dc4ef42bc574 812-815
+  s_bbde566b990012::t_937c793a69ab7c 383,392-402,406-412,417,421-425,428,431-436
+  s_bbde566b990012::t_52053d95248c6c 830-833
+  s_bbde566b990012::t_062a0b590543bb 279-283
+  s_bbde566b990012::t_563a69a92046f4 331-333
+  s_bbde566b990012::t_e8a27e5a56b0e9 365-382,384-391,403-405
+  s_bbde566b990012::t_40f2a4058959d1 312-313,317-330,334-335
+  s_bbde566b990012::t_b1f806743859ed 540
+  s_bbde566b990012::t_0e75d7db0a4dd3 1054-1055,1058-1066
+cortex-editor/tests/cli/init.test.ts
+  s_bbde566b990012::t_0d53d3c8247e70 811-853,883-905
+  s_bbde566b990012::t_5e393db675a63e 760-810
+  s_bbde566b990012::t_1022d32ce29100 256,281,510,532,551,598,620,642,685,922,944,962,1008,1407,1430,1453,1551,1626,1651-1652,1677-1678
+  s_bbde566b990012::t_d92ffd93d4c710 1760
+  s_bbde566b990012::t_516f12606668ab 854-882,906-908
+  s_bbde566b990012::t_aeb9db88b993ae 909
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.14",
+  "base_commit_sha": "5afd39e05d5001c76ef686eb94f5e3f398e9a263",
+  "prompts": {},
+  "sessions": {
+    "s_bbde566b990012": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "b0f4fb44-6981-42bb-810b-9f8c930540f4",
+        "model": "claude-fable-5"
+      },
+      "human_author": "dklzf <213919963+dklzf@users.noreply.github.com>"
+    }
+  }
+}
