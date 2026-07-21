@@ -1,0 +1,44 @@
+cortex-editor/src/adapters/vite.ts
+  s_bbde566b990012::t_5fc405b818f5be 1445-1447
+cortex-editor/tests/core/tailwind-resolver.test.ts
+  s_bbde566b990012::t_ff3827630573d4 1103-1105
+  s_bbde566b990012::t_f24bd93d279e80 1097-1102
+cortex-editor/src/cli/mcp.ts
+  s_bbde566b990012::t_1fa07c54ea9bb2 155-170
+  s_bbde566b990012::t_92e4259f3d1ed0 879-882
+  s_bbde566b990012::t_1ed4ee4c4a7ee3 503-506,508,512
+  s_bbde566b990012::t_170b1eafb5367d 199
+  s_bbde566b990012::t_e96fce245b644e 469-474
+cortex-editor/src/core/tailwind-resolver.ts
+  s_bbde566b990012::t_dffbbd8d30547f 18
+  s_bbde566b990012::t_1eb7bc79735552 47-52,54-56,58,60,62,66-106,108
+cortex-editor/src/core/edit-pipeline.ts
+  s_bbde566b990012::t_d7da01be3e5cd0 287-294
+  s_bbde566b990012::t_dabcc910d4b846 1021-1028
+  s_bbde566b990012::t_772f17e46e81bd 436-437
+  s_bbde566b990012::t_05ad9fa0d19900 894-897
+  s_bbde566b990012::t_8c79107e229734 462
+cortex-editor/tests/core/edit-pipeline.test.ts
+  s_bbde566b990012::t_762796b71d666f 1574-1612
+cortex-editor/src/adapters/webpack.ts
+  s_bbde566b990012::t_c7fb6276437bdc 537-542,547-551,555-556,560-561
+  s_bbde566b990012::t_7e42956dda71f9 773-775
+  s_bbde566b990012::t_b455e7a45b0635 404-407
+  s_bbde566b990012::t_3fcc685deafdf7 1327
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.15",
+  "base_commit_sha": "f927e780f5fcc34bd82ebb455aab4b57b0b940d6",
+  "prompts": {},
+  "sessions": {
+    "s_bbde566b990012": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "b0f4fb44-6981-42bb-810b-9f8c930540f4",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "dklzf <213919963+dklzf@users.noreply.github.com>"
+    }
+  }
+}
