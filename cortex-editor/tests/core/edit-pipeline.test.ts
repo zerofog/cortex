@@ -1571,6 +1571,45 @@ describe('EditPipeline', () => {
       expect(failedStatus).toBeDefined()
     })
 
+    it('DOES route to InlineStyleRewriter for a Tailwind-classed element when the theme is UNRESOLVED (resolverAvailable:false) — 0.3.1 P1', async () => {
+      // The zerofog-web bug codex caught: both adapters install an empty
+      // fromTheme({}) resolver when the theme fails, so `!!resolver` is always
+      // truthy. With resolverAvailable:false threaded in, a Tailwind-classed
+      // element (currentClass set) that can't resolve a token must fall to the
+      // inline OVERRIDE and STAGE — not emit terminal failed. This test fails
+      // against the pre-0.3.1 code (inline gated on !currentClass).
+      const channel = mockChannel()
+      const resolver = mockResolver({}) // empty stand-in — no tokens
+      const rewriter = mockRewriter()
+      const verifier = mockVerifier()
+      const writeFile = vi.fn().mockResolvedValue(undefined)
+      const inlineRewriter = mockInlineStyleRewriter()
+
+      const pipeline = new EditPipeline({
+        channel, resolver, rewriter, verifier, writeFile, projectRoot: '/project',
+        detector: { hasCSSModules: false, hasTailwind: true },
+        resolverAvailable: false, // theme could not be resolved
+        inlineStyleRewriter: inlineRewriter as any,
+      })
+
+      pipeline.handleEdit({
+        editId: 'edit-degraded',
+        source: '/project/src/App.tsx:2:10',
+        property: 'padding-top',
+        value: '16px',
+        elementSelector: 'div',
+        currentClass: 'pt-2', // classed element, but theme unresolved → override
+      })
+      vi.advanceTimersByTime(400)
+      await vi.runAllTimersAsync()
+
+      expect(inlineRewriter.rewrite).toHaveBeenCalledTimes(1)
+      const doneStatus = channel.sent.find(
+        m => m.type === 'edit_status' && (m as { status: string }).status === 'done',
+      )
+      expect(doneStatus).toBeDefined()
+    })
+
     it.each([
       { label: 'undefined', currentClass: undefined },
       { label: 'empty string', currentClass: '' },

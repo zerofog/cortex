@@ -15,7 +15,7 @@
 
 import { parseBoxShadow, serializeBoxShadow } from './shadow-utils.js'
 import { createRequire } from 'node:module'
-import { join } from 'node:path'
+import { join, isAbsolute } from 'node:path'
 import { existsSync } from 'node:fs'
 
 /** Tailwind config filenames in the order Tailwind itself checks them. */
@@ -43,41 +43,69 @@ const TAILWIND_CONFIG_NAMES = [
  * (caller then falls back to the v4 @theme parser).
  */
 function loadProjectTailwindV3(projectRoot: string): { theme?: Record<string, unknown> } | null {
-  // createRequire needs a path INSIDE the project; the file need not exist —
-  // resolution walks up from its directory, exactly like the app's own code.
-  const projectRequire = createRequire(join(projectRoot, 'noop.js'))
-
-  let resolveConfig: (config: unknown) => { theme?: Record<string, unknown> }
   try {
-    resolveConfig = projectRequire('tailwindcss/resolveConfig') as typeof resolveConfig
-  } catch {
-    // tailwindcss not installed in the project, or it's v4 (no resolveConfig).
-    return null
-  }
+    // Contract: NEVER throw (shared with the Vite adapter and every resolve
+    // entry point; a throw would break the whole resolver). createRequire
+    // rejects a non-absolute base path with ERR_INVALID_ARG_VALUE, and some
+    // callers (resolveColors/resolveSpacingTokens) don't pre-validate, so the
+    // guard lives HERE, wrapping everything.
+    if (!isAbsolute(projectRoot)) return null
 
-  const configPath = TAILWIND_CONFIG_NAMES.map((name) => join(projectRoot, name)).find((p) => existsSync(p))
-  if (!configPath) return null
+    // createRequire needs a path INSIDE the project; the file need not exist —
+    // resolution walks up from its directory, exactly like the app's own code.
+    const projectRequire = createRequire(join(projectRoot, 'noop.js'))
 
-  let rawConfig: unknown
-  try {
-    // Tailwind's own jiti-backed loader — handles .ts/.js/.mjs/.cjs. Present
-    // since v3.3; older v3 falls back to a bare require for non-TS configs.
-    const loadConfig = projectRequire('tailwindcss/loadConfig') as (path: string) => unknown
-    rawConfig = loadConfig(configPath)
-  } catch {
-    if (configPath.endsWith('.ts')) return null // no TS loader available — can't read it
+    let resolveConfig: (config: unknown) => { theme?: Record<string, unknown> }
     try {
-      rawConfig = projectRequire(configPath)
-      rawConfig = (rawConfig as { default?: unknown }).default ?? rawConfig
+      resolveConfig = projectRequire('tailwindcss/resolveConfig') as typeof resolveConfig
+    } catch {
+      // tailwindcss not installed in the project, or it's v4 (no resolveConfig).
+      return null
+    }
+
+    const configPath = TAILWIND_CONFIG_NAMES.map((name) => join(projectRoot, name)).find((p) => existsSync(p))
+    if (!configPath) return null
+
+    // Resolve the LOADER separately from executing the config, so a config that
+    // throws mid-evaluation is NOT run a second time by the fallback (its side
+    // effects would fire twice). loadConfig availability decides the path;
+    // a config-eval error is terminal → null.
+    let loadConfig: ((path: string) => unknown) | null = null
+    try {
+      loadConfig = projectRequire('tailwindcss/loadConfig') as (path: string) => unknown
+    } catch {
+      loadConfig = null // older v3 (<3.3) has no loadConfig export
+    }
+
+    let rawConfig: unknown
+    if (loadConfig) {
+      // Tailwind's own jiti-backed loader — handles .ts/.js/.mjs/.cjs.
+      try {
+        rawConfig = loadConfig(configPath)
+      } catch {
+        return null // config threw during evaluation — terminal, do NOT re-run
+      }
+    } else {
+      // Fallback for tailwind <3.3 (no loadConfig): a bare require. This cannot
+      // evaluate a .ts config, nor an ESM (.mjs / type:"module" .js) config —
+      // an accepted limitation for that ancient version; all modern apps have
+      // loadConfig above.
+      if (configPath.endsWith('.ts') || configPath.endsWith('.mjs')) return null
+      try {
+        const mod = projectRequire(configPath)
+        rawConfig = (mod as { default?: unknown }).default ?? mod
+      } catch {
+        return null
+      }
+    }
+
+    try {
+      return resolveConfig(rawConfig)
     } catch {
       return null
     }
-  }
-
-  try {
-    return resolveConfig(rawConfig)
   } catch {
-    return null
+    return null // outer guard — the helper must never throw
   }
 }
 

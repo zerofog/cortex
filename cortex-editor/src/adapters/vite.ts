@@ -1442,6 +1442,9 @@ export function cortexEditor(_options?: CortexEditorOptions): Plugin {
         currentSession.pipeline = new EditPipeline({
           channel,
           resolver: resolver ?? TailwindResolver.fromTheme({}),
+          // Real resolver may be null (theme unresolved) — the pipeline needs
+          // to know it's an empty stand-in, not a resolved theme.
+          resolverAvailable: !!resolver,
           rewriter,
           inlineStyleRewriter,
           verifier,

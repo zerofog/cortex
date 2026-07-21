@@ -1094,6 +1094,15 @@ describe('TailwindResolver.resolveSpacingTokens', () => {
     expect(names.has('--spacing-4')).toBe(false)
   })
 
+  it('resolveColors returns null (not a throw) for a NON-ABSOLUTE projectRoot (codex P3 guard)', async () => {
+    // resolveColors → tryV3Colors → loadProjectTailwindV3 has NO pre-validation
+    // (unlike resolveSpacingTokens/fromConfig which throw on non-absolute), so
+    // createRequire would have rejected a relative base path with
+    // ERR_INVALID_ARG_VALUE. The isAbsolute guard inside loadProjectTailwindV3
+    // makes it return null instead — never throw (its shared-with-Vite contract).
+    await expect(TailwindResolver.resolveColors('relative/not/absolute')).resolves.toBeNull()
+  })
+
   it('v4 path: canonical singular `--spacing: <base>` generates the multiplier scale', async () => {
     // Tailwind v4's canonical convention: a singular `--spacing: <base>` in
     // @theme drives generateSpacingScale. Reusing parseV4Theme captures this

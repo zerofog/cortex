@@ -401,6 +401,10 @@ export class CortexWebpackRuntime {
   /** One-shot flag for the silent post-foreign-conflict retry (see the
    *  LockHeldError handling in startInternal). */
   private conflictRetryScheduled = false
+  /** True only while the scheduled retry's start() is executing — so a
+   *  re-entrant start() (beforeRun/watchRun/HTML injection) is not mistaken for
+   *  the retry and doesn't warn early (codex P3). */
+  private conflictRetryFiring = false
   /** Warn-once guard for a GENUINE (post-retry) foreign conflict. */
   private conflictWarned = false
   /** Pending retry timer — cancelled by dispose() so a shutdown during the
@@ -530,27 +534,31 @@ export class CortexWebpackRuntime {
         // rewrite JSX for a build whose bridge/client are absent, while
         // <CortexDevScripts/> injects the OTHER server's port/token).
         markRuntimeDisabled(this.runtimeId)
-        if (!this.conflictRetryScheduled) {
+        if (this.conflictRetryFiring && !this.conflictWarned) {
+          // This refusal IS the scheduled retry still finding the lock held →
+          // a genuine second dev server, not a draining predecessor. Warn once.
+          this.conflictWarned = true
+          console.error(err.message)
+        } else if (!this.conflictRetryScheduled) {
           // FIRST refusal: DON'T warn yet. The realistic foreign holder during
           // a quick restart is the dying server still holding the lock for
           // ~1-2s before it drains (P3-1) — alarming the user then, only to
           // reclaim moments later, is the spurious warning the retest saw.
-          // Schedule ONE silent, unref'd retry; if it succeeds, no warning
-          // ever fires. start() rethrows construction errors after disposing —
-          // swallow so the fire-and-forget retry can't surface an unhandled
-          // rejection.
+          // Schedule ONE silent, unref'd retry; if it succeeds, no warning ever
+          // fires. conflictRetryFiring gates the warn to the RETRY specifically
+          // — webpack calls start() again from beforeRun/watchRun/HTML-injection,
+          // and those re-entrant refusals (before the retry fires) must stay
+          // silent, or the transient warning we're suppressing leaks back in.
           this.conflictRetryScheduled = true
           this.conflictRetryTimer = setTimeout(() => {
             this.conflictRetryTimer = null
-            this.start().catch(() => {})
+            this.conflictRetryFiring = true
+            this.start().catch(() => {}).finally(() => { this.conflictRetryFiring = false })
           }, this.conflictRetryDelayMs)
           this.conflictRetryTimer.unref()
-        } else if (!this.conflictWarned) {
-          // Still refused AFTER the silent retry → a genuine second dev server,
-          // not a draining predecessor. NOW warn, once per runtime.
-          this.conflictWarned = true
-          console.error(err.message)
         }
+        // else: a re-entrant start() while a retry is pending — stay silent; the
+        // pending retry decides transient-vs-genuine.
         return
       }
       throw err
@@ -762,6 +770,9 @@ export class CortexWebpackRuntime {
       session.pipeline = new EditPipeline({
         channel,
         resolver: resolver ?? TailwindResolver.fromTheme({}),
+        // The real resolver may be null (theme unresolved) even though we pass a
+        // truthy empty stand-in above — tell the pipeline which it is.
+        resolverAvailable: !!resolver,
         rewriter,
         inlineStyleRewriter,
         verifier,
@@ -1313,6 +1324,7 @@ export class CortexWebpackRuntime {
       this.conflictRetryTimer = null
     }
     this.conflictRetryScheduled = false
+    this.conflictRetryFiring = false
     this.conflictWarned = false
     // Let any in-flight discovery write LAND before session.dispose() removes
     // the files — an unserialized write would resume after removal and
