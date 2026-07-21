@@ -256,6 +256,38 @@ function getInsertIndexAfterDirectives(sourceFile: SourceFile): number {
   return insertIndex
 }
 
+/** Quote char + statement terminator matching the HOST file's own style, so
+ *  emitted lines survive the host repo's prettier/lint pass instead of fighting
+ *  it. Quote: first string literal in the file (imports/requires cover the
+ *  common case). Semicolon: majority vote over the statement kinds where a
+ *  terminator is grammatical — functions/classes never end in `;` even in
+ *  semicolon repos, so counting ALL statements would skew no-semi. Files with
+ *  no signal fall back to single quotes + semicolons. */
+interface EmitStyle {
+  quote: string
+  semi: string
+}
+
+const SEMI_STATEMENT_KINDS = new Set<SyntaxKind>([
+  SyntaxKind.ImportDeclaration,
+  SyntaxKind.VariableStatement,
+  SyntaxKind.ExpressionStatement,
+  SyntaxKind.ExportAssignment,
+])
+
+function detectEmitStyle(sourceFile: SourceFile): EmitStyle {
+  // Skip JSX attribute strings: `lang="en"` is conventionally double-quoted
+  // even in single-quote repos, so it is noise for import-statement style.
+  const firstString = sourceFile
+    .getDescendantsOfKind(SyntaxKind.StringLiteral)
+    .find((literal) => literal.getParent()?.getKind() !== SyntaxKind.JsxAttribute)
+  const quote = firstString?.getText().startsWith('"') ? '"' : "'"
+  const candidates = sourceFile.getStatements().filter((s) => SEMI_STATEMENT_KINDS.has(s.getKind()))
+  const withSemi = candidates.filter((s) => s.getText().trimEnd().endsWith(';')).length
+  const semi = candidates.length === 0 || withSemi * 2 >= candidates.length ? ';' : ''
+  return { quote, semi }
+}
+
 function ensureHelperBinding(
   sourceFile: SourceFile,
   functionName: string,
@@ -267,32 +299,40 @@ function ensureHelperBinding(
     return
   }
 
-  if (moduleConfig) {
-    sourceFile.addImportDeclaration({
-      namedImports: [functionName],
-      moduleSpecifier,
-    })
-  } else {
-    sourceFile.insertStatements(
-      getInsertIndexAfterDirectives(sourceFile),
-      `const { ${functionName} } = require("${moduleSpecifier}")\n`
-    )
-  }
+  const { quote, semi } = detectEmitStyle(sourceFile)
+  const binding = moduleConfig
+    ? `import { ${functionName} } from ${quote}${moduleSpecifier}${quote}${semi}`
+    : `const { ${functionName} } = require(${quote}${moduleSpecifier}${quote})${semi}\n`
+  sourceFile.insertStatements(getInsertIndexAfterDirectives(sourceFile), binding)
 }
 
 function configExpressionUsesNamedCall(
   sourceFile: SourceFile,
   expression: Node,
-  name: string
+  name: string,
+  visited: Set<string> = new Set(),
 ): boolean {
   if (hasNamedCallExpression(expression, name)) return true
 
-  const identifier = expression.getText().trim()
-  if (!/^[A-Za-z_$][\w$]*$/.test(identifier)) return false
+  // Resolve identifiers through their local initializers — BOTH when the whole
+  // expression is one (`export default cfg`) AND when one is nested inside it
+  // (`export default wrapper(inner)` where `const inner = withCortex(base)`,
+  // the codex P2): the call is still in the chain either way, and classifying
+  // it 'none' would let init wrap a SECOND withCortex around a wrapper that
+  // already consumed (and likely spread away) the inner phase function.
+  const identifiers =
+    expression.getKind() === SyntaxKind.Identifier
+      ? [expression.getText().trim()]
+      : expression.getDescendantsOfKind(SyntaxKind.Identifier).map((id) => id.getText().trim())
 
-  const declaration = sourceFile.getVariableDeclaration(identifier)
-  const initializer = declaration?.getInitializer()
-  return Boolean(initializer && hasNamedCallExpression(initializer, name))
+  for (const identifier of identifiers) {
+    if (!/^[A-Za-z_$][\w$]*$/.test(identifier) || visited.has(identifier)) continue
+    visited.add(identifier)
+    for (const value of valueExpressionsFor(sourceFile, identifier)) {
+      if (configExpressionUsesNamedCall(sourceFile, value, name, visited)) return true
+    }
+  }
+  return false
 }
 
 function objectPropertyValueUsesNamedCall(
@@ -322,26 +362,78 @@ function viteConfigUsesCortexEditor(
   )
 }
 
+/** All expressions that may flow into the binding `name`: the declaration
+ *  initializer plus every `name = <expr>` assignment. Later assignments
+ *  (`let config = base; config = withCortex(config); export default config`)
+ *  are how real configs wrap imperatively — initializer-only resolution
+ *  classifies such a correctly-wrapped config 'none' and init double-wraps
+ *  it (delta review P2). */
+function valueExpressionsFor(sourceFile: SourceFile, name: string): Node[] {
+  const values: Node[] = []
+  const initializer = sourceFile.getVariableDeclaration(name)?.getInitializer()
+  if (initializer) values.push(initializer)
+  for (const binary of sourceFile.getDescendantsOfKind(SyntaxKind.BinaryExpression)) {
+    if (binary.getOperatorToken().getKind() !== SyntaxKind.EqualsToken) continue
+    if (binary.getLeft().getText().trim() !== name) continue
+    values.push(binary.getRight())
+  }
+  return values
+}
+
+/** True when the exported expression IS a withCortex(...) call (possibly via
+ *  parens/`as`/`satisfies`, or an identifier whose value flows from one —
+ *  initializer OR later assignment). Since withCortex returns Next's
+ *  phase-function config form, only the OUTERMOST position is a working
+ *  configuration — a spreading wrapper around it
+ *  (withBundleAnalyzer(withCortex(cfg))) silently destroys the config.
+ *  `visited` guards identifier cycles: `const config = config` parses cleanly
+ *  and must classify 'none', not crash init with a RangeError (delta review). */
+function isOutermostWithCortexCall(sourceFile: SourceFile, expression: Node, visited: Set<string> = new Set()): boolean {
+  let expr: Node | undefined = expression
+  for (;;) {
+    const kind = expr.getKind()
+    if (kind === SyntaxKind.ParenthesizedExpression || kind === SyntaxKind.AsExpression || kind === SyntaxKind.SatisfiesExpression) {
+      expr = (expr as Node & { getExpression(): Node }).getExpression()
+      continue
+    }
+    break
+  }
+  const text = expr.getText().trim()
+  if (expr.getKind() === SyntaxKind.Identifier && /^[A-Za-z_$][\w$]*$/.test(text)) {
+    if (visited.has(text)) return false
+    visited.add(text)
+    return valueExpressionsFor(sourceFile, text).some((value) => isOutermostWithCortexCall(sourceFile, value, visited))
+  }
+  if (expr.getKind() !== SyntaxKind.CallExpression) return false
+  return expr.asKindOrThrow(SyntaxKind.CallExpression).getExpression().getText().trim() === 'withCortex'
+}
+
+type WithCortexUsage = 'outermost' | 'inner' | 'none'
+
 function nextConfigUsesWithCortex(
   content: string,
   basename: string,
   moduleConfig: boolean,
-): boolean {
+): WithCortexUsage {
   const sourceFile = createConfigSourceFile(basename, content)
   assertParseable(sourceFile, basename)
 
-  if (moduleConfig) {
-    const defaultExport = sourceFile.getFirstDescendantByKind(SyntaxKind.ExportAssignment)
-    return Boolean(
-      defaultExport &&
-      configExpressionUsesNamedCall(sourceFile, defaultExport.getExpression(), 'withCortex')
-    )
+  const classify = (expression: Node): WithCortexUsage => {
+    if (isOutermostWithCortexCall(sourceFile, expression)) return 'outermost'
+    return configExpressionUsesNamedCall(sourceFile, expression, 'withCortex') ? 'inner' : 'none'
   }
 
-  return sourceFile.getDescendantsOfKind(SyntaxKind.BinaryExpression).some(binaryExpression => (
-    isCommonJsExportAssignment(binaryExpression) &&
-    configExpressionUsesNamedCall(sourceFile, binaryExpression.getRight(), 'withCortex')
-  ))
+  if (moduleConfig) {
+    const defaultExport = sourceFile.getFirstDescendantByKind(SyntaxKind.ExportAssignment)
+    return defaultExport ? classify(defaultExport.getExpression()) : 'none'
+  }
+
+  for (const binaryExpression of sourceFile.getDescendantsOfKind(SyntaxKind.BinaryExpression)) {
+    if (!isCommonJsExportAssignment(binaryExpression)) continue
+    const usage = classify(binaryExpression.getRight())
+    if (usage !== 'none') return usage
+  }
+  return 'none'
 }
 
 function webpackConfigUsesCortexWebpack(
@@ -412,29 +504,14 @@ function injectVitePlugin(
   return { content: sourceFile.getFullText(), injected: true }
 }
 
-function isFunctionConfigExpression(sourceFile: SourceFile, expr: Expression): boolean {
-  const kind = expr.getKind()
-  if (kind === SyntaxKind.ArrowFunction || kind === SyntaxKind.FunctionExpression) return true
-  if (kind !== SyntaxKind.Identifier) return false
-
-  const name = expr.getText()
-  const variable = sourceFile.getVariableDeclaration(name)
-  const initializer = variable?.getInitializer()
-  if (initializer) {
-    const initializerKind = initializer.getKind()
-    return initializerKind === SyntaxKind.ArrowFunction ||
-      initializerKind === SyntaxKind.FunctionExpression
-  }
-
-  return Boolean(sourceFile.getFunction(name))
-}
-
-function wrapConfigExpression(sourceFile: SourceFile, expr: Expression, helperName: string): string {
-  const exprText = expr.getText()
-  if (isFunctionConfigExpression(sourceFile, expr)) {
-    return `async (...args) => ${helperName}(await (${exprText})(...args))`
-  }
-  return `${helperName}(${exprText})`
+/** withCortex accepts every export shape Next's config loader does — object,
+ *  promise, or phase function (NextConfigInput) — so wrapping is always a plain
+ *  call. Do NOT resurrect the old `async (...args) => withCortex(await
+ *  (expr)(...args))` form for function configs: withCortex returns the
+ *  phase-function form itself now, and that wrapper would hand Next a
+ *  Promise<function> instead of a config. */
+function wrapConfigExpression(expr: Expression, helperName: string): string {
+  return `${helperName}(${expr.getText()})`
 }
 
 function injectNextWrapper(
@@ -450,7 +527,7 @@ function injectNextWrapper(
     if (!defaultExport) return { content, injected: false }
 
     const expr = defaultExport.getExpression()
-    expr.replaceWithText(wrapConfigExpression(sourceFile, expr, 'withCortex'))
+    expr.replaceWithText(wrapConfigExpression(expr, 'withCortex'))
     ensureHelperBinding(sourceFile, 'withCortex', 'cortex-editor/next', moduleConfig)
     return { content: sourceFile.getFullText(), injected: true }
   }
@@ -460,7 +537,7 @@ function injectNextWrapper(
   if (!assignment) return { content, injected: false }
 
   const right = assignment.getRight()
-  right.replaceWithText(wrapConfigExpression(sourceFile, right, 'withCortex'))
+  right.replaceWithText(wrapConfigExpression(right, 'withCortex'))
   ensureHelperBinding(sourceFile, 'withCortex', 'cortex-editor/next', moduleConfig)
   return { content: sourceFile.getFullText(), injected: true }
 }
@@ -663,14 +740,15 @@ async function ensurePackages(
 
 function writeViteConfig(cwd: string): string {
   const viteConfigPath = path.join(cwd, 'vite.config.ts')
+  // New file, no host style to match — the single-quote + semicolon fallback.
   const content = [
-    'import { defineConfig } from \'vite\'',
-    'import react from \'@vitejs/plugin-react\'',
-    'import { cortexEditor } from \'cortex-editor/vite\'',
+    'import { defineConfig } from \'vite\';',
+    'import react from \'@vitejs/plugin-react\';',
+    'import { cortexEditor } from \'cortex-editor/vite\';',
     '',
     'export default defineConfig({',
     '  plugins: [cortexEditor(), react()],',
-    '})',
+    '});',
     '',
   ].join('\n')
   fs.writeFileSync(viteConfigPath, content)
@@ -680,10 +758,11 @@ function writeViteConfig(cwd: string): string {
 
 function writeNextConfig(cwd: string): string {
   const nextConfigPath = path.join(cwd, 'next.config.mjs')
+  // New file, no host style to match — the single-quote + semicolon fallback.
   const content = [
-    'import { withCortex } from \'cortex-editor/next\'',
+    'import { withCortex } from \'cortex-editor/next\';',
     '',
-    'export default withCortex({})',
+    'export default withCortex({});',
     '',
   ].join('\n')
   fs.writeFileSync(nextConfigPath, content)
@@ -730,7 +809,10 @@ function findBodyOpeningElement(sourceFile: SourceFile): JsxOpeningElement | und
 // the compiler on these string literals (repo Post-Fix "rename audit" rule).
 const CORTEX_DEV_SCRIPTS = 'CortexDevScripts'
 const CORTEX_NEXT_MODULE = 'cortex-editor/next'
-const CORTEX_DEV_SCRIPTS_IMPORT = `import { ${CORTEX_DEV_SCRIPTS} } from '${CORTEX_NEXT_MODULE}'`
+
+function cortexDevScriptsImport(style: EmitStyle): string {
+  return `import { ${CORTEX_DEV_SCRIPTS} } from ${style.quote}${CORTEX_NEXT_MODULE}${style.quote}${style.semi}`
+}
 
 /** Add a usable `import { CortexDevScripts }` after the directive prologue,
  *  unless a non-aliased binding already exists. An aliased-only import
@@ -745,7 +827,10 @@ function ensureCortexDevScriptsImport(sourceFile: SourceFile): void {
   // (Type-only bindings are handled by the callers, which bail with
   // 'name-conflict' BEFORE reaching here — see localBindingKind.)
   if (localBindingKind(sourceFile, CORTEX_DEV_SCRIPTS) === 'value') return
-  sourceFile.insertStatements(getInsertIndexAfterDirectives(sourceFile), CORTEX_DEV_SCRIPTS_IMPORT)
+  sourceFile.insertStatements(
+    getInsertIndexAfterDirectives(sourceFile),
+    cortexDevScriptsImport(detectEmitStyle(sourceFile)),
+  )
 }
 
 /** Insert <CortexDevScripts/> into the App Router root layout. Deliberately
@@ -966,9 +1051,19 @@ export async function runInit(
       const content = fs.readFileSync(nextConfigPath, 'utf8')
       const moduleConfig = isModuleConfig(nextConfigPath, content, pkg.type)
 
-      if (nextConfigUsesWithCortex(content, basename, moduleConfig)) {
+      const withCortexUsage = nextConfigUsesWithCortex(content, basename, moduleConfig)
+      if (withCortexUsage === 'outermost') {
         console.log(`  ${basename}: withCortex config found`)
         adapterConfigured = true
+      } else if (withCortexUsage === 'inner') {
+        // Do NOT auto-rewrap: the inner withCortex already returned a phase
+        // function into a wrapper that likely spread it away; wrapping the
+        // damaged chain again would just bury the problem deeper. Bail loudly.
+        console.warn(
+          `  ${basename}: withCortex is present but NOT the outermost wrapper. withCortex returns ` +
+          `Next's phase-function config form, and wrappers that spread its result drop the entire ` +
+          `config. Move it outermost: withCortex(otherWrappers(config)).`
+        )
       } else {
         const result = injectNextWrapper(content, basename, moduleConfig)
         if (result.injected) {

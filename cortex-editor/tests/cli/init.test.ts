@@ -253,7 +253,7 @@ describe('cortex init', () => {
       expect(result.vitePluginFound).toBe(true)
       expect(result.vitePluginInjected).toBe(true)
       const content = fs.readFileSync(path.join(dir, 'vite.config.ts'), 'utf8')
-      expect(content).toContain('import { cortexEditor } from "cortex-editor/vite"')
+      expect(content).toContain("import { cortexEditor } from 'cortex-editor/vite'")
       expect(content).toContain('plugins: [cortexEditor(), react()]')
     } finally {
       cleanup(dir)
@@ -278,7 +278,7 @@ describe('cortex init', () => {
       expect(result.vitePluginFound).toBe(true)
       expect(result.vitePluginInjected).toBe(true)
       const content = fs.readFileSync(path.join(dir, 'vite.config.ts'), 'utf8')
-      expect(content).toContain('import { cortexEditor } from "cortex-editor/vite"')
+      expect(content).toContain("import { cortexEditor } from 'cortex-editor/vite'")
       expect(content).toContain('plugins: [cortexEditor()]')
     } finally {
       cleanup(dir)
@@ -507,7 +507,7 @@ describe('cortex init', () => {
       expect(result.vitePluginFound).toBe(true)
       expect(result.vitePluginInjected).toBe(true)
       const content = fs.readFileSync(path.join(dir, 'vite.config.ts'), 'utf8')
-      expect(content).toContain('import { cortexEditor } from "cortex-editor/vite"')
+      expect(content).toContain("import { cortexEditor } from 'cortex-editor/vite'")
       expect(content).toContain('plugins: [cortexEditor()]')
     } finally {
       cleanup(dir)
@@ -529,7 +529,7 @@ describe('cortex init', () => {
       expect(result.vitePluginFound).toBe(true)
       expect(result.vitePluginInjected).toBe(true)
       const content = fs.readFileSync(path.join(dir, 'vite.config.js'), 'utf8')
-      expect(content).toContain('import { cortexEditor } from "cortex-editor/vite"')
+      expect(content).toContain("import { cortexEditor } from 'cortex-editor/vite'")
       expect(content).toContain('cortexEditor()')
       expect(content).toContain('somePlugin()')
     } finally {
@@ -548,7 +548,7 @@ describe('cortex init', () => {
       expect(result.vitePluginFound).toBe(true)
       expect(result.vitePluginInjected).toBe(true)
       const content = fs.readFileSync(path.join(dir, 'vite.config.js'), 'utf8')
-      expect(content).toContain('import { cortexEditor } from "cortex-editor/vite"')
+      expect(content).toContain("import { cortexEditor } from 'cortex-editor/vite'")
       expect(content).toContain('plugins: [cortexEditor()]')
     } finally {
       cleanup(dir)
@@ -595,7 +595,7 @@ describe('cortex init', () => {
       expect(result.vitePluginInjected).toBe(true)
       expect(result.setupComplete).toBe(true)
       const content = fs.readFileSync(path.join(dir, 'vite.config.cjs'), 'utf8')
-      expect(content).toContain('const { cortexEditor } = require("cortex-editor/vite")')
+      expect(content).toContain("const { cortexEditor } = require('cortex-editor/vite')")
       expect(content).toContain('plugins: [cortexEditor()]')
     } finally {
       cleanup(dir)
@@ -617,7 +617,7 @@ describe('cortex init', () => {
       expect(result.nextConfigInjected).toBe(true)
       expect(result.vitePluginFound).toBe(null)
       const content = fs.readFileSync(path.join(dir, 'next.config.mjs'), 'utf8')
-      expect(content).toContain('import { withCortex } from "cortex-editor/next"')
+      expect(content).toContain("import { withCortex } from 'cortex-editor/next'")
       expect(content).toContain('export default withCortex(nextConfig)')
       expect(content).toContain('reactStrictMode: true')
     } finally {
@@ -639,7 +639,7 @@ describe('cortex init', () => {
       expect(result.nextConfigFound).toBe(true)
       expect(result.nextConfigInjected).toBe(true)
       const content = fs.readFileSync(path.join(dir, 'next.config.cjs'), 'utf8')
-      expect(content).toContain('const { withCortex } = require("cortex-editor/next")')
+      expect(content).toContain("const { withCortex } = require('cortex-editor/next')")
       expect(content).toContain('module.exports = withCortex(nextConfig)')
     } finally {
       cleanup(dir)
@@ -682,7 +682,7 @@ describe('cortex init', () => {
       expect(result.nextConfigFound).toBe(true)
       expect(result.nextConfigInjected).toBe(true)
       const content = fs.readFileSync(path.join(dir, 'next.config.cjs'), 'utf8')
-      expect(content).toContain('const { withCortex } = require("cortex-editor/next")')
+      expect(content).toContain("const { withCortex } = require('cortex-editor/next')")
       expect(content).toContain('module.exports = withCortex(nextConfig)')
     } finally {
       cleanup(dir)
@@ -757,6 +757,156 @@ describe('cortex init', () => {
     }
   })
 
+  it('recognizes imperative reassignment wrapping (config = withCortex(config)) as configured', async () => {
+    // Real configs wrap imperatively: `let config = base; config =
+    // withCortex(config); export default config`. Initializer-only resolution
+    // classified this 'none' and DOUBLE-wrapped a working config (delta
+    // review P2) — the classifier must follow assignments too.
+    const nextConfig = [
+      "import { withCortex } from 'cortex-editor/next'",
+      'let config = { reactStrictMode: true }',
+      'config = withCortex(config)',
+      'export default config',
+      '',
+    ].join('\n')
+    const dir = makeTmpProject({
+      'package.json': '{"name":"test","type":"module","devDependencies":{"cortex-editor":"^0.1.0","next":"^16.0.0"}}',
+      'next.config.mjs': nextConfig,
+    })
+    try {
+      const result = await runInit(dir)
+      expect(result.nextConfigInjected).toBe(false)
+      expect(result.setupComplete).toBe(true)
+      expect(fs.readFileSync(path.join(dir, 'next.config.mjs'), 'utf8')).toBe(nextConfig)
+    } finally {
+      cleanup(dir)
+    }
+  })
+
+  it('classifies a cyclic self-referential config without crashing (delta review P3)', async () => {
+    // `const config = config` is a runtime TDZ error but parses cleanly; the
+    // outermost classifier's identifier recursion must terminate (visited
+    // guard), not abort cortex init with a RangeError.
+    const nextConfig = [
+      'const config = config',
+      'export default config',
+      '',
+    ].join('\n')
+    const dir = makeTmpProject({
+      'package.json': '{"name":"test","type":"module","devDependencies":{"cortex-editor":"^0.1.0","next":"^16.0.0"}}',
+      'next.config.mjs': nextConfig,
+    })
+    try {
+      const result = await runInit(dir)
+      // Classified 'none' → injected (the config was already broken at
+      // runtime; init must simply not crash on it).
+      expect(result.nextConfigInjected).toBe(true)
+      const content = fs.readFileSync(path.join(dir, 'next.config.mjs'), 'utf8')
+      expect(content).toContain('withCortex(config)')
+    } finally {
+      cleanup(dir)
+    }
+  })
+
+  it('emits a semicolon-terminated import when the host config uses semicolons', async () => {
+    // Falsifiable semicolon coverage: toContain-without-semi assertions pass
+    // regardless of terminator, so this pins the EXACT emitted line.
+    const nextConfig = [
+      'const nextConfig = { reactStrictMode: true };',
+      'export default nextConfig;',
+      '',
+    ].join('\n')
+    const dir = makeTmpProject({
+      'package.json': '{"name":"test","type":"module","devDependencies":{"cortex-editor":"^0.1.0","next":"^16.0.0"}}',
+      'next.config.mjs': nextConfig,
+    })
+    try {
+      const result = await runInit(dir)
+      expect(result.nextConfigInjected).toBe(true)
+      const content = fs.readFileSync(path.join(dir, 'next.config.mjs'), 'utf8')
+      expect(content).toContain("import { withCortex } from 'cortex-editor/next';")
+    } finally {
+      cleanup(dir)
+    }
+  })
+
+  it('omits the semicolon when the host config does not use them', async () => {
+    const nextConfig = [
+      'const nextConfig = { reactStrictMode: true }',
+      'export default nextConfig',
+      '',
+    ].join('\n')
+    const dir = makeTmpProject({
+      'package.json': '{"name":"test","type":"module","devDependencies":{"cortex-editor":"^0.1.0","next":"^16.0.0"}}',
+      'next.config.mjs': nextConfig,
+    })
+    try {
+      const result = await runInit(dir)
+      expect(result.nextConfigInjected).toBe(true)
+      const content = fs.readFileSync(path.join(dir, 'next.config.mjs'), 'utf8')
+      expect(content).toContain("import { withCortex } from 'cortex-editor/next'")
+      expect(content).not.toContain("'cortex-editor/next';")
+    } finally {
+      cleanup(dir)
+    }
+  })
+
+  it('detects a non-outermost withCortex through IDENTIFIER indirection (codex P2)', async () => {
+    // `const inner = withCortex(base); export default wrapper(inner)` — the
+    // withCortex call reaches the export only through a local binding. The old
+    // classifier only resolved the whole-expression identifier case, saw
+    // 'none', and wrapped a SECOND withCortex around the already-damaged
+    // chain while reporting success.
+    const nextConfig = [
+      "import { withCortex } from 'cortex-editor/next'",
+      'const withFake = (config) => ({ ...config })',
+      'const inner = withCortex({ reactStrictMode: true })',
+      'export default withFake(inner)',
+      '',
+    ].join('\n')
+    const dir = makeTmpProject({
+      'package.json': '{"name":"test","type":"module","devDependencies":{"cortex-editor":"^0.1.0","next":"^16.0.0"}}',
+      'next.config.mjs': nextConfig,
+    })
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    try {
+      const result = await runInit(dir)
+      expect(result.nextConfigInjected).toBe(false)
+      expect(warn.mock.calls.some(c => /NOT the outermost wrapper/.test(String(c[0])))).toBe(true)
+      expect(fs.readFileSync(path.join(dir, 'next.config.mjs'), 'utf8')).toBe(nextConfig)
+    } finally {
+      warn.mockRestore()
+      cleanup(dir)
+    }
+  })
+
+  it('bails loudly on a NON-OUTERMOST withCortex instead of blessing or re-wrapping it', async () => {
+    // withCortex returns the phase-function config form; a spreading wrapper
+    // AROUND it destroys the config. init must neither report this as
+    // configured (the old any-position check did) nor wrap the damaged chain
+    // again — warn with the fix and leave the file untouched.
+    const nextConfig = [
+      "import { withCortex } from 'cortex-editor/next'",
+      'const withFake = (config) => ({ ...config })',
+      'export default withFake(withCortex({ reactStrictMode: true }))',
+      '',
+    ].join('\n')
+    const dir = makeTmpProject({
+      'package.json': '{"name":"test","type":"module","devDependencies":{"cortex-editor":"^0.1.0","next":"^16.0.0"}}',
+      'next.config.mjs': nextConfig,
+    })
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    try {
+      const result = await runInit(dir)
+      expect(result.nextConfigInjected).toBe(false)
+      expect(warn.mock.calls.some(c => /NOT the outermost wrapper/.test(String(c[0])))).toBe(true)
+      expect(fs.readFileSync(path.join(dir, 'next.config.mjs'), 'utf8')).toBe(nextConfig)
+    } finally {
+      warn.mockRestore()
+      cleanup(dir)
+    }
+  })
+
   it('wraps dynamic Next config functions without dropping runtime arguments', async () => {
     const nextConfig = 'export default () => ({ reactStrictMode: true })'
     const dir = makeTmpProject({
@@ -769,7 +919,7 @@ describe('cortex init', () => {
       expect(result.nextConfigInjected).toBe(true)
       expect(result.setupComplete).toBe(true)
       const content = fs.readFileSync(path.join(dir, 'next.config.mjs'), 'utf8')
-      expect(content).toContain('export default async (...args) => withCortex(await (() => ({ reactStrictMode: true }))(...args))')
+      expect(content).toContain('export default withCortex(() => ({ reactStrictMode: true }))')
     } finally {
       cleanup(dir)
     }
@@ -791,7 +941,7 @@ describe('cortex init', () => {
       expect(result.setupComplete).toBe(true)
       const content = fs.readFileSync(path.join(dir, 'next.config.mjs'), 'utf8')
       expect(content).toContain('const nextConfig = () => ({ reactStrictMode: true })')
-      expect(content).toContain('export default async (...args) => withCortex(await (nextConfig)(...args))')
+      expect(content).toContain('export default withCortex(nextConfig)')
     } finally {
       cleanup(dir)
     }
@@ -809,7 +959,7 @@ describe('cortex init', () => {
       expect(result.vitePluginFound).toBe(null)
       expect(result.nextConfigFound).toBe(null)
       const content = fs.readFileSync(path.join(dir, 'webpack.config.js'), 'utf8')
-      expect(content).toContain('const { cortexWebpack } = require("cortex-editor/webpack")')
+      expect(content).toContain("const { cortexWebpack } = require('cortex-editor/webpack')")
       expect(content).toContain('plugins: [cortexWebpack()]')
     } finally {
       cleanup(dir)
@@ -855,7 +1005,7 @@ describe('cortex init', () => {
       const content = fs.readFileSync(path.join(dir, 'webpack.config.cjs'), 'utf8')
       expect(content.startsWith('#!/usr/bin/env node\n')).toBe(true)
       expect(content.indexOf("'use strict'")).toBeLessThan(
-        content.indexOf('const { cortexWebpack } = require("cortex-editor/webpack")')
+        content.indexOf("const { cortexWebpack } = require('cortex-editor/webpack')")
       )
       expect(content).toContain('plugins: [cortexWebpack()]')
     } finally {
@@ -1254,7 +1404,7 @@ describe('cortex init', () => {
       expect(result.setupComplete).toBe(true)
 
       const content = fs.readFileSync(path.join(dir, 'next.config.mjs'), 'utf8')
-      expect(content).toContain('import { withCortex } from "cortex-editor/next"')
+      expect(content).toContain("import { withCortex } from 'cortex-editor/next'")
       expect(content).toContain('export default withCortex({ reactStrictMode: true })')
     } finally {
       cleanup(dir)
@@ -1277,7 +1427,7 @@ describe('cortex init', () => {
       expect(result.nextConfigInjected).toBe(true)
       expect(result.setupComplete).toBe(true)
       const content = fs.readFileSync(path.join(dir, 'next.config.mjs'), 'utf8')
-      expect(content).toContain('import { withCortex } from "cortex-editor/next"')
+      expect(content).toContain("import { withCortex } from 'cortex-editor/next'")
       expect(content).toContain('export default withCortex({ reactStrictMode: true })')
     } finally {
       cleanup(dir)
@@ -1300,7 +1450,7 @@ describe('cortex init', () => {
       expect(result.nextConfigInjected).toBe(true)
       expect(result.setupComplete).toBe(true)
       const content = fs.readFileSync(path.join(dir, 'next.config.mjs'), 'utf8')
-      expect(content).toContain('import { withCortex } from "cortex-editor/next"')
+      expect(content).toContain("import { withCortex } from 'cortex-editor/next'")
       expect(content).toContain('export default withCortex({ reactStrictMode: true })')
       expect(content).not.toContain('module.exports = withCortex')
     } finally {
@@ -1398,7 +1548,7 @@ describe('cortex init', () => {
       expect(result.setupComplete).toBe(true)
 
       const content = fs.readFileSync(path.join(dir, 'next.config.js'), 'utf8')
-      expect(content).toContain('const { withCortex } = require("cortex-editor/next")')
+      expect(content).toContain("const { withCortex } = require('cortex-editor/next')")
       expect(content).toContain('module.exports = withCortex({ reactStrictMode: true })')
     } finally {
       cleanup(dir)
@@ -1473,7 +1623,7 @@ describe('cortex init', () => {
       expect(result.setupComplete).toBe(true)
       expect(fs.existsSync(path.join(dir, 'next.config.mjs'))).toBe(false)
       const content = fs.readFileSync(path.join(dir, 'next.config.cjs'), 'utf8')
-      expect(content).toContain('const { withCortex } = require("cortex-editor/next")')
+      expect(content).toContain("const { withCortex } = require('cortex-editor/next')")
       expect(content).toContain('module.exports = withCortex({ reactStrictMode: true })')
     } finally {
       cleanup(dir)
@@ -1498,8 +1648,8 @@ describe('cortex init', () => {
       expect(result.setupComplete).toBe(true)
 
       const content = fs.readFileSync(path.join(dir, 'next.config.mjs'), 'utf8')
-      expect(content).toContain('export default async (...args) => withCortex(await ((phase, { defaultConfig }) => {')
-      expect(content).toContain('})(...args))')
+      expect(content).toContain('export default withCortex((phase, { defaultConfig }) => {')
+      expect(content).not.toContain('(...args)')
       expect(content).toContain('phase === "phase-development-server"')
     } finally {
       cleanup(dir)
@@ -1524,8 +1674,8 @@ describe('cortex init', () => {
       expect(result.setupComplete).toBe(true)
 
       const content = fs.readFileSync(path.join(dir, 'next.config.js'), 'utf8')
-      expect(content).toContain('module.exports = async (...args) => withCortex(await (async (phase) => {')
-      expect(content).toContain('})(...args))')
+      expect(content).toContain('module.exports = withCortex(async (phase) => {')
+      expect(content).not.toContain('(...args)')
       expect(content).toContain('phase === "phase-production-build"')
     } finally {
       cleanup(dir)
@@ -1607,7 +1757,7 @@ describe('cortex init', () => {
       expect(result.webpackConfigInjected).toBe(true)
       expect(fs.existsSync(path.join(dir, 'vite.config.ts'))).toBe(false)
       const content = fs.readFileSync(path.join(dir, 'webpack.config.js'), 'utf8')
-      expect(content).toContain('const { cortexWebpack } = require("cortex-editor/webpack")')
+      expect(content).toContain("const { cortexWebpack } = require('cortex-editor/webpack')")
       expect(content).toContain('plugins: [cortexWebpack()]')
     } finally {
       cleanup(dir)
