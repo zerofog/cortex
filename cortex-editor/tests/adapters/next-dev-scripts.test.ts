@@ -108,11 +108,17 @@ describe('CortexDevScripts', () => {
     expect(warn.mock.calls[1]![0]).toContain('malformed')
   })
 
-  it('renders null on a malformed port file', () => {
-    vi.spyOn(console, 'warn').mockImplementation(() => {})
-    writeDiscovery({ port: 'not-a-port' })
-    expect(CortexDevScripts({ projectRoot: root })).toBeNull()
-  })
+  it.each([['not-a-port'], ['0'], ['99999']])(
+    'renders null on a malformed port file (%s)',
+    (badPort) => {
+      // Same validation branch, boundary variants: non-numeric, non-positive,
+      // and above the TCP range (cubic P3 — an over-range corrupt value must
+      // not render a bootstrap pointing at an endpoint that cannot exist).
+      vi.spyOn(console, 'warn').mockImplementation(() => {})
+      writeDiscovery({ port: badPort })
+      expect(CortexDevScripts({ projectRoot: root })).toBeNull()
+    },
+  )
 
   it('gives invalid injection.json its OWN reason so a prior "could not read" does not mask it (silent-failure review)', () => {
     // The common startup state (bridge not up → files missing) latches the

@@ -105,7 +105,10 @@ export function CortexDevScripts(props: CortexDevScriptsProps = {}): ReactElemen
     return warnOnce(`injection.json in ${cortexDir} is not valid JSON (partial write?) — retrying next render`)
   }
 
-  if (!Number.isInteger(port) || port <= 0 || token.length === 0) {
+  // 65535 upper bound (cubic P3): a corrupt port file above the TCP range must
+  // take the inactive-warning path, not render a bootstrap pointing at an
+  // endpoint that cannot exist.
+  if (!Number.isInteger(port) || port <= 0 || port > 65535 || token.length === 0) {
     return warnOnce(`discovery files in ${cortexDir} are malformed`)
   }
   // Torn-generation guard: the three discovery files are read separately, so a

@@ -192,14 +192,21 @@ function hasUsableNamedImport(sourceFile: SourceFile, functionName: string, modu
  *                  without editing the user's imports, so callers must bail.
  *  - null        — the name is free; our import can be added safely. */
 function localBindingKind(sourceFile: SourceFile, localName: string): 'value' | 'type-only' | null {
-  if (
-    sourceFile.getFunction(localName) ||
-    sourceFile.getClass(localName) ||
-    sourceFile.getVariableDeclaration(localName)
-  ) {
-    return 'value'
-  }
-  let sawTypeOnly = false
+  // Ambient `declare` declarations are type-space assertions with NO runtime
+  // binding (cubic P2): counting them as 'value' would skip the required
+  // import and ship a layout whose rendered element references a phantom
+  // value — while adding our import anyway would collide with the ambient
+  // name. They join the type-only bucket, which callers bail 'name-conflict'.
+  const locals = [
+    { node: sourceFile.getFunction(localName), ambient: sourceFile.getFunction(localName)?.hasDeclareKeyword() ?? false },
+    { node: sourceFile.getClass(localName), ambient: sourceFile.getClass(localName)?.hasDeclareKeyword() ?? false },
+    {
+      node: sourceFile.getVariableDeclaration(localName),
+      ambient: sourceFile.getVariableDeclaration(localName)?.getVariableStatement()?.hasDeclareKeyword() ?? false,
+    },
+  ].filter((local) => local.node)
+  if (locals.some((local) => !local.ambient)) return 'value'
+  let sawTypeOnly = locals.length > 0
   for (const declaration of sourceFile.getImportDeclarations()) {
     const declTypeOnly = declaration.isTypeOnly()
     if (declaration.getDefaultImport()?.getText() === localName ||

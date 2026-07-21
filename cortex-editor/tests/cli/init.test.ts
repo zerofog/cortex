@@ -1995,6 +1995,32 @@ describe('injectDevScriptsIntoLayout', () => {
     }
   })
 
+  it('bails with name-conflict on an ambient `declare` CortexDevScripts (cubic P2)', () => {
+    // `declare const` is a type-space assertion with NO runtime binding —
+    // rendering against it references a phantom value, and adding our import
+    // would collide with the ambient name. Same bail as type-only imports.
+    const layout = [
+      'declare const CortexDevScripts: () => null',
+      'export default function RootLayout({ children }: { children: React.ReactNode }) {',
+      '  return (',
+      '    <html lang="en">',
+      '      <body>{children}</body>',
+      '    </html>',
+      '  )',
+      '}',
+      '',
+    ].join('\n')
+    const dir = makeTmpProject({ 'app/layout.tsx': layout })
+    try {
+      const before = fs.readFileSync(path.join(dir, 'app', 'layout.tsx'), 'utf8')
+      const result = injectDevScriptsIntoLayout(dir)
+      expect(result.status).toBe('name-conflict')
+      expect(fs.readFileSync(path.join(dir, 'app', 'layout.tsx'), 'utf8')).toBe(before)
+    } finally {
+      cleanup(dir)
+    }
+  })
+
   it('treats a local CortexDevScripts declaration as a usable binding — no conflicting import (codex delta P2)', () => {
     // A locally-declared component named CortexDevScripts renders itself;
     // inserting our import would duplicate the identifier.
