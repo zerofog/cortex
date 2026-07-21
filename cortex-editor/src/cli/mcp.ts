@@ -152,6 +152,10 @@ export async function startMCPServer(options: MCPServerOptions = {}): Promise<MC
   let browserConnected = false
   let reconnectTimer: ReturnType<typeof setTimeout> | null = null
   let retryCount = 0
+  // Waiters parked by whenConnected() until the first (or a re-)connection
+  // opens — so a tools/call arriving in the ~1-2s startup window awaits the
+  // in-flight connect instead of erroring "Not connected" (P3-2).
+  let connectWaiters: Array<() => void> = []
 
   // Tracks per-annotation thread length at the time of the last MCP push.
   // The Vite server emits `annotation-updated` for *both* thread additions
@@ -180,6 +184,10 @@ export async function startMCPServer(options: MCPServerOptions = {}): Promise<MC
       if (ws !== socket) return
       connected = true
       retryCount = 0
+      // Release anyone awaiting the connection (P3-2).
+      const waiters = connectWaiters
+      connectWaiters = []
+      for (const w of waiters) w()
       // Re-read token on each connection — token changes on dev server restart
       token = discoverToken()
       process.stderr.write(`[cortex] Connected to Cortex dev server at ${url}${token ? '' : ' (token not found — writes will be rejected)'}\n`)
@@ -464,7 +472,31 @@ export async function startMCPServer(options: MCPServerOptions = {}): Promise<MC
 
   connect()
 
-  function rpc(method: string, params: Record<string, unknown>): Promise<unknown> {
+  /** Resolve once connected, or reject after `timeoutMs`. Waits ONLY when a
+   *  connection attempt is genuinely in flight (the socket is CONNECTING) — the
+   *  P3-2 startup race where a tools/call lands before the WS handshake
+   *  completes. When the server is down (no socket, or a failed one during
+   *  backoff), it fails FAST rather than hanging the caller for seconds.
+   *  Resolves instantly when already connected. */
+  function whenConnected(timeoutMs = 5000): Promise<void> {
+    if (connected) return Promise.resolve()
+    if (closed) return Promise.reject(new Error('Cortex MCP server is shutting down'))
+    if (!ws || ws.readyState !== WebSocket.CONNECTING) {
+      return Promise.reject(new Error('Not connected to Cortex dev server'))
+    }
+    return new Promise<void>((resolve, reject) => {
+      const onConnect = (): void => { clearTimeout(timer); resolve() }
+      const timer = setTimeout(() => {
+        connectWaiters = connectWaiters.filter((w) => w !== onConnect)
+        reject(new Error('Not connected to Cortex dev server (timed out waiting for the initial connection)'))
+      }, timeoutMs)
+      timer.unref?.()
+      connectWaiters.push(onConnect)
+    })
+  }
+
+  async function rpc(method: string, params: Record<string, unknown>): Promise<unknown> {
+    await whenConnected()
     const socket = ws
     if (!connected || !socket) return Promise.reject(new Error('Not connected to Cortex dev server'))
     const requestId = randomUUID()
@@ -497,6 +529,7 @@ export async function startMCPServer(options: MCPServerOptions = {}): Promise<MC
     'cortex_activate',
     { description: 'Activate the Cortex visual editor in the browser. The user must have their dev server running and the page open.' },
     async () => {
+      try { await whenConnected() } catch { /* fall through to the not-connected response */ }
       if (!connected || !ws) {
         return {
           content: [{ type: 'text' as const, text: `Cannot connect to Cortex dev server at ${wsUrl()}. Start your app's normal dev server, then retry.` }],
@@ -521,6 +554,7 @@ export async function startMCPServer(options: MCPServerOptions = {}): Promise<MC
     'cortex_deactivate',
     { description: 'Deactivate the Cortex visual editor in the browser.' },
     async () => {
+      try { await whenConnected() } catch { /* fall through to the not-connected response */ }
       if (!connected || !ws) {
         return {
           content: [{ type: 'text' as const, text: `Cannot connect to Cortex dev server at ${wsUrl()}. Start your app's normal dev server, then retry.` }],

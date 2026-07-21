@@ -401,6 +401,8 @@ export class CortexWebpackRuntime {
   /** One-shot flag for the silent post-foreign-conflict retry (see the
    *  LockHeldError handling in startInternal). */
   private conflictRetryScheduled = false
+  /** Warn-once guard for a GENUINE (post-retry) foreign conflict. */
+  private conflictWarned = false
   /** Pending retry timer — cancelled by dispose() so a shutdown during the
    *  retry window cannot resurrect a bridge on a disposed runtime (cubic P1). */
   private conflictRetryTimer: ReturnType<typeof setTimeout> | null = null
@@ -523,30 +525,31 @@ export class CortexWebpackRuntime {
           markRuntimeEnabled(this.runtimeId)
           return
         }
-        // Genuine conflict (a second dev server): one actionable message, and
-        // disable this runtime's source-loader transforms — the loader was
-        // attached at apply() time and would otherwise still rewrite JSX with
-        // data-cortex-* attributes for a build whose bridge/client are absent,
-        // while <CortexDevScripts/> injects the OTHER server's port/token.
-        // Symmetric to Vite's cortexDisabledByLock flag. Warn ONCE per
-        // runtime; the silent retry below re-attempts without re-warning.
-        if (!this.conflictRetryScheduled) console.error(err.message)
+        // A non-family conflict — disable this runtime's source-loader
+        // transforms (the loader, attached at apply() time, would otherwise
+        // rewrite JSX for a build whose bridge/client are absent, while
+        // <CortexDevScripts/> injects the OTHER server's port/token).
         markRuntimeDisabled(this.runtimeId)
-        // Transient-holder self-heal: the realistic foreign holder during a
-        // dev boot is a short-lived config evaluator (Next's telemetry
-        // flusher / exiting CLI parent) that won the just-freed lock for a
-        // second or two before draining. One silent, unref'd retry gives this
-        // runtime the lock back without user action; a GENUINE second dev
-        // server is still held then, and we stay refused (already warned).
         if (!this.conflictRetryScheduled) {
+          // FIRST refusal: DON'T warn yet. The realistic foreign holder during
+          // a quick restart is the dying server still holding the lock for
+          // ~1-2s before it drains (P3-1) — alarming the user then, only to
+          // reclaim moments later, is the spurious warning the retest saw.
+          // Schedule ONE silent, unref'd retry; if it succeeds, no warning
+          // ever fires. start() rethrows construction errors after disposing —
+          // swallow so the fire-and-forget retry can't surface an unhandled
+          // rejection.
           this.conflictRetryScheduled = true
-          // start() rethrows construction errors after disposing — swallow
-          // here or the fire-and-forget retry surfaces an unhandled rejection.
           this.conflictRetryTimer = setTimeout(() => {
             this.conflictRetryTimer = null
             this.start().catch(() => {})
           }, this.conflictRetryDelayMs)
           this.conflictRetryTimer.unref()
+        } else if (!this.conflictWarned) {
+          // Still refused AFTER the silent retry → a genuine second dev server,
+          // not a draining predecessor. NOW warn, once per runtime.
+          this.conflictWarned = true
+          console.error(err.message)
         }
         return
       }
@@ -1310,6 +1313,7 @@ export class CortexWebpackRuntime {
       this.conflictRetryTimer = null
     }
     this.conflictRetryScheduled = false
+    this.conflictWarned = false
     // Let any in-flight discovery write LAND before session.dispose() removes
     // the files — an unserialized write would resume after removal and
     // re-create orphaned discovery files (or overwrite a successor bridge's

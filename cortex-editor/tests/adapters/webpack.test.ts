@@ -251,13 +251,15 @@ describe('cortexWebpack adapter', () => {
     try {
       await runtime.start()
       expect(runtime.started).toBe(false)
-      expect(errorSpy).toHaveBeenCalledTimes(1)
+      // P3-1: the FIRST refusal is SILENT — a draining predecessor shouldn't
+      // alarm the user before the retry reclaims.
+      expect(errorSpy).not.toHaveBeenCalled()
 
       fs.unlinkSync(lockPath) // transient holder drained and released
 
       await vi.waitFor(() => { if (!runtime.started) throw new Error('retry has not healed yet') }, { timeout: 5000 })
       expect(isRuntimeDisabled('rt-retry-test')).toBe(false)
-      expect(errorSpy).toHaveBeenCalledTimes(1) // the retry was silent
+      expect(errorSpy).not.toHaveBeenCalled() // healed transiently → never warned
     } finally {
       errorSpy.mockRestore()
       await runtime.dispose()
@@ -290,7 +292,11 @@ describe('cortexWebpack adapter', () => {
     }
   })
 
-  it('foreign lock refusal logs ONE actionable conflict and disables instrumentation', async () => {
+  it('warns about a PERSISTENT foreign conflict only AFTER the silent retry also fails (P3-1)', async () => {
+    // A genuine second dev server: the lock stays foreign-held across the
+    // retry. The first refusal is silent; the warning fires once the retry
+    // (delay 60ms) still finds it held — proving the transient-vs-persistent
+    // distinction, so a real conflict is still surfaced.
     const root = makeTempProject()
     const cortexDir = path.join(root, '.cortex')
     fs.mkdirSync(cortexDir, { recursive: true })
@@ -300,12 +306,21 @@ describe('cortexWebpack adapter', () => {
     )
     const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
     const runtime = new CortexWebpackRuntime({
-      root, mode: 'development', toggleShortcut: '$mod+Shift+Period', runtimeId: 'rt-foreign-test',
+      root, mode: 'development', toggleShortcut: '$mod+Shift+Period', runtimeId: 'rt-foreign-test', conflictRetryDelayMs: 60,
     })
     try {
       await runtime.start()
-      expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining('Another cortex instance'))
+      expect(errorSpy).not.toHaveBeenCalled()       // first refusal is silent
       expect(isRuntimeDisabled('rt-foreign-test')).toBe(true)
+
+      // The lock stays held (never unlinked) → the retry also refuses → warn.
+      await vi.waitFor(() => {
+        expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining('Another cortex instance'))
+      }, { timeout: 5000 })
+      // Warn-once: even a further recompile doesn't re-warn.
+      const callsAfterFirst = errorSpy.mock.calls.length
+      await runtime.start()
+      expect(errorSpy.mock.calls.length).toBe(callsAfterFirst)
     } finally {
       errorSpy.mockRestore()
       await runtime.dispose()

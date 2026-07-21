@@ -170,6 +170,17 @@ describe('cortex mcp', () => {
     expect((result.content as Array<{ text: string }>)[0].text).toContain('Cannot connect')
   })
 
+  it('awaits the in-flight connection instead of erroring on an immediate call (P3-2 race)', async () => {
+    // The startup race: the dev server IS up, but the call lands before the WS
+    // handshake completes. Do NOT waitForConnection — call immediately. Before
+    // the fix this raced to "Not connected"; now whenConnected() bridges the
+    // gap while the socket is CONNECTING.
+    const client = await startTestServer(mockVite.port)
+    const result = await client.callTool({ name: 'cortex_activate' })
+    expect(result.isError).toBeFalsy()
+    expect((result.content as Array<{ text: string }>)[0].text).toContain('Activation command sent')
+  })
+
   it('cortex_activate sends cortex/set-active true with token', async () => {
     const client = await startTestServer(mockVite.port)
     await waitForConnection(mockVite)
