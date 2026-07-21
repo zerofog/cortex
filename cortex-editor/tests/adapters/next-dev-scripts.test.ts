@@ -1,8 +1,20 @@
+import { spawn } from 'node:child_process'
+import { once } from 'node:events'
 import fs from 'fs'
 import os from 'os'
 import path from 'path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { CortexDevScripts, _resetDevScriptsWarningForTesting } from '../../src/adapters/next-dev-scripts.js'
+
+/** Spawn a trivial node process, wait for it to exit, and return its now-dead
+ *  pid — a deterministic stand-in for a crashed bridge, with no assumption
+ *  about the platform's pid range (same pattern as cortex-lock.test.ts). */
+async function deadPid(): Promise<number> {
+  const child = spawn(process.execPath, ['-e', ''], { stdio: 'ignore' })
+  await once(child, 'exit')
+  if (child.pid === undefined) throw new Error('spawned child had no pid')
+  return child.pid
+}
 
 let root: string
 
@@ -233,13 +245,12 @@ describe('CortexDevScripts', () => {
     expect(lastInjectionRead).toBeGreaterThan(lockTouch)
   })
 
-  it('refuses to inject when the bridge lock is STALE (holder pid dead) — crashed-server leftovers', () => {
+  it('refuses to inject when the bridge lock is STALE (holder pid dead) — crashed-server leftovers', async () => {
     // A SIGKILLed dev server leaves port/token/injection.json AND a lock whose
     // pid is dead. Injecting would hand the browser a dead (or since-reassigned)
     // port plus a stale token. The liveness gate must fail closed.
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
-    // pid 2^30-ish is far above any real pid space in the test environment.
-    writeDiscovery({ lock: JSON.stringify({ pid: 1073676287, nonce: 'dead', startedAt: 0 }) })
+    writeDiscovery({ lock: JSON.stringify({ pid: await deadPid(), nonce: 'dead', startedAt: 0 }) })
 
     expect(CortexDevScripts({ projectRoot: root })).toBeNull()
     expect(warn).toHaveBeenCalledOnce()
