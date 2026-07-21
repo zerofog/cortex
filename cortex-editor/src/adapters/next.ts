@@ -229,13 +229,38 @@ interface BridgeState {
   terminating: boolean
   signalHandlersInstalled: boolean
   registeredSignalHandlers: Array<[NodeJS.Signals, () => void]>
-  /** Peer signal-listener count captured at install time. The re-raise guard
-   *  can't use listenerCount at DISPATCH: Node's onceWrapper self-removes
-   *  before invoking, so a peer's `process.once(SIGINT, gracefulShutdown)` has
-   *  already left the list when our handler runs — making us think we're the
-   *  sole listener and re-raise, delivering the signal to that peer a second
-   *  time and force-escalating its graceful shutdown (cubic P2). */
-  peerListenersAtInstall: Partial<Record<NodeJS.Signals, number>>
+}
+
+/** Process-global signal re-raise coordinator (NOT per bridge state).
+ *
+ *  cortex suppresses Node's default die-on-signal by registering a handler, so
+ *  it must re-raise to actually terminate WHEN it is the only thing keeping the
+ *  process from dying — i.e. no EXTERNAL (non-cortex) signal listener exists.
+ *  Two facts make this tricky, and both are real bugs the naive versions hit:
+ *
+ *  1. Node's onceWrapper self-removes a listener BEFORE invoking it, so
+ *     `process.listenerCount` at DISPATCH under-counts peers that already fired
+ *     this tick — we must judge external peers from a count captured at INSTALL
+ *     (cubic P2, first pass).
+ *  2. A process running bridges for TWO project roots installs TWO cortex
+ *     handlers; the second must NOT count the first as an external peer, or on
+ *     SIGINT both self-remove, both see a "peer", neither re-raises, and the
+ *     process survives its first Ctrl+C (cubic P1, second pass).
+ *
+ *  So: capture the EXTERNAL peer count once, before cortex installs its FIRST
+ *  handler for a signal (externalPeersAtFirstInstall), and track how many
+ *  cortex handlers are live. The LAST cortex handler to run re-raises iff there
+ *  were no external peers at first install and none persist now. */
+interface SignalCoordinator {
+  externalPeersAtFirstInstall: Partial<Record<NodeJS.Signals, number>>
+  liveCortexHandlers: Partial<Record<NodeJS.Signals, number>>
+}
+
+const SIGNAL_COORDINATOR_KEY = Symbol.for('cortex-editor.next-signal-coordinator')
+
+function signalCoordinator(): SignalCoordinator {
+  const holder = globalThis as unknown as Record<symbol, SignalCoordinator | undefined>
+  return (holder[SIGNAL_COORDINATOR_KEY] ??= { externalPeersAtFirstInstall: {}, liveCortexHandlers: {} })
 }
 
 /** Bridge state lives on globalThis (NOT module scope), keyed by canonicalized
@@ -277,7 +302,6 @@ function bridgeStateFor(canonicalRoot: string): BridgeState {
       terminating: false,
       signalHandlersInstalled: false,
       registeredSignalHandlers: [],
-      peerListenersAtInstall: {},
     }
     registry.set(canonicalRoot, state)
   }
@@ -296,6 +320,11 @@ export function _setBridgeFactoryForTesting(factory: BridgeFactory | null): void
     for (const [signal, handler] of state.registeredSignalHandlers) process.removeListener(signal, handler)
   }
   bridgeRegistry().clear()
+  // Reset the process-global signal coordinator so each test's re-raise math
+  // starts from a clean external-peer baseline and handler count.
+  const coord = signalCoordinator()
+  coord.externalPeersAtFirstInstall = {}
+  coord.liveCortexHandlers = {}
 }
 
 /** Dispose the bridge, then COOPERATIVELY re-raise the signal. Registering a
@@ -328,22 +357,17 @@ function handleTerminationSignal(signal: 'SIGINT' | 'SIGTERM', state: BridgeStat
     process.removeListener(signal, handler)
     return false
   })
-  // Re-raise ONLY when cortex was the SOLE listener. Peer handlers (Next's own
-  // graceful-shutdown handler, a user's) already received the ORIGINAL signal in
-  // this same dispatch, so re-raising would deliver it to them a second time —
-  // potentially escalating a graceful shutdown into a forced one.
-  //
-  // Peer presence is judged from the count captured at INSTALL, not dispatch:
-  // Node's onceWrapper self-removes before invoking, so a peer's
-  // `process.once(signal, …)` has already left the list by the time we run —
-  // `process.listenerCount(signal)` at dispatch would read 0 and we'd wrongly
-  // re-raise (cubic P2). We still AND in the live count so a peer that
-  // persisted (process.on) and is genuinely still present also suppresses the
-  // re-raise. Tradeoff: a peer present at install that deregistered before the
-  // signal now suppresses the re-raise too — costing one extra Ctrl+C in that
-  // obscure case, which is benign next to force-killing a peer's shutdown.
-  const peersAtInstall = state.peerListenersAtInstall[signal] ?? 0
-  if (process.listenerCount(signal) === 0 && peersAtInstall === 0) {
+  // Re-raise ONLY when this is the LAST cortex handler AND no EXTERNAL peer was
+  // present when cortex first installed. See SignalCoordinator for why the
+  // baseline is external-only and captured at first install, not at dispatch.
+  const coord = signalCoordinator()
+  coord.liveCortexHandlers[signal] = Math.max(0, (coord.liveCortexHandlers[signal] ?? 1) - 1)
+  const externalPeers = coord.externalPeersAtFirstInstall[signal] ?? 0
+  if (
+    coord.liveCortexHandlers[signal] === 0 &&
+    externalPeers === 0 &&
+    process.listenerCount(signal) === 0
+  ) {
     process.kill(process.pid, signal)
   }
 }
@@ -351,9 +375,15 @@ function handleTerminationSignal(signal: 'SIGINT' | 'SIGTERM', state: BridgeStat
 function installSignalHandlers(state: BridgeState): void {
   if (state.signalHandlersInstalled) return
   state.signalHandlersInstalled = true
+  const coord = signalCoordinator()
   for (const signal of ['SIGINT', 'SIGTERM'] as const) {
-    // Snapshot peers BEFORE adding ours — see handleTerminationSignal.
-    state.peerListenersAtInstall[signal] = process.listenerCount(signal)
+    // Capture EXTERNAL peers exactly once — before cortex installs its FIRST
+    // handler for this signal, so a later cortex handler (a second project
+    // root) is never mistaken for an external peer.
+    if (coord.externalPeersAtFirstInstall[signal] === undefined) {
+      coord.externalPeersAtFirstInstall[signal] = process.listenerCount(signal)
+    }
+    coord.liveCortexHandlers[signal] = (coord.liveCortexHandlers[signal] ?? 0) + 1
     const handler = () => handleTerminationSignal(signal, state)
     state.registeredSignalHandlers.push([signal, handler])
     process.once(signal, handler)
@@ -455,11 +485,26 @@ async function startBridge(
 function withCortexServerExternals(nextConfig: NextConfig): string[] | undefined {
   const existing = nextConfig.serverExternalPackages
   if (Array.isArray(nextConfig.transpilePackages) && nextConfig.transpilePackages.includes('cortex-editor')) {
-    console.warn(
-      '[cortex] cortex-editor is in transpilePackages, so it was NOT added to ' +
-      'serverExternalPackages (Next rejects a package in both). If a Next build ' +
-      'fails resolving the cortex-editor bridge, remove it from transpilePackages.'
-    )
+    // The user's transpile choice wins; we don't add cortex-editor to
+    // serverExternalPackages. If they ALSO already list it there, their config
+    // is self-conflicting — Next aborts config load with "can't be in both"
+    // regardless of cortex. We preserve fail-fast (removing our entry would
+    // silently mutate a config the user wrote, masking their own error) and
+    // call the conflict out explicitly so the fix is obvious.
+    if (existing?.includes('cortex-editor')) {
+      console.warn(
+        '[cortex] cortex-editor is listed in BOTH serverExternalPackages and ' +
+        'transpilePackages — Next rejects that at config load (a package cannot be ' +
+        'in both). This is a pre-existing conflict in your config; remove ' +
+        'cortex-editor from ONE of the two lists.'
+      )
+    } else {
+      console.warn(
+        '[cortex] cortex-editor is in transpilePackages, so it was NOT added to ' +
+        'serverExternalPackages (Next rejects a package in both). If a Next build ' +
+        'fails resolving the cortex-editor bridge, remove it from transpilePackages.'
+      )
+    }
     return existing
   }
   return existing?.includes('cortex-editor') ? existing : [...(existing ?? []), 'cortex-editor']

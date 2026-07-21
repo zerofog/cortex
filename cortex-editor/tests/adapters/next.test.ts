@@ -304,6 +304,21 @@ describe('withCortex production behavior', () => {
     expect(result.serverExternalPackages).toEqual(['cortex-editor', 'sharp'])
   })
 
+  it('warns about the specific both-arrays conflict when cortex-editor is in transpilePackages AND serverExternalPackages', () => {
+    // Self-conflicting config: Next aborts config load regardless of cortex. We
+    // keep fail-fast (don't silently mutate the user's config) but name the
+    // conflict explicitly so the fix is obvious.
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    vi.stubEnv('NODE_ENV', 'production')
+    const result = evalPhase(
+      withCortex({ transpilePackages: ['cortex-editor'], serverExternalPackages: ['cortex-editor'] }),
+      TEST_PHASE,
+    )
+    // Preserved as-is (fail-fast) — not mutated to resolve the conflict.
+    expect(result.serverExternalPackages).toEqual(['cortex-editor'])
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('BOTH serverExternalPackages and transpilePackages'))
+  })
+
   it('does NOT add cortex-editor to serverExternalPackages when it is in transpilePackages (review [4])', () => {
     // Next rejects a package in both lists, aborting config load. Respect the
     // user's transpile choice and warn instead of forcing the conflict.
@@ -552,6 +567,27 @@ describe('withCortex termination handling', () => {
     vi.spyOn(process, 'listenerCount').mockReturnValue(0)
     onceHandlers['SIGTERM']!()
     expect(killSpy).toHaveBeenCalledWith(process.pid, 'SIGTERM')
+  })
+
+  it('re-raises on first signal when TWO project roots each installed a cortex handler (cubic P1)', () => {
+    // A process running bridges for two roots installs two cortex handlers. The
+    // second must NOT count the first as an external peer — otherwise both
+    // self-remove on dispatch, both see a "peer", neither re-raises, and the
+    // process survives its first Ctrl+C. The LAST cortex handler must re-raise.
+    vi.spyOn(process, 'listenerCount').mockReturnValue(0) // no external peers, ever
+    stubBridge()
+    evalPhase(withCortex({}, { projectRoot: '/root-a' }), DEV_PHASE)
+    evalPhase(withCortex({}, { projectRoot: '/root-b' }), DEV_PHASE)
+
+    // Both cortex handlers fire in one dispatch. Fire both captured handlers?
+    // installSignalHandlers is once-guarded PER STATE, and both states share
+    // the SIGINT slot in onceHandlers (last write wins), so drive the coordinator
+    // directly by invoking the captured handler twice — each decrements the live
+    // cortex-handler count; the last one re-raises.
+    onceHandlers['SIGINT']!()
+    expect(killSpy).not.toHaveBeenCalled() // first of two handlers — not last
+    onceHandlers['SIGINT']!()
+    expect(killSpy).toHaveBeenCalledWith(process.pid, 'SIGINT') // last handler re-raises
   })
 
   it('does NOT re-raise when a peer was present at install even if it self-removed by dispatch (cubic P2)', () => {

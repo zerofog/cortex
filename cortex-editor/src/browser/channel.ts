@@ -5,6 +5,28 @@ import './types.js' // Window augmentation (__cortex_send__, __cortex_channel__,
 /** Max queued messages during WebSocket disconnection (Fix 5) */
 const MAX_QUEUE_SIZE = 100
 
+/** Serialize an outgoing message with the closure-captured auth token,
+ *  hardened against `toJSON` hijacking (ZF0-1326 XSS→RCE).
+ *
+ *  JSON.stringify invokes a `toJSON` found ANYWHERE on the value's prototype
+ *  chain, binding `this` to the value — which here carries the secret token.
+ *  A page-XSS caller can plant one two ways: as an OWN property on a message it
+ *  gets into the pipeline, or by polluting `Object.prototype.toJSON`. A plain
+ *  `{ ...msg, token }` inherits the polluted prototype, and `delete
+ *  payload.toJSON` removes only an OWN property, leaving the inherited one
+ *  live. Building the payload with a NULL prototype removes the inherited path
+ *  entirely, and copying only own-enumerable keys (never a `toJSON` own key)
+ *  removes the own path — so no attacker-controlled `toJSON` can run. */
+function serializeWithToken(msg: BrowserToServer, token: string | undefined): string {
+  const payload = Object.create(null) as Record<string, unknown>
+  for (const key of Object.keys(msg)) {
+    if (key === 'toJSON') continue
+    payload[key] = (msg as Record<string, unknown>)[key]
+  }
+  payload.token = token // undefined is omitted by JSON.stringify (matches prior behavior)
+  return JSON.stringify(payload)
+}
+
 // ── Pure sendAndAck helpers ────────────────────────────────────────────────
 
 /**
@@ -276,11 +298,7 @@ export function createWebSocketChannel(options?: WebSocketChannelOptions): Corte
       // RCE vector.
       while (queue.length > 0) {
         const msg = queue.shift()!
-        // Same toJSON strip as send() — a queued message could equally carry a
-        // hijacking toJSON.
-        const payload: Record<string, unknown> = { ...msg, token: capturedToken }
-        delete payload.toJSON
-        ws!.send(JSON.stringify(payload))
+        ws!.send(serializeWithToken(msg, capturedToken))
       }
     }
 
@@ -389,12 +407,7 @@ export function createWebSocketChannel(options?: WebSocketChannelOptions): Corte
         }
       }
       if (connected && ws?.readyState === WebSocket.OPEN) {
-        // Defense in depth for the ZF0-1326 vector: strip a hostile toJSON
-        // before serialization so no msg reaching JSON.stringify can hijack it,
-        // even one that didn't come through activationBridge.
-        const payload: Record<string, unknown> = { ...msg, token: capturedToken }
-        delete payload.toJSON
-        ws.send(JSON.stringify(payload))
+        ws.send(serializeWithToken(msg, capturedToken))
       } else {
         // Fix 5: cap queue size, drop oldest. Queue raw messages —
         // token is stamped at send time from the closure-captured value

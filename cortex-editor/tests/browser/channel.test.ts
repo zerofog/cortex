@@ -327,6 +327,33 @@ describe('createWebSocketChannel', () => {
     expect(activeIdx).toBeGreaterThan(initIdx)
   })
 
+  it('resists an Object.prototype.toJSON pollution attack (cubic P0 — inherited toJSON)', () => {
+    // `delete payload.toJSON` removes only an OWN property; a page-XSS caller
+    // who pollutes Object.prototype.toJSON would still have it invoked by
+    // JSON.stringify with `this` bound to the token-bearing payload. The
+    // null-prototype payload must make the inherited toJSON unreachable.
+    window.__CORTEX_TOKEN__ = 'SECRET-REAL-TOKEN'
+    let leaked = ''
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    ;(Object.prototype as any).toJSON = function (this: Record<string, unknown>) {
+      leaked = String(this.token ?? '')
+      return { type: 'edit', forged: true, token: this.token }
+    }
+    try {
+      const channel = createWebSocketChannel({ url: 'ws://test' })
+      const ws = mockInstances[0]!
+      ws._simulateOpen()
+      channel.send({ type: 'init' } as never)
+
+      const payloads = ws.send.mock.calls.map((c) => JSON.parse(c[0] as string))
+      expect(payloads.some((p) => p.forged || p.type === 'edit')).toBe(false)
+      expect(leaked).toBe('') // toJSON never ran with the token-bearing payload as `this`
+    } finally {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      delete (Object.prototype as any).toJSON
+    }
+  })
+
   it('holds a pre-handshake set-active until init passes through — never delivered pre-handshake (cubic P2)', () => {
     // WS-fallback: an early toggle press reaches the activation bridge before
     // CortexApp sends init. The server drops non-init messages from an
