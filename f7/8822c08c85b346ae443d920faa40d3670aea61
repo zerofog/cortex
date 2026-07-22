@@ -1,0 +1,80 @@
+cortex-editor/tests/adapters/next-type-contract.test.ts
+  s_bbde566b990012::t_c3db9fd59ba9f8 8-17,44-65
+  s_bbde566b990012::t_4449ebd82311ed 66-68
+  s_bbde566b990012::t_39fef1872dbed6 69
+cortex-editor/src/core/capabilities.ts
+  s_bbde566b990012::t_097b5c8d859129 70
+cortex-editor/src/browser/components/CortexApp.tsx
+  s_bbde566b990012::t_eaec1adf11074a 967-980,982
+cortex-editor/src/cli/mcp.ts
+  s_bbde566b990012::t_e60e23c04ef8ed 207-213
+  s_bbde566b990012::t_9860be9d9cd71e 22-28
+cortex-editor/tests/adapters/vite.test.ts
+  s_bbde566b990012::t_60d00ac5e77438 1186-1193,1195-1196
+  s_bbde566b990012::t_fe809bbc0257ec 1232-1233
+  s_bbde566b990012::t_b11bdab53a1477 1252,1262,1268-1270,1273-1274,1276-1298,1300-1302,1304-1305,1307-1308
+  s_bbde566b990012::t_5ef9f163bfee8b 1208
+cortex-editor/src/adapters/next.ts
+  s_bbde566b990012::t_ae3b8f75dea860 684
+  s_bbde566b990012::t_8cf09d2695de0d 30-34
+  s_bbde566b990012::t_d30a756b84123e 65-67,73-74,80
+  s_bbde566b990012::t_952904ae78c602 18-29,38-44
+  s_bbde566b990012::t_5d2fef65a07069 149,152,159
+  s_bbde566b990012::t_a65a2b13474a2c 112-119,124-125
+  s_bbde566b990012::t_bb2a2c4b232c3f 76
+  s_bbde566b990012::t_5a23f07544158e 35-37
+  s_bbde566b990012::t_22dfa7fc2cc733 135-141
+  s_bbde566b990012::t_6f9357dec455f2 656-659
+cortex-editor/tests/tsconfig.json
+  s_bbde566b990012::t_c2b4685bf6ef2b 17
+  s_bbde566b990012::t_a487a631c374e0 12-16
+cortex-editor/src/schemas/wire-format.ts
+  s_bbde566b990012::t_f5ce7c15fe38a3 427-429
+cortex-editor/src/adapters/vite.ts
+  s_bbde566b990012::t_715bef283c5758 1548-1565
+  s_bbde566b990012::t_52ac46efa6ebaa 469-474
+  s_bbde566b990012::t_6016b04ac08c22 539-542
+cortex-editor/src/adapters/webpack.ts
+  s_bbde566b990012::t_ba72d7d7a6a3dc 1101-1107
+  s_bbde566b990012::t_7ce75f75b12936 1112-1118
+cortex-editor/tests/core/capabilities.test.ts
+  s_bbde566b990012::t_76a87c67b97cc8 86
+cortex-editor/CHANGELOG.md
+  s_bbde566b990012::t_deb93058a21fcb 10-12
+  s_bbde566b990012::t_45fd6f3ccbfbbc 20-21
+cortex-editor/scripts/check-dts.mjs
+  s_bbde566b990012::t_89575371bdfde3 1-37
+cortex-editor/package.json
+  s_bbde566b990012::t_d026800c8a2c76 96-97
+cortex-editor/tests/browser/cortex-app.test.tsx
+  s_bbde566b990012::t_dbd2c0859b39dd 1858-1864
+  s_bbde566b990012::t_5dec2dc27364b3 1946-1949
+  s_bbde566b990012::t_b8d8034c2b04af 1988-1991,1997,2001-2003,2005-2007
+  s_bbde566b990012::t_3b1b58b0ac91a5 2080-2089,2092,2094-2095,2097-2102,2104,2106-2108,2110-2114
+  s_bbde566b990012::t_2f590d69b93c35 1956-1957
+  s_bbde566b990012::t_e6598b42b70f8a 1964-1965,1968
+cortex-editor/tests/adapters/webpack.test.ts
+  s_bbde566b990012::t_9eb53571910985 778-783,785
+  s_bbde566b990012::t_b7f60129090b8c 877-881,902,906-908,914,916,918-920
+cortex-editor/tests/adapters/next.test.ts
+  s_bbde566b990012::t_a25b07a6b39343 96-103
+  s_bbde566b990012::t_512d139b415ccb 707-712
+  s_bbde566b990012::t_575bded6ec1be3 706
+  s_bbde566b990012::t_2c5fefbaad03c6 728-732
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.15",
+  "base_commit_sha": "f78822c08c85b346ae443d920faa40d3670aea61",
+  "prompts": {},
+  "sessions": {
+    "s_bbde566b990012": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "b0f4fb44-6981-42bb-810b-9f8c930540f4",
+        "model": "claude-fable-5"
+      },
+      "human_author": "dklzf <213919963+dklzf@users.noreply.github.com>"
+    }
+  }
+}
