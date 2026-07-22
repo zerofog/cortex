@@ -175,6 +175,18 @@ describe('CortexDevScripts', () => {
     },
   )
 
+  it.each([['null'], ['42'], ['"a-string"'], ['[1,2]']])(
+    'refuses (not throws) when injection.json is valid JSON but not an object (%s) — coderabbit/cubic round-3',
+    (doc) => {
+      // JSON.parse succeeds on non-object documents; `injection.port` access on
+      // null would THROW inside the RSC render. Must refuse gracefully instead.
+      // Boundary variants of the single non-object guard branch.
+      vi.spyOn(console, 'warn').mockImplementation(() => {})
+      writeDiscovery({ injection: doc })
+      expectInactive(CortexDevScripts({ projectRoot: root }), 'not an object')
+    },
+  )
+
   it('gives invalid injection.json its OWN reason so a prior "could not read" does not mask it (silent-failure review)', () => {
     // The common startup state (bridge not up → files missing) latches the
     // "could not read" reason first. A later malformed-JSON write was READ fine

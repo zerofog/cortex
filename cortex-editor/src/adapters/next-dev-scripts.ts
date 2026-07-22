@@ -146,6 +146,13 @@ export function CortexDevScripts(props: CortexDevScriptsProps = {}): ReactElemen
   } catch {
     return refuseInjection(`injection.json in ${cortexDir} is not valid JSON (partial write?) — retrying next render`)
   }
+  // JSON.parse accepts non-object documents ("null", "42", "[…]", "\"str\"") —
+  // valid JSON, but property access below would THROW on null (an RSC render
+  // error, not a graceful refusal). Own reason bucket: a non-object file was
+  // read AND parsed fine, which is a different diagnostic than unparseable.
+  if (typeof injection !== 'object' || injection === null || Array.isArray(injection)) {
+    return refuseInjection(`injection.json in ${cortexDir} is valid JSON but not an object — retrying next render`)
+  }
 
   // 65535 upper bound (cubic P3): a corrupt port file above the TCP range must
   // take the inactive-warning path, not render a bootstrap pointing at an
