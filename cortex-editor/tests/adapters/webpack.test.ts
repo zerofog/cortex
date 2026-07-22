@@ -12,6 +12,7 @@ import {
   _getInjectedClientScriptForTesting,
 } from '../../src/adapters/webpack.js'
 import { isRuntimeDisabled, markRuntimeDisabled } from '../../src/adapters/source-loader-utils.js'
+import { TailwindResolver } from '../../src/core/tailwind-resolver.js'
 
 const cleanupDirs: string[] = []
 
@@ -493,6 +494,47 @@ describe('cortexWebpack adapter', () => {
     } finally {
       ws.close()
       await compiler.hooks.shutdown.run()
+    }
+  })
+
+  it('hello ships the resolved design-system payloads (spacingTokens/swatches) — the missing producer on the Next path (0.3.1)', async () => {
+    // The vite hello carried tokens from day one; the webpack/Next hello sent a
+    // bare {type, protocolVersion, sessionId}, so the browser token picker
+    // showed "No design tokens detected" on every Next app even when the
+    // server had resolved the theme (zerofog-web round-2 finding). Spy BEFORE
+    // the first browser init — resolveHelloTokenPayloads memoizes per runtime.
+    const spacing = [{ name: '--spacing-4', valuePx: 16, source: 'tailwind-v3' }]
+    vi.spyOn(TailwindResolver, 'resolveSpacingTokens').mockResolvedValue(spacing as never)
+    vi.spyOn(TailwindResolver, 'resolveColors').mockResolvedValue(['#ef4444'])
+    vi.spyOn(TailwindResolver, 'resolveColorChips').mockResolvedValue(null)
+    vi.spyOn(TailwindResolver, 'resolveTextComponents').mockResolvedValue(null)
+    try {
+      const root = makeTempProject()
+      const compiler = createMockCompiler(root)
+      const plugin = cortexWebpack({ projectRoot: root })
+
+      plugin.apply(compiler)
+      await compiler.hooks.watchRun.run()
+      const port = fs.readFileSync(path.join(root, '.cortex', 'port'), 'utf8').trim()
+      const token = fs.readFileSync(path.join(root, '.cortex', 'token'), 'utf8').trim()
+      const ws = new WebSocket(`ws://localhost:${port}/cortex`)
+
+      try {
+        await waitForOpen(ws)
+        ws.send(JSON.stringify({ type: 'init', token }))
+        const message = await nextMessageOfType(ws, 'hello')
+        expect(message.spacingTokens).toEqual(spacing)
+        expect(message.swatches).toEqual(['#ef4444'])
+        // Unresolved payloads are ABSENT from the wire, not null/empty — the
+        // browser reducer's `?? []` default handles omission.
+        expect('colorChips' in message).toBe(false)
+        expect('textComponents' in message).toBe(false)
+      } finally {
+        ws.close()
+        await compiler.hooks.shutdown.run()
+      }
+    } finally {
+      vi.restoreAllMocks()
     }
   })
 

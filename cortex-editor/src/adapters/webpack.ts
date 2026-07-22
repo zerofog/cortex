@@ -395,6 +395,20 @@ export class CortexWebpackRuntime {
   private readonly invalidate?: () => void
   private readonly browserIIFEPath: string
   private session: CortexSession | null = null
+  /** Design-system payloads shipped in the browser hello (swatches, color
+   *  chips, text components, spacing tokens) — lazily resolved ONCE per
+   *  runtime and cached, mirroring vite.ts's server-boot resolver promises.
+   *  Lazy (not tied to initializePipeline) so a browser that inits before the
+   *  pipeline finishes still gets tokens; memoized so repeat inits
+   *  (multi-tab, HMR re-mount) cost ~nothing. Absent on the wire when the
+   *  theme doesn't resolve — the picker shows its empty state, editing is
+   *  unaffected (the edit pipeline has its own resolver). */
+  private helloTokenPayloads: Promise<{
+    swatches: string[] | null
+    colorChips: import('../core/tailwind-resolver.js').ColorChip[] | null
+    textComponents: import('../core/text-components.js').TextComponent[] | null
+    spacingTokens: import('../core/tailwind-resolver.js').SpacingToken[] | null
+  }> | null = null
   /** In-flight discovery-file write, tracked so dispose() serializes with it
    *  (see startInternal / dispose). */
   private discoveryWrites: Promise<void> | null = null
@@ -655,6 +669,11 @@ export class CortexWebpackRuntime {
     if (this.session !== session) return
     this.startHeartbeat(session)
     this.initializePipeline(session)
+    // Warm the hello design-system payloads at boot (vite resolves at
+    // configureServer time) — without this, the FIRST browser init pays the
+    // full Tailwind resolution latency, and the whole init batch (agent-status,
+    // annotations too) would wait on it.
+    void this.resolveHelloTokenPayloads()
   }
 
   private createChannel(session: CortexSession): ServerChannel {
@@ -738,6 +757,30 @@ export class CortexWebpackRuntime {
     }, HEARTBEAT_INTERVAL)
     this.heartbeatTimer.unref()
     session.heartbeatTimer = this.heartbeatTimer
+  }
+
+  /** Resolve the four browser-facing design-system payloads, once. Mirrors
+   *  vite.ts's server-boot promises (same per-payload catch-and-warn contract:
+   *  a failed resolver logs and degrades to null — never blocks the hello).
+   *  This producer was MISSING on the webpack/Next path until 0.3.1: the vite
+   *  hello shipped tokens while this adapter sent a bare hello, so the token
+   *  picker showed "No design tokens detected" on every Next app even when
+   *  the server had resolved the theme for the edit pipeline (sibling-adapter
+   *  asymmetry, found by the zerofog-web round-2 retest). */
+  private resolveHelloTokenPayloads() {
+    return (this.helloTokenPayloads ??= (async () => {
+      const warn = (what: string) => (err: unknown) => {
+        console.warn(`[cortex] Tailwind ${what} resolution failed:`, err instanceof Error ? err.message : err)
+        return null
+      }
+      const [swatches, colorChips, textComponents, spacingTokens] = await Promise.all([
+        TailwindResolver.resolveColors(this.root).catch(warn('color')),
+        TailwindResolver.resolveColorChips(this.root).catch(warn('color chip')),
+        TailwindResolver.resolveTextComponents(this.root).catch(warn('text component')),
+        TailwindResolver.resolveSpacingTokens(this.root).catch(warn('spacing token')),
+      ])
+      return { swatches, colorChips, textComponents, spacingTokens }
+    })())
   }
 
   private initializePipeline(session: CortexSession): void {
@@ -943,26 +986,45 @@ export class CortexWebpackRuntime {
         applySetActiveResult(session, result)
       }
 
-      this.sendToBrowser(session, ws, {
-        type: 'hello',
-        protocolVersion: 1,
-        sessionId: session.sessionId,
-      }, 'webpack.browserMessage.initHello')
-      this.sendToBrowser(session, ws, { type: 'agent-status', connected: session.cliClients.size > 0 }, 'webpack.browserMessage.initAgentStatus')
-      if (session.editorActive) this.sendToBrowser(session, ws, { type: 'cortex' }, 'webpack.browserMessage.initCortex')
-      if (session.capabilitiesCache) this.sendToBrowser(session, ws, { type: 'capabilities', systems: session.capabilitiesCache }, 'webpack.browserMessage.initCapabilities')
-      // Hydrate the browser with annotations the server has in memory.
-      // Always emit — even an empty snapshot is authoritative. A reconnecting
-      // browser (network blip, HMR re-mount) needs to know the server's current
-      // state so any stale local annotations get replaced. The reducer performs
-      // a full Map replacement on this message.
-      this.sendToBrowser(
-        session,
-        ws,
-        // ZF0-1856: DeepReadonly snapshots → mutable wire shape at the send boundary.
-        { type: 'annotations-snapshot', annotations: session.annotations.getAll() as Annotation[] },
-        'webpack.browserMessage.initAnnotationsSnapshot',
-      )
+      // The whole init response awaits the (memoized) design-system payloads so
+      // hello carries them AND the batch order is preserved (hello first, then
+      // agent-status/cortex/capabilities/annotations — same order as before,
+      // just deferred as a unit). In the common case (browser connects seconds
+      // after boot) the promise is settled and this costs one microtask; an
+      // early browser waits like vite's hello does ("ships as fast as the
+      // slowest resolver"). Guards re-checked after the await: the session may
+      // have been disposed/replaced while resolving.
+      this.resolveHelloTokenPayloads()
+        .then(({ swatches, colorChips, textComponents, spacingTokens }) => {
+          if (this.session !== session || session.isDisposed) return
+          this.sendToBrowser(session, ws, {
+            type: 'hello',
+            protocolVersion: 1,
+            sessionId: session.sessionId,
+            swatches: swatches && swatches.length > 0 ? swatches : undefined,
+            colorChips: colorChips && colorChips.length > 0 ? colorChips : undefined,
+            textComponents: textComponents && textComponents.length > 0 ? textComponents : undefined,
+            spacingTokens: spacingTokens && spacingTokens.length > 0 ? spacingTokens : undefined,
+          }, 'webpack.browserMessage.initHello')
+          this.sendToBrowser(session, ws, { type: 'agent-status', connected: session.cliClients.size > 0 }, 'webpack.browserMessage.initAgentStatus')
+          if (session.editorActive) this.sendToBrowser(session, ws, { type: 'cortex' }, 'webpack.browserMessage.initCortex')
+          if (session.capabilitiesCache) this.sendToBrowser(session, ws, { type: 'capabilities', systems: session.capabilitiesCache }, 'webpack.browserMessage.initCapabilities')
+          // Hydrate the browser with annotations the server has in memory.
+          // Always emit — even an empty snapshot is authoritative. A reconnecting
+          // browser (network blip, HMR re-mount) needs to know the server's current
+          // state so any stale local annotations get replaced. The reducer performs
+          // a full Map replacement on this message.
+          this.sendToBrowser(
+            session,
+            ws,
+            // ZF0-1856: DeepReadonly snapshots → mutable wire shape at the send boundary.
+            { type: 'annotations-snapshot', annotations: session.annotations.getAll() as Annotation[] },
+            'webpack.browserMessage.initAnnotationsSnapshot',
+          )
+        })
+        .catch((err) => {
+          console.warn('[cortex] Failed to send init batch:', err instanceof Error ? err.message : err)
+        })
       return
     }
     if (data.type === 'comment') {
