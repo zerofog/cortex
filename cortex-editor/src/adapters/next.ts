@@ -15,40 +15,33 @@ import { advertiseLockFamilyNonce, inheritedLockFamilyNonce } from '../core/cort
 
 export { CortexDevScripts, type CortexDevScriptsProps } from './next-dev-scripts.js'
 
-/**
- * Minimal subset of next's NextConfig sufficient for wrapping.
- * Avoids a hard dev dependency on the `next` package (it is an optional peer).
- * When users have next installed the real NextConfig is assignment-compatible
- * with this interface since we only declare what we actually use.
- */
-/** Next's own webpack callback type, DERIVED from the `next` package rather
- *  than hand-rolled — a narrower re-declaration is not assignment-compatible
- *  with Next's real `WebpackConfigContext` (missing buildId/config/…), which is
- *  why `withCortex(realNextConfig)` failed tsc twice. `import('next')` in a
- *  type position is erased at runtime (next stays an OPTIONAL peer, never a
- *  runtime dep) and resolves against the CONSUMER's installed next, so the type
- *  always matches whatever Next version they run. A compile-time test
- *  (tests/adapters/next-type-contract.test-d.ts) asserts a real NextConfig is
- *  assignable, so this can't regress a third time. */
-type NextWebpack = NonNullable<import('next').NextConfig['webpack']>
+/** Types DERIVED from the consumer's own `next` package, never hand-rolled.
+ *  A hand-rolled "minimal subset" shadow copy is the bug class that broke
+ *  `withCortex(realNextConfig)` under strict `next build` twice: first the
+ *  webpack callback (narrower context than Next's WebpackConfigContext), then
+ *  turbopack + the outer `[key: string]: unknown` index signature — Next's
+ *  NextConfig and TurbopackOptions are interfaces, which get NO implicit index
+ *  signature, so the real config was never assignable to the shadow copy.
+ *  `import('next')` in a type position is erased at runtime (next stays an
+ *  OPTIONAL peer, never a runtime dep) and resolves against the CONSUMER's
+ *  installed next, so the types always match whatever Next version they run.
+ *  The compile-time contract test (tests/adapters/next-type-contract.test.ts,
+ *  wired into tests/tsconfig.json so `npm run typecheck` actually enforces it)
+ *  asserts a real NextConfig is assignable, so this can't regress again.
+ *
+ *  NextTurbopack is INTERNAL on purpose: its indexed access is invalid against
+ *  next <15.3 type defs (turbopack lived under `experimental.turbo`), which is
+ *  harmless only while the alias never appears in the emitted public d.ts —
+ *  enforced by scripts/check-dts.mjs (`npm run check:dts`, runs in
+ *  prepublishOnly after the clean build). If it ever must be exported, switch
+ *  to a conditional-infer derivation. */
+type NextTurbopack = NonNullable<import('next').NextConfig['turbopack']>
+type NextTurbopackRules = NonNullable<NextTurbopack['rules']>
 
-/** `webpack` is DERIVED from the consumer's own `next` — a hand-rolled narrower
- *  webpack context (missing buildId/config/defaultLoaders/…) is NOT
- *  assignment-compatible with Next's real WebpackConfigContext, which is the
- *  P1-1 bug that broke `withCortex(realNextConfig)` under strict `next build`.
- *  `turbopack`/`serverExternalPackages` stay on cortex's own permissive types:
- *  deriving them from Next drags in Next's strict TurbopackRuleConfigCollection,
- *  which cortex's rule-merging builds structurally but doesn't type nominally —
- *  a separate refactor, and NOT the reported failure (that was webpack only).
- *  The `[key: string]: unknown` index signature keeps every other Next config
- *  property accepted, and the compile-time contract test
- *  (next-type-contract.test.ts) covers a real NextConfig incl. a turbopack key. */
-export interface NextConfig {
-  webpack?: import('next').NextConfig['webpack']
-  turbopack?: TurbopackConfig
-  serverExternalPackages?: string[]
-  [key: string]: unknown
-}
+/** The real NextConfig, straight from the consumer's `next`. An alias — not a
+ *  re-declared interface — so every property (including interface-typed ones
+ *  like `turbopack`) is assignable with no index-signature mismatch. */
+export type NextConfig = import('next').NextConfig
 
 /** Context Next passes to a phase-function config (`(phase, { defaultConfig }) => cfg`). */
 export interface NextConfigPhaseContext {
@@ -69,18 +62,22 @@ export type NextPhaseConfigFunction = (
  *  same three shapes Next's own config loader awaits. */
 export type NextConfigInput = NextConfig | Promise<NextConfig> | NextPhaseConfigFunction
 
+/** @deprecated Unused since the withCortex input type became Next's own
+ *  `NextConfig` (`turbopack` is now typed by Next directly). Kept with its
+ *  original 0.3.0 shape so existing imports keep compiling; removed in 0.4.0. */
 export interface TurbopackConfig {
   rules?: Record<string, unknown>
   [key: string]: unknown
 }
 
-/** A `turbopack.rules` entry in its object form. Next also accepts a bare
- *  loader array as shorthand; both shapes are handled when merging. */
+/** @deprecated See {@link TurbopackConfig} — rule merging is now typed against
+ *  Next's own `TurbopackRuleConfigCollection`. Removed in 0.4.0. */
 export interface TurbopackRuleObject {
-  loaders: TurbopackLoaderItem[]
+  loaders: Array<string | { loader: string; options?: Record<string, unknown> }>
   [key: string]: unknown
 }
 
+/** @deprecated See {@link TurbopackConfig}. Removed in 0.4.0. */
 export type TurbopackLoaderItem = string | { loader: string; options?: Record<string, unknown> }
 
 export interface CortexNextOptions {
@@ -112,13 +109,20 @@ function resolveLoaderPath(): string {
 }
 
 /** Turbopack requires loader options to be serializable — no functions, and no
- *  `undefined`-valued properties. Absent options are omitted entirely. */
+ *  `undefined`-valued properties. Absent options are omitted entirely. The
+ *  return type is a JSON-safe record (assignable to Next's
+ *  `Record<string, JSONValue>` loader-options contract AND to webpack loader
+ *  options) rather than `Record<string, unknown>` — `unknown` is not
+ *  JSON-assignable, and a cast here would hide a genuinely unserializable
+ *  option from the compiler. */
+type JsonSafeLoaderOptions = Record<string, string | string[] | Record<string, string>>
+
 function buildLoaderOptions(
   projectRoot: string,
   options: CortexNextOptions,
   runtimeId?: string,
-): Record<string, unknown> {
-  const loaderOptions: Record<string, unknown> = { projectRoot }
+): JsonSafeLoaderOptions {
+  const loaderOptions: JsonSafeLoaderOptions = { projectRoot }
   if (options.resolveAlias !== undefined) loaderOptions.resolveAlias = options.resolveAlias
   if (options.includeNodeModules !== undefined) loaderOptions.includeNodeModules = options.includeNodeModules
   // ZF0-1851: only present when a bridge is active (dev-server phase). Absent
@@ -128,8 +132,13 @@ function buildLoaderOptions(
   return loaderOptions
 }
 
-function isTurbopackRuleObject(value: unknown): value is TurbopackRuleObject {
-  return typeof value === 'object' && value !== null && Array.isArray((value as TurbopackRuleObject).loaders)
+/** Narrows a turbopack rule to Next's own object form (the union member
+ *  carrying a `loaders` array) — typed against Next's rule collection, not a
+ *  hand-rolled mirror, so the merge below typechecks without casts. */
+function isTurbopackRuleObject(
+  value: unknown,
+): value is Extract<NextTurbopackRules[string], { loaders: unknown[] }> {
+  return typeof value === 'object' && value !== null && Array.isArray((value as { loaders?: unknown }).loaders)
 }
 
 /** Globs cortex instruments. Turbopack rules have no function-valued `exclude`,
@@ -137,17 +146,17 @@ function isTurbopackRuleObject(value: unknown): value is TurbopackRuleObject {
 const CORTEX_TURBOPACK_GLOBS = ['*.tsx', '*.jsx'] as const
 
 function withCortexTurbopack(
-  existing: TurbopackConfig | undefined,
+  existing: NextTurbopack | undefined,
   options: CortexNextOptions,
   runtimeId?: string,
-): TurbopackConfig {
+): NextTurbopack {
   const projectRoot = options.projectRoot ?? process.cwd()
   const cortexLoader = {
     loader: resolveLoaderPath(),
     options: buildLoaderOptions(projectRoot, options, runtimeId),
   }
 
-  const rules: Record<string, unknown> = { ...(existing?.rules ?? {}) }
+  const rules: NextTurbopackRules = { ...(existing?.rules ?? {}) }
   for (const glob of CORTEX_TURBOPACK_GLOBS) {
     const current = rules[glob]
     if (current === undefined) {
@@ -644,9 +653,10 @@ function buildWrappedConfig(nextConfig: NextConfig, options: CortexNextOptions, 
     // thoughts/shared/research/2026-07-18-nextjs-analysis-review-addendum.md.
     turbopack: withCortexTurbopack(nextConfig.turbopack, options, runtimeId),
 
-    // Signature DERIVED from Next (NextWebpack) — config is Next's webpack
-    // Configuration, context its real WebpackConfigContext. `config` is loosely
-    // typed by Next (module.rules is accessible), so no local re-declaration.
+    // Contextually typed by NextConfig['webpack'] (the return type of this
+    // function) — config is Next's webpack Configuration, context its real
+    // WebpackConfigContext. No cast: the honest NextConfig alias lets TS infer
+    // the params, so drift between this callback and Next's type fails tsc.
     webpack: ((config, context) => {
       // Apply user's webpack config first
       if (typeof nextConfig.webpack === 'function') {
@@ -671,6 +681,6 @@ function buildWrappedConfig(nextConfig: NextConfig, options: CortexNextOptions, 
       })
 
       return config
-    }) as NextWebpack,
+    }),
   }
 }

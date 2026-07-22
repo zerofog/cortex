@@ -466,9 +466,12 @@ function handleRPC(method: string, params: Record<string, unknown>): unknown {
       // FUTURE: drift-recovery — could send a forced-resync request to the
       // browser here so it emits syncFullState(allEntries) right before
       // Claude reads, closing the silent-drift window between browser and
-      // server cache. Deferred today because the merge-with-timestamp
-      // semantics in StagedEditsCache.mergeFullSync make incidental drift
-      // self-healing on the next legitimate Panel mount.
+      // server cache. Honest scope of today's self-heal: an already-mounted
+      // page that RECONNECTS does a clear-then-set (syncClear + syncFullState),
+      // which authoritatively replaces the cache; mergeFullSync itself is
+      // upsert-only and cannot delete ghosts, and a FRESH page load sends no
+      // sync at all — so a closed page's cache lingers until dev-server
+      // restart (tracked: browser-owned session-nonce follow-up).
       const intents = currentSession!.stagedEdits.list()
       return { intents, count: intents.length }
     }
@@ -533,9 +536,10 @@ function handleRPC(method: string, params: Record<string, unknown>): unknown {
 
       // Notify browser so its canonical buffer stays in sync with server cache.
       // Best-effort: if channel.send throws (transport closed) or the Panel
-      // isn't mounted (HMR transient), the browser will reconcile on next mount
-      // via syncFullState (which mergeFullSyncs into the server cache, with
-      // newer-timestamp-wins resolution — see StagedEditsCache.mergeFullSync).
+      // isn't mounted (HMR transient), the browser reconciles on its next
+      // RECONNECT via the clear-then-set sync (syncClear + syncFullState —
+      // authoritative replace; note mergeFullSync alone is upsert-only and a
+      // fresh page load sends no sync).
       // FIX 4: browserNotified is now false when browserConnected is false —
       // server.hot.send is fire-and-forget; the channel existing is not evidence
       // that a browser actually received the message. browserConnected flips to
@@ -1541,33 +1545,27 @@ export function cortexEditor(_options?: CortexEditorOptions): Plugin {
               return
             }
 
-            // mcp-session-hello — MCP server announces its process-scoped UUID so the
-            // browser can detect a genuine new Claude session and wipe stale staged edits.
-            // This triggers a DESTRUCTIVE buffer.clear() on the browser, so it is gated
-            // behind the same token check as every other privileged CLI message above —
-            // the MCP server attaches the token (see mcp.ts socket.on('open')). The
-            // /@cortex/ws upgrade is only Origin-checked at connect; the per-message token
-            // is the actual auth, so handling this AFTER the gate prevents any other local
-            // process from forcing a wipe with a merely well-formed UUID.
+            // mcp-session-hello — MCP server announces its process-scoped UUID; the
+            // browser uses the forwarded hello as its reconcile trigger (phantom-intent
+            // self-heal). Still gated behind the same token check as every other
+            // privileged CLI message above — the MCP server attaches the token (see
+            // mcp.ts socket.on('open')). The /@cortex/ws upgrade is only Origin-checked
+            // at connect; the per-message token is the actual auth, so handling this
+            // AFTER the gate prevents any other local process from forging hellos.
+            //
+            // DELIBERATELY NO stagedEdits.clear() here (0.3.1): the wipe formerly keyed
+            // on a UUID change, but Claude Code spawns a fresh `cortex mcp` process —
+            // fresh UUID — per conversation, so every Claude restart (and every
+            // interleaved hello from two concurrent Claude clients) destroyed the
+            // designer's staged-but-unapplied work. The designer's session is the
+            // BROWSER page's lifetime (the buffer is memory-only), not any MCP process
+            // lifetime. Live-page staleness self-heals via the browser's reconnect
+            // clear-then-set sync and reconcileOnConnect. Residual (pre-existing): a
+            // closed page leaves its server cache until dev-server restart — benign
+            // resurrection, tracked as the browser-owned session-nonce follow-up.
             if (type === 'mcp-session-hello') {
               const sessionId = (parsed as Record<string, unknown>).sessionId
               if (typeof sessionId === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(sessionId)) {
-                // ZF0-1869 Review Fix 1: UUID-change-gated server-side clear, mirroring
-                // the browser's lastSessionIdRef logic. A transient same-UUID reconnect
-                // (WiFi flap, sleep/wake — the MCP server keeps the same process-scoped
-                // UUID) must NOT clear stagedEdits: the browser still has its buffer, and
-                // an unconditional clear causes cortex_get_pending_edits to return zero
-                // while the browser still shows staged edits (silent divergence, no self-heal).
-                // Only a DIFFERENT UUID means a genuinely new Claude session — then we clear.
-                // First hello (lastMcpSessionId === null): adopt UUID, do NOT clear.
-                if (currentSession) {
-                  if (currentSession.lastMcpSessionId !== null &&
-                      currentSession.lastMcpSessionId !== sessionId) {
-                    // Genuine new Claude session — clear stale intents from prior session.
-                    currentSession.stagedEdits.clear()
-                  }
-                  currentSession.lastMcpSessionId = sessionId
-                }
                 // FIX 3: mcp-session-hello is a server→browser message; send BROWSER-ONLY
                 // via server.hot.send (bypassing forwardToCLI). The channel.send path goes
                 // through validateAndSend → forwardToCLI which would echo this back to CLI

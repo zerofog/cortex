@@ -1183,14 +1183,17 @@ describe('CLI WebSocket bridge', () => {
     })
   })
 
-  // ─── Fix 1 (ZF0-1869 Review): UUID-change-gated server-side clear ──────────
-  // The server must mirror the browser's lastSessionIdRef logic:
-  //   (a) first mcp-session-hello (lastMcpSessionId === null) → adopt UUID, do NOT clear
+  // ─── mcp-session-hello NEVER clears staged edits (0.3.1) ──────────────────
+  // History: ZF0-1869 originally cleared on UUID change ("genuine new Claude
+  // session"). That keyed a destructive clear on the MCP PROCESS lifetime — but
+  // Claude Code spawns a fresh `cortex mcp` (fresh UUID) per conversation, so
+  // every Claude restart, and every interleaved hello from two concurrent
+  // Claude clients, silently destroyed the designer's staged work. The
+  // designer's session is the BROWSER page's lifetime; no hello variant clears:
+  //   (a) first hello → do NOT clear
   //   (b) same UUID again (transient reconnect) → do NOT clear
-  //   (c) different UUID (genuine new Claude session) → MUST clear
-  //
-  // Tests (a) and (b) FAIL against the unconditional-clear code and PASS after Fix 1.
-  // Test (c) passes before and after — clearing on UUID-change is the correct behavior.
+  //   (c) different UUID (MCP restart / second Claude client) → do NOT clear
+  //   (d) interleaved A,B,A hellos (two concurrent clients) → do NOT clear
 
   it('mcp-session-hello first-adopt (no prior UUID) does NOT clear server stagedEdits (Fix 1 TDD-a)', async () => {
     const { server } = await setupServer()
@@ -1202,8 +1205,7 @@ describe('CLI WebSocket bridge', () => {
     cache.append(makeEdit({ intentId: 'keep-me', property: 'color' }))
     expect(cache.size()).toBe(1)
 
-    // First mcp-session-hello — lastMcpSessionId is null, first adoption.
-    // This is a transient-reconnect-safe no-op: do NOT clear.
+    // First mcp-session-hello — must not touch the cache (no hello ever clears).
     const UUID_A = '11111111-0000-4000-a000-000000000001'
     ws.send(JSON.stringify({ type: 'mcp-session-hello', sessionId: UUID_A, token: sessionToken }))
 
@@ -1227,8 +1229,8 @@ describe('CLI WebSocket bridge', () => {
     // First hello — adopt UUID (no clear expected on first adopt).
     ws.send(JSON.stringify({ type: 'mcp-session-hello', sessionId: UUID_A, token: sessionToken }))
     await vi.waitFor(() => {
-      // Wait until the first hello has been processed (lastMcpSessionId set to UUID_A)
-      // by confirming it was forwarded to the browser channel.
+      // Wait until the first hello has been processed by confirming it was
+      // forwarded to the browser channel.
       const hellos = server._sent.filter((s) => (s.data as any).type === 'mcp-session-hello')
       expect(hellos.length).toBeGreaterThanOrEqual(1)
     })
@@ -1247,7 +1249,7 @@ describe('CLI WebSocket bridge', () => {
     expect(cache.size()).toBe(1)
   })
 
-  it('mcp-session-hello different-UUID DOES clear server stagedEdits (Fix 1 TDD-c)', async () => {
+  it('mcp-session-hello different-UUID does NOT clear server stagedEdits (0.3.1 — Claude restart must not destroy staged work)', async () => {
     const { server } = await setupServer()
     const { ws, nextMessage } = await connectCLI()
     await nextMessage() // drain cortex-status
@@ -1257,22 +1259,53 @@ describe('CLI WebSocket bridge', () => {
     const UUID_A = '11111111-0000-4000-a000-000000000003'
     const UUID_B = '22222222-0000-4000-a000-000000000003'
 
-    // First hello — adopt UUID_A (no clear — first adopt).
+    // First hello — adopt.
     ws.send(JSON.stringify({ type: 'mcp-session-hello', sessionId: UUID_A, token: sessionToken }))
     await vi.waitFor(() => {
       expect(server._sent.some((s) => (s.data as any).type === 'mcp-session-hello')).toBe(true)
     })
 
-    // Seed an edit (simulates stale session data from the prior Claude session).
-    cache.append(makeEdit({ intentId: 'stale-intent', property: 'color' }))
+    // Designer stages an edit, then Claude Code restarts (fresh mcp process →
+    // fresh UUID). The staged work must SURVIVE.
+    cache.append(makeEdit({ intentId: 'survives-restart', property: 'color' }))
     expect(cache.size()).toBe(1)
 
-    // Second hello — DIFFERENT UUID → genuine new Claude session → MUST clear.
+    // Second hello — DIFFERENT UUID (the restart). Key the wait on the second
+    // forwarded hello (proves the handler ran), then assert survival.
     ws.send(JSON.stringify({ type: 'mcp-session-hello', sessionId: UUID_B, token: sessionToken }))
-
     await vi.waitFor(() => {
-      expect(cache.size()).toBe(0)
+      const hellos = server._sent.filter((s) => (s.data as any).type === 'mcp-session-hello')
+      expect(hellos.length).toBeGreaterThanOrEqual(2)
     })
+    expect(cache.size()).toBe(1)
+    expect(cache.list()[0]!.intentId).toBe('survives-restart')
+  })
+
+  it('interleaved hellos from two concurrent Claude clients (A,B,A) leave stagedEdits intact (0.3.1)', async () => {
+    // Two Claude Code windows on one project = two mcp processes with distinct
+    // UUIDs, alternating hellos on reconnects. Under the old UUID-change wipe,
+    // EVERY alternation cleared the cache — merely opening a second Claude
+    // window destroyed staged work.
+    const { server } = await setupServer()
+    const { ws, nextMessage } = await connectCLI()
+    await nextMessage() // drain cortex-status
+    await nextMessage() // drain agent-status
+
+    const cache = _getStagedEditsForTesting()!
+    const UUID_A = '11111111-0000-4000-a000-000000000004'
+    const UUID_B = '22222222-0000-4000-a000-000000000004'
+
+    cache.append(makeEdit({ intentId: 'two-client-survivor', property: 'padding-top' }))
+
+    for (const uuid of [UUID_A, UUID_B, UUID_A]) {
+      ws.send(JSON.stringify({ type: 'mcp-session-hello', sessionId: uuid, token: sessionToken }))
+    }
+    await vi.waitFor(() => {
+      const hellos = server._sent.filter((s) => (s.data as any).type === 'mcp-session-hello')
+      expect(hellos.length).toBeGreaterThanOrEqual(3)
+    })
+    expect(cache.size()).toBe(1)
+    expect(cache.list()[0]!.intentId).toBe('two-client-survivor')
   })
 
   it('warns when no httpServer (middleware mode)', () => {

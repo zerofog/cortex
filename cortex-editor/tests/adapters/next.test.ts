@@ -93,7 +93,14 @@ describe('withCortex phase contract', () => {
   })
 
   it('preserves custom properties attached to the user config', () => {
-    const config = evalPhase(withCortex({ myCustomKey: { nested: true }, env: { FLAG: '1' } }), TEST_PHASE)
+    // RUNTIME passthrough contract: keys outside Next's NextConfig type still
+    // survive the wrap (the spread copies everything). The double cast is
+    // required — and correct — because the input TYPE is now Next's real
+    // NextConfig (no index signature), so unknown keys are a compile error by
+    // design; this test intentionally smuggles one past the compiler to pin
+    // the runtime behavior.
+    const userConfig = { myCustomKey: { nested: true }, env: { FLAG: '1' } } as unknown as Parameters<typeof withCortex>[0]
+    const config = evalPhase(withCortex(userConfig), TEST_PHASE) as Record<string, unknown>
     expect(config.myCustomKey).toEqual({ nested: true })
     expect(config.env).toEqual({ FLAG: '1' })
   })
@@ -696,9 +703,13 @@ describe('withCortex turbopack rules', () => {
   it('appends the cortex loader after existing loaders on a colliding rule object', () => {
     // Webpack-compat loader chains execute right-to-left: appending last means
     // cortex runs first, on raw source, before user loaders transform it.
-    const rules = turbopackRules(
-      withCortex({ turbopack: { rules: { '*.tsx': { loaders: ['user-loader'], foo: 'bar' } } } })
-    )
+    // `foo` is outside Next's rule type on purpose: pins that the object-form
+    // spread preserves unknown keys (future Next rule fields) at runtime. The
+    // cast smuggles it past the (correctly) strict input type.
+    const collidingConfig = {
+      turbopack: { rules: { '*.tsx': { loaders: ['user-loader'], foo: 'bar' } } },
+    } as unknown as Parameters<typeof withCortex>[0]
+    const rules = turbopackRules(withCortex(collidingConfig))
     const rule = rules['*.tsx']!
     expect(rule.loaders[0]).toBe('user-loader')
     expect((rule.loaders[1] as { loader: string }).loader).toMatch(/next-source-loader/)
@@ -714,8 +725,11 @@ describe('withCortex turbopack rules', () => {
 
   it('warns and leaves unrecognized rule shapes untouched', () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
-    const weird = { as: '*.js' } // object without a loaders array
-    const rules = turbopackRules(withCortex({ turbopack: { rules: { '*.tsx': weird } } }))
+    const weird = { as: '*.js' } // object without a loaders array — intentionally
+    // invalid per Next's rule type (cast smuggles it in) to pin the defensive
+    // warn-and-skip branch against malformed user configs at runtime.
+    const weirdConfig = { turbopack: { rules: { '*.tsx': weird } } } as unknown as Parameters<typeof withCortex>[0]
+    const rules = turbopackRules(withCortex(weirdConfig))
     expect(rules['*.tsx']).toEqual(weird)
     expect(warn).toHaveBeenCalledWith(expect.stringContaining("turbopack.rules['*.tsx']"))
   })

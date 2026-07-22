@@ -775,14 +775,14 @@ describe('cortexWebpack adapter', () => {
     }
   })
 
-  // ─── Fix 1 (ZF0-1869 Review): UUID-change-gated server-side clear ──────────
-  // The server must mirror the browser's lastSessionIdRef logic:
-  //   (a) first mcp-session-hello (lastMcpSessionId === null) → adopt UUID, do NOT clear
+  // ─── mcp-session-hello NEVER clears staged edits (0.3.1) ──────────────────
+  // History: ZF0-1869 originally cleared on UUID change. That keyed a
+  // destructive clear on the MCP PROCESS lifetime — but Claude Code spawns a
+  // fresh `cortex mcp` (fresh UUID) per conversation, so every Claude restart
+  // destroyed the designer's staged work. See the vite.test.ts sibling block.
+  //   (a) first hello → do NOT clear
   //   (b) same UUID again (transient reconnect) → do NOT clear
-  //   (c) different UUID (genuine new Claude session) → MUST clear
-  //
-  // Tests (a) and (b) FAIL against the unconditional-clear code and PASS after Fix 1.
-  // Test (c) passes before and after — clearing on UUID-change is the correct behavior.
+  //   (c) different UUID (Claude restart / second client) → do NOT clear
 
   it('mcp-session-hello first-adopt (no prior UUID) does NOT clear server stagedEdits (Fix 1 TDD-a)', async () => {
     const root = makeTempProject()
@@ -874,7 +874,11 @@ describe('cortexWebpack adapter', () => {
     }
   })
 
-  it('mcp-session-hello different-UUID DOES clear server stagedEdits (Fix 1 TDD-c / Fix 2 successor)', async () => {
+  it('mcp-session-hello different-UUID does NOT clear stagedEdits — getPendingEdits still returns them after a Claude restart (0.3.1)', async () => {
+    // The reported bug, end-to-end: designer stages an edit, Claude Code
+    // restarts (fresh mcp process → fresh UUID), the NEW session's
+    // getPendingEdits must still return the staged work. The old UUID-change
+    // wipe destroyed it here.
     const root = makeTempProject()
     const compiler = createMockCompiler(root)
     const plugin = cortexWebpack({ projectRoot: root })
@@ -895,25 +899,25 @@ describe('cortexWebpack adapter', () => {
       const UUID_A = '11111111-0000-4000-a000-000000000003'
       const UUID_B = '22222222-0000-4000-a000-000000000003'
 
-      // First hello — adopt UUID_A (first adopt, no clear).
+      // First hello — the first Claude session announces itself.
       cli.send(JSON.stringify({ type: 'mcp-session-hello', sessionId: UUID_A, token }))
       await nextMessageOfType(browser, 'mcp-session-hello')
 
-      // Seed stale intent from prior session.
-      const staleEdit = { intentId: 'stale-fix1c', source: 'Hero.tsx:5:3', property: 'color', value: 'red', previousValue: '', timestamp: Date.now() }
-      browser.send(JSON.stringify({ type: 'staged-edit-add', edit: staleEdit, token }))
+      // Designer stages an edit during the first session.
+      const stagedEdit = { intentId: 'survives-claude-restart', source: 'Hero.tsx:5:3', property: 'color', value: 'red', previousValue: '', timestamp: Date.now() }
+      browser.send(JSON.stringify({ type: 'staged-edit-add', edit: stagedEdit, token }))
       await vi.waitFor(async () => {
         const result = await rpc(cli, token, 'getPendingEdits') as { count: number }
         expect(result.count).toBe(1)
       }, { timeout: 1000 })
 
-      // Second hello — DIFFERENT UUID → genuine new Claude session → MUST clear.
+      // Claude restarts: DIFFERENT UUID hello. Staged work must survive.
       cli.send(JSON.stringify({ type: 'mcp-session-hello', sessionId: UUID_B, token }))
+      await nextMessageOfType(browser, 'mcp-session-hello')
 
-      await vi.waitFor(async () => {
-        const result = await rpc(cli, token, 'getPendingEdits') as { count: number }
-        expect(result.count).toBe(0)
-      }, { timeout: 1000 })
+      const result = await rpc(cli, token, 'getPendingEdits') as { count: number; intents: Array<{ intentId: string }> }
+      expect(result.count).toBe(1)
+      expect(result.intents[0]!.intentId).toBe('survives-claude-restart')
     } finally {
       cli.close()
       browser.close()

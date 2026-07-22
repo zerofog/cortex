@@ -1098,32 +1098,24 @@ export class CortexWebpackRuntime {
       return
     }
 
-    // mcp-session-hello — MCP server announces its process-scoped UUID so the
-    // browser can detect a genuine new Claude session and wipe stale staged edits.
-    // This triggers a DESTRUCTIVE buffer.clear() on the browser, so it is gated
-    // behind the same token check as every other privileged CLI message above —
-    // the MCP server attaches the token (see mcp.ts socket.on('open')). The
-    // /@cortex/ws upgrade is only Origin-checked at connect; the per-message token
-    // is the actual auth, so handling this AFTER the gate prevents any other local
-    // process from forcing a wipe with a merely well-formed UUID.
+    // mcp-session-hello — MCP server announces its process-scoped UUID; the
+    // browser uses the forwarded hello as its reconcile trigger (phantom-intent
+    // self-heal). Still gated behind the same token check as every other
+    // privileged CLI message above — the MCP server attaches the token (see
+    // mcp.ts socket.on('open')). The upgrade is only Origin-checked at connect;
+    // the per-message token is the actual auth, so handling this AFTER the gate
+    // prevents any other local process from forging hellos.
     // Token is STRIPPED — never forwarded to the browser.
     if (type === 'mcp-session-hello') {
       const sessionId = (parsed as Record<string, unknown>).sessionId
       if (typeof sessionId === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(sessionId)) {
-        // ZF0-1869 Review Fix 1: UUID-change-gated server-side clear, mirroring
-        // the browser's lastSessionIdRef logic. A transient same-UUID reconnect
-        // (WiFi flap, sleep/wake — the MCP server keeps the same process-scoped
-        // UUID) must NOT clear stagedEdits: the browser still has its buffer, and
-        // an unconditional clear causes cortex_get_pending_edits to return zero
-        // while the browser still shows staged edits (silent divergence, no self-heal).
-        // Only a DIFFERENT UUID means a genuinely new Claude session — then we clear.
-        // First hello (lastMcpSessionId === null): adopt UUID, do NOT clear.
-        if (session.lastMcpSessionId !== null &&
-            session.lastMcpSessionId !== sessionId) {
-          // Genuine new Claude session — clear stale intents from prior session.
-          session.stagedEdits.clear()
-        }
-        session.lastMcpSessionId = sessionId
+        // DELIBERATELY NO stagedEdits.clear() here (0.3.1): the wipe formerly
+        // keyed on a UUID change, but Claude Code spawns a fresh `cortex mcp`
+        // process — fresh UUID — per conversation, so every Claude restart (and
+        // every interleaved hello from two concurrent Claude clients) destroyed
+        // the designer's staged-but-unapplied work. The designer's session is
+        // the BROWSER page's lifetime (memory-only buffer), not any MCP process
+        // lifetime. See the vite.ts sibling handler for the full rationale.
         // FIX 3: mcp-session-hello is a server→browser message; send BROWSER-ONLY
         // via sendToInitializedBrowsers (bypassing forwardToCLI). The channel.send
         // path fans out to CLI clients — wrong direction, no consumer.

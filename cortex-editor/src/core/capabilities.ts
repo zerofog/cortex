@@ -67,7 +67,7 @@ export function computeCapabilities(
       capabilities.push({
         name: 'Component Library',
         status: 'ai-required',
-        reason: 'Component library editing requires an API key. Visual preview is active.',
+        reason: 'Component library editing requires Claude Code. Visual preview is active.',
       })
     }
   }

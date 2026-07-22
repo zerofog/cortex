@@ -5,12 +5,16 @@ import { withCortex, type NextConfigInput } from '../../src/adapters/next.js'
 /**
  * COMPILE-TIME contract: a real `next` NextConfig must be assignable to
  * withCortex's parameter. The value of this file is that it TYPECHECKS under
- * tests/tsconfig.json (next is a devDependency) — the runtime assertions are
- * incidental. This has regressed twice: the webpack callback type was
- * hand-rolled with a narrower context than Next's WebpackConfigContext, so
- * `withCortex(realNextConfig)` failed tsc in strict host repos and every fix
- * that didn't DERIVE from `next` re-introduced it. If this file stops
- * compiling, the type contract is broken again — fix the derivation in
+ * tests/tsconfig.json — it is listed EXPLICITLY in that tsconfig's `include`
+ * (vitest runs transpile-only; only `npm run typecheck` enforces this file, so
+ * it must never fall out of the include list — that is exactly how this bug
+ * shipped twice unnoticed). The runtime assertions are incidental. History:
+ * the webpack callback type was hand-rolled with a narrower context than
+ * Next's WebpackConfigContext, then the fix left `turbopack` and the outer
+ * `[key: string]: unknown` index signature hand-rolled, so
+ * `withCortex(realNextConfig)` still failed tsc in strict host repos. Every
+ * fix that didn't DERIVE from `next` re-introduced the class. If this file
+ * stops compiling, the type contract is broken again — fix the derivation in
  * src/adapters/next.ts, do not add a cast here.
  */
 describe('withCortex NextConfig type contract', () => {
@@ -33,6 +37,32 @@ describe('withCortex NextConfig type contract', () => {
     }
 
     // The load-bearing line: this must typecheck WITHOUT a cast.
+    const fn = withCortex(nextConfig)
+    expect(typeof fn).toBe('function')
+  })
+
+  it('accepts the full breadth of Next turbopack rule shapes (object form with as/condition, mixed loaders)', () => {
+    // Exercises Next's TurbopackRuleConfigCollection through the merge input:
+    // the object form carrying `as` + `condition`, and a loaders array mixing
+    // the string shorthand with the { loader, options } object form. The merge
+    // in withCortexTurbopack is typed against Next's own rule types (no casts),
+    // so any drift between what it builds and what Next accepts fails HERE at
+    // compile time instead of at the consumer's `next build`.
+    const nextConfig: NextConfig = {
+      turbopack: {
+        rules: {
+          '*.mdx': {
+            loaders: ['@mdx-js/loader', { loader: 'extra-loader', options: { flag: 'on' } }],
+            as: '*.tsx',
+          },
+          '*.svg': {
+            loaders: [{ loader: '@svgr/webpack', options: { icon: true } }],
+            condition: { path: '!**/node_modules/**' },
+          },
+        },
+      },
+    }
+
     const fn = withCortex(nextConfig)
     expect(typeof fn).toBe('function')
   })

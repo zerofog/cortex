@@ -95,13 +95,6 @@ export class CortexSession {
   /** Adapter-owned cleanup for pending httpServer lifecycle listeners. */
   listeningCleanup: (() => void) | null = null
 
-  // --- MCP session tracking ---
-  /** Last-seen MCP session UUID received via mcp-session-hello. Used to gate the
-   *  server-side stagedEdits.clear() so only a genuine new Claude session (UUID
-   *  change) triggers a wipe — not a transient same-UUID reconnect (WiFi flap,
-   *  sleep/wake). Mirrors the browser's lastSessionIdRef.current guard. */
-  lastMcpSessionId: string | null = null
-
   // --- Telemetry ---
   /** Opt-in telemetry handle. `null` when `CORTEX_TELEMETRY` is unset or
    *  not `'true'`. Set by the adapter (vite.ts / webpack.ts) after session

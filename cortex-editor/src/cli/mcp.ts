@@ -19,11 +19,13 @@ import {
   cortexReportSourceEditFailedInputSchema,
 } from '../schemas/index.js'
 
-/** Process-scoped UUID announced to the browser on every WebSocket connect.
- *  The browser compares this against its last-seen UUID and wipes the staging
- *  buffer only when the UUID changes — distinguishing a genuine new Claude
- *  session from a transient reconnect (sleep/wake, WiFi flap) which reuses
- *  the same process and therefore the same UUID.
+/** Process-scoped UUID announced via mcp-session-hello on every WebSocket
+ *  connect. The forwarded hello is the browser's reconcile trigger (it runs
+ *  reconcileOnConnect to auto-clear intents whose edits verifiably landed in
+ *  source while MCP was down). It deliberately does NOT drive any destructive
+ *  clear: Claude Code spawns a fresh `cortex mcp` — fresh UUID — per
+ *  conversation, so a UUID change means "an MCP process restarted", never "the
+ *  designer started a new session" (that is the browser page's lifetime).
  *  Exported so tests can assert the exact value sent without a live server. */
 export const MCP_SESSION_ID = randomUUID()
 
@@ -202,15 +204,13 @@ export async function startMCPServer(options: MCPServerOptions = {}): Promise<MC
       process.stderr.write(`[cortex] Connected to Cortex dev server at ${url}${token ? '' : ' (token not found — writes will be rejected)'}\n`)
       if (token) {
         socket.send(JSON.stringify({ type: 'cortex-status-request', token }))
-        // Announce process-scoped UUID so the browser can detect a genuine new
-        // Claude session and wipe stale staged edits. Sent on every connect so
-        // the browser updates its last-seen UUID on reconnect as well (transient
-        // reconnects keep the same MCP_SESSION_ID, so the browser won't wipe).
-        // Carries the auth token: mcp-session-hello triggers a destructive
-        // buffer.clear() on the browser, so it must pass Vite's CLI token gate
-        // like every other privileged CLI message. A tokenless MCP server cannot
-        // authenticate, so it equally must not be able to force a wipe — gating
-        // it behind the same `if (token)` as cortex-status-request enforces that.
+        // Announce the process-scoped UUID on every connect. The forwarded
+        // hello triggers the browser's reconcileOnConnect (auto-clears intents
+        // whose edits verifiably landed while MCP was down) — it never wipes
+        // staged work. Carries the auth token: hellos are still a privileged
+        // CLI message (they drive reconcile), so they must pass the same
+        // per-message token gate as cortex-status-request — a random local
+        // process must not be able to forge them.
         socket.send(JSON.stringify({ type: 'mcp-session-hello', sessionId: MCP_SESSION_ID, token }))
       }
     })
