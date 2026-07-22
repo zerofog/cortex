@@ -1,0 +1,19 @@
+dev-app-next/next.config.ts
+  s_bbde566b990012::t_10b13e9d957452 2,5-31
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.15",
+  "base_commit_sha": "4d4a08e99e51d9c3d666050c92b3845fcc0ac3a0",
+  "prompts": {},
+  "sessions": {
+    "s_bbde566b990012": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "b0f4fb44-6981-42bb-810b-9f8c930540f4",
+        "model": "claude-fable-5"
+      },
+      "human_author": "dklzf <213919963+dklzf@users.noreply.github.com>"
+    }
+  }
+}
