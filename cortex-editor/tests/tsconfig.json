@@ -9,6 +9,12 @@
   },
   "include": [
     "core/annotations.test.ts",
+    // COMPILE-TIME CONTRACT — must stay in this program. The file's whole value
+    // is that `npm run typecheck` compiles it (vitest runs transpile-only); it
+    // sat outside the include list once and the withCortex type bug shipped
+    // twice because of it. Widening to tests/** is blocked on ~479 pre-existing
+    // type errors across the suite (tracked in tasks/todo.md).
+    "adapters/next-type-contract.test.ts",
     "../src/**/*.ts",
     "../src/**/*.tsx"
   ],

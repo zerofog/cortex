@@ -78,6 +78,47 @@ describe('bootstrap', () => {
     delete window.__cortex_channel__
   })
 
+  it('is SILENT on the WS fallback when __cortex_ws_port__ is present (Next adapter, P2-1)', async () => {
+    // The Next/webpack adapter injects __cortex_ws_port__ and never defines
+    // __cortex_send__ — WS is the intended transport there, so bootstrap must
+    // NOT warn (the old Vite-specific "remove <script> tags" warning fired on
+    // every Next page load). No __cortex_send__.
+    window.__cortex_ws_port__ = 5173
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const debug = vi.spyOn(console, 'debug').mockImplementation(() => {})
+    try {
+      const { bootstrap, _resetForTesting } = await import('../../src/browser/index.js')
+      _resetForTesting()
+      bootstrap()
+      expect(warn).not.toHaveBeenCalledWith(expect.stringContaining('__cortex_send__ not found'))
+      expect(warn).not.toHaveBeenCalledWith(expect.stringContaining('index.html'))
+      expect(debug).not.toHaveBeenCalled() // ws port present → not even the debug line
+    } finally {
+      warn.mockRestore()
+      debug.mockRestore()
+      delete window.__cortex_ws_port__
+      delete window.__cortex_channel__
+    }
+  })
+
+  it('debug-logs ONCE (not warn) when there is no transport at all (P2-1)', async () => {
+    // Neither __cortex_send__ nor __cortex_ws_port__ — the genuinely-broken
+    // state. One adapter-neutral debug line, never a warn.
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const debug = vi.spyOn(console, 'debug').mockImplementation(() => {})
+    try {
+      const { bootstrap, _resetForTesting } = await import('../../src/browser/index.js')
+      _resetForTesting()
+      bootstrap()
+      expect(warn).not.toHaveBeenCalledWith(expect.stringContaining('index.html'))
+      expect(debug).toHaveBeenCalledWith(expect.stringContaining('No editor transport'))
+    } finally {
+      warn.mockRestore()
+      debug.mockRestore()
+      delete window.__cortex_channel__
+    }
+  })
+
   it('_resetForTesting unmounts and removes host', async () => {
     const { bootstrap, _resetForTesting } = await import('../../src/browser/index.js')
     _resetForTesting()

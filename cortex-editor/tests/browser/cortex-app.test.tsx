@@ -1855,7 +1855,13 @@ describe('CortexApp — HMR file-list filter (ZF0-1292 follow-up)', () => {
 
 // ── Task 12 — mcp-session-hello / Change 6 ────────────────────────────────
 
-describe('CortexApp — mcp-session-hello session-ID wipe (Task 12, Change 6)', () => {
+describe('CortexApp — mcp-session-hello never wipes; reconcile fires on every hello (0.3.1)', () => {
+  // History: Task 12/Change 6 wiped the buffer on a UUID change ("new Claude
+  // session"). That keyed a destructive clear on the MCP PROCESS lifetime, but
+  // Claude Code spawns a fresh `cortex mcp` (fresh UUID) per conversation — so
+  // every Claude restart destroyed the designer's staged work. The designer's
+  // session is THIS page's lifetime (memory-only buffer); no hello wipes, and
+  // reconcileOnConnect runs unconditionally instead.
   const VALID_UUID_A = '00000000-0000-4000-a000-000000000001'
   const VALID_UUID_B = '00000000-0000-4000-a000-000000000002'
 
@@ -1937,30 +1943,29 @@ describe('CortexApp — mcp-session-hello session-ID wipe (Task 12, Change 6)', 
   }
 
   // Deliver an mcp-session-hello and flush. _simulateMessage fans out
-  // synchronously to CortexApp's onMessage handler; the handler's
-  // compare-and-(maybe-)clear runs inline. Wrapping in act() flushes any
-  // resulting Preact re-render/effect synchronously, so a plain assertion
-  // afterwards is deterministic — no arbitrary setTimeout settle window.
+  // synchronously to CortexApp's onMessage handler, which runs
+  // reconcileOnConnect inline. Wrapping in act() flushes any resulting Preact
+  // re-render/effect synchronously, so a plain assertion afterwards is
+  // deterministic — no arbitrary setTimeout settle window.
   async function deliverHello(channel: ReturnType<typeof createMockChannel>, sessionId: string) {
     await act(async () => {
       channel._simulateMessage({ type: 'mcp-session-hello', sessionId } as any)
     })
   }
 
-  it('first mcp-session-hello ADOPTS the UUID without wiping the buffer', async () => {
-    // Verifies: receiving the very first hello from MCP does NOT wipe staged edits.
-    // Only a UUID CHANGE (second hello with a new UUID) should wipe.
+  it('first mcp-session-hello does NOT wipe the buffer', async () => {
+    // Verifies: receiving the very first hello from MCP keeps staged edits.
     const { channel, bridge } = await setupWithBuffer()
 
     // Stage one edit before the hello arrives.
     await act(async () => { await bridge.stageEdit('Hero.tsx:5:3', 'color', 'red') })
     await vi.waitFor(() => { expect(bridge.buffer.size()).toBe(1) }, { timeout: 2000 })
 
-    // First mcp-session-hello — should adopt the UUID, keep the buffer intact.
+    // First mcp-session-hello — buffer stays intact (the staged edit is
+    // divergent: the element's live color ≠ 'red', so reconcile keeps it).
     await deliverHello(channel, VALID_UUID_A)
 
-    // Buffer must NOT be wiped on first adoption. act() above flushed the
-    // handler synchronously, so this assertion needs no settle delay.
+    // act() above flushed the handler synchronously — no settle delay needed.
     expect(bridge.buffer.size()).toBe(1)
   })
 
@@ -1980,24 +1985,26 @@ describe('CortexApp — mcp-session-hello session-ID wipe (Task 12, Change 6)', 
     expect(bridge.buffer.size()).toBe(1)
   })
 
-  it('second mcp-session-hello with DIFFERENT UUID WIPES the buffer', async () => {
-    // Verifies: a new Claude session (new UUID) clears stale staged edits.
+  it('second mcp-session-hello with DIFFERENT UUID does NOT wipe the buffer (0.3.1 — Claude restart survives)', async () => {
+    // The reported data-loss bug: a fresh Claude Code conversation spawns a
+    // fresh `cortex mcp` process with a NEW UUID. Staged-but-unapplied work
+    // must SURVIVE that hello — the old UUID-change wipe destroyed it.
     const { channel, bridge } = await setupWithBuffer()
 
     await act(async () => { await bridge.stageEdit('Hero.tsx:5:3', 'color', 'green') })
     await vi.waitFor(() => { expect(bridge.buffer.size()).toBe(1) }, { timeout: 2000 })
 
-    // First hello — adopt UUID_A.
+    // First hello — the first Claude session announces itself.
     await deliverHello(channel, VALID_UUID_A)
     expect(bridge.buffer.size()).toBe(1)
 
-    // Second hello — DIFFERENT UUID → must WIPE the buffer. deliverHello's
-    // act() flushes buffer.clear() and the re-render synchronously; still
-    // guard with vi.waitFor in case buffer.clear() schedules a microtask.
+    // Second hello — DIFFERENT UUID (Claude restarted). The intent is
+    // divergent (live color ≠ 'green'), so reconcile keeps it too: the staged
+    // work survives, still applicable by the new Claude session.
     await deliverHello(channel, VALID_UUID_B)
-    await vi.waitFor(() => {
-      expect(bridge.buffer.size()).toBe(0)
-    }, { timeout: 2000 })
+    expect(bridge.buffer.size()).toBe(1)
+    const surviving = bridge.buffer.list() as Array<{ source: string; property: string; value: string }>
+    expect(surviving[0]).toMatchObject({ source: 'Hero.tsx:5:3', property: 'color', value: 'green' })
   })
 
   // ── ZF0-1869 criterion 25: reconcile-on-connect ───────────────────────────
@@ -2070,29 +2077,40 @@ describe('CortexApp — mcp-session-hello session-ID wipe (Task 12, Change 6)', 
     }, { timeout: 2000 })
   })
 
-  it('reconcile-on-connect: does NOT fire on different-UUID path (buffer already wiped)', async () => {
-    // Verifies the different-UUID path skips reconcile entirely — the buffer is
-    // already wiped by buffer.clear(), so running reconcile would be moot (and
-    // wasteful). This test checks that reconcile does not over-reach into the wipe path.
+  it('reconcile-on-connect fires on the different-UUID hello: converged intent auto-cleared, divergent survives (0.3.1)', async () => {
+    // With the wipe gone, the different-UUID hello (Claude restart) runs the
+    // SAME reconcile as every other hello: intents whose edits verifiably
+    // landed in source (live value matches) are auto-cleared — a restarted
+    // Claude may have applied them via the Edit tool before dying — while
+    // divergent intents survive for the new session to apply.
+    //
+    // Falsifiable:
+    //   - Fails if the old wipe returns: BOTH intents vanish (divergent lost).
+    //   - Fails if reconcile is skipped on this path: BOTH survive (converged kept).
     const { channel, bridge } = await setupWithBuffer()
 
-    // Set element so it would match IF reconcile ran on the wipe path.
+    // Converged element: live color already matches the intent's target.
     const convergedEl = document.querySelector('[data-cortex-source="Hero.tsx:5:3"]') as HTMLElement
-    if (convergedEl) convergedEl.style.color = 'blue'
+    expect(convergedEl).not.toBeNull()
+    convergedEl.style.color = 'blue'
 
-    await act(async () => { await bridge.stageEdit('Hero.tsx:5:3', 'color', 'blue') })
+    // Divergent element: live padding ≠ the intent's target.
+    const divergentEl = document.createElement('div')
+    divergentEl.setAttribute('data-cortex-source', 'App.tsx:10:5')
+    divergentEl.style.padding = '0px'
+    document.body.appendChild(divergentEl)
+    orphans.push(divergentEl)
+
+    await deliverHello(channel, VALID_UUID_A)  // first Claude session announces
+
+    await act(async () => { await bridge.stageEdit('Hero.tsx:5:3', 'color', 'blue') })      // converged
+    await act(async () => { await bridge.stageEdit('App.tsx:10:5', 'padding', '24px') })    // divergent
+    await vi.waitFor(() => { expect(bridge.buffer.size()).toBe(2) }, { timeout: 2000 })
+
+    // Claude restarts: DIFFERENT UUID hello → reconcile runs, no wipe.
+    await deliverHello(channel, VALID_UUID_B)
     await vi.waitFor(() => { expect(bridge.buffer.size()).toBe(1) }, { timeout: 2000 })
-
-    await deliverHello(channel, VALID_UUID_A)  // adopt
-    expect(bridge.buffer.size()).toBe(0)        // reconcile cleared it (converged)
-
-    // Now stage a new intent and send a DIFFERENT UUID → wipe path.
-    await act(async () => { await bridge.stageEdit('Hero.tsx:5:3', 'color', 'green') })
-    await vi.waitFor(() => { expect(bridge.buffer.size()).toBe(1) }, { timeout: 2000 })
-
-    await deliverHello(channel, VALID_UUID_B)  // different UUID → wipe
-    await vi.waitFor(() => { expect(bridge.buffer.size()).toBe(0) }, { timeout: 2000 })
-    // Buffer is 0 because of wipe (buffer.clear), not because of reconcile.
-    // Either way the buffer is empty — this test mainly confirms we didn't crash.
+    const surviving = bridge.buffer.list() as Array<{ source: string; property: string; value: string }>
+    expect(surviving[0]).toMatchObject({ source: 'App.tsx:10:5', property: 'padding', value: '24px' })
   })
 })

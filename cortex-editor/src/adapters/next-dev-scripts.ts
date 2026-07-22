@@ -30,16 +30,34 @@ interface InjectionFile {
 // visible exactly once.
 const warnedReasons = new Set<string>()
 
-/** Warn at most once per distinct reason. `setupHint` appends the
- *  "is withCortex() wrapping next.config" nudge — pass it ONLY for the
- *  bridge-might-not-be-running case (could-not-read). The other reasons
- *  (malformed / torn / parse-error / missing-session) prove the bridge IS
- *  running and just wrote a bad file, so the setup nudge would misdirect. */
-function warnOnce(reason: string, setupHint = false, dedupKey: string = reason): null {
+/** Warn at most once per distinct reason, and return an INERT marker element
+ *  instead of null. The marker (`<script data-cortex-inactive="…">`, no body,
+ *  never executes) puts the refusal reason into the SERVED HTML itself — the
+ *  console.warn alone proved insufficient in the field: RSC-worker console
+ *  output can be swallowed by the host, producing a "silently no-injection"
+ *  boot with zero diagnostics (zerofog-web round-2 retest). Anyone inspecting
+ *  the page (exactly what you do when injection is missing) now sees why.
+ *  Dev-only by construction: the production gate returns bare null before any
+ *  refusal path can run, so no marker ever reaches production HTML.
+ *
+ *  Posture note: the marker embeds the ABSOLUTE `.cortex` path, a deliberate
+ *  exception to the sanitize-paths-for-the-client rule (H-R2-2 / relative
+ *  data-cortex-source): wrong-root is the exact failure being diagnosed, so
+ *  the path IS the diagnostic — and this HTML is dev-only (production returns
+ *  bare null) and already carries the auth token, a strictly more sensitive
+ *  value, on the success path.
+ *
+ *  `setupHint` appends the "is withCortex() wrapping next.config" nudge —
+ *  pass it ONLY for the bridge-might-not-be-running case (could-not-read).
+ *  The other reasons (malformed / torn / parse-error / missing-session) prove
+ *  the bridge IS running and just wrote a bad file, so the nudge would
+ *  misdirect. */
+function refuseInjection(reason: string, setupHint = false, dedupKey: string = reason): ReactElement {
   // Dedup on dedupKey, not the message — reasons that embed variable data (a
   // torn-read's differing port pair) must key on a STABLE string, or a long-lived
   // dev-server process facing repeated restarts across ephemeral ports would
-  // accumulate an unbounded set of distinct entries.
+  // accumulate an unbounded set of distinct entries. The MARKER is returned on
+  // every render regardless — only the console line is deduped.
   if (!warnedReasons.has(dedupKey)) {
     warnedReasons.add(dedupKey)
     console.warn(
@@ -47,7 +65,7 @@ function warnOnce(reason: string, setupHint = false, dedupKey: string = reason):
       (setupHint ? ' Is withCortex() wrapping next.config, and is this `next dev` (not build/start)?' : '')
     )
   }
-  return null
+  return createElement('script', { 'data-cortex-inactive': dedupKey, 'data-cortex-reason': reason })
 }
 
 /** Test-only reset for the once-per-reason warnings. @internal */
@@ -64,8 +82,10 @@ export function _resetDevScriptsWarningForTesting(): void {
  * `.cortex/` discovery files from disk (the same protocol the MCP CLI uses),
  * and inlines the bootstrap script with concrete port/token/session values.
  *
- * Renders null (and warns once) when the bridge isn't running — missing
- * discovery files must degrade silently at render time, loudly in the console.
+ * When the bridge isn't running (or discovery files fail a gate), renders an
+ * INERT diagnostic marker (`<script data-cortex-inactive="reason">`) and warns
+ * once — the refusal reason must be discoverable from the served HTML itself,
+ * because RSC-worker console output is not reliably surfaced by every host.
  *
  * Security: the script body is our own template; every interpolated value is
  * escaped via safeJSONForScript inside createManualInjectionScriptBody, and
@@ -78,11 +98,21 @@ export function CortexDevScripts(props: CortexDevScriptsProps = {}): ReactElemen
 
   // The bridge writes `.cortex/` under withCortex's projectRoot (which may be a
   // monorepo parent or `next dev <dir>` target), while this component defaults
-  // to cwd — a divergence that renders null (cubic P2). withCortex advertises
+  // to cwd — a divergence that refuses injection (cubic P2). withCortex advertises
   // its resolved root in __CORTEX_PROJECT_ROOT at config-eval time (the same
   // parent→worker env channel the lock family uses), so RSC workers inherit it.
   // Explicit prop > inherited env > cwd.
   const projectRoot = props.projectRoot ?? process.env.__CORTEX_PROJECT_ROOT ?? process.cwd()
+  // Provenance travels with the could-not-read diagnostic: the field flake this
+  // exists for was a wrong-root read (Next's inferred workspace root vs the
+  // app dir), and "which fallback resolved the root" is the load-bearing fact —
+  // `cwd` appearing here when withCortex ran means the __CORTEX_PROJECT_ROOT
+  // env channel didn't reach this RSC worker.
+  const projectRootSource = props.projectRoot !== undefined
+    ? 'projectRoot prop'
+    : process.env.__CORTEX_PROJECT_ROOT !== undefined
+      ? '__CORTEX_PROJECT_ROOT env'
+      : 'process.cwd() fallback'
   const cortexDir = path.join(projectRoot, '.cortex')
 
   let port: number
@@ -100,7 +130,11 @@ export function CortexDevScripts(props: CortexDevScriptsProps = {}): ReactElemen
   } catch {
     // The bridge likely isn't running yet — this is the one reason that gets
     // the setup nudge, since withCortex/`next dev` really might be misconfigured.
-    return warnOnce(`could not read discovery files in ${cortexDir}`, true)
+    return refuseInjection(
+      `could not read discovery files in ${cortexDir} (root via ${projectRootSource})`,
+      true,
+      `could-not-read:${cortexDir}`, // stable key — provenance text varies per worker
+    )
   }
 
   // Parse in its OWN reason bucket: a malformed injection.json was READ fine but
@@ -110,24 +144,31 @@ export function CortexDevScripts(props: CortexDevScriptsProps = {}): ReactElemen
   try {
     injection = JSON.parse(injectionRaw) as InjectionFile
   } catch {
-    return warnOnce(`injection.json in ${cortexDir} is not valid JSON (partial write?) — retrying next render`)
+    return refuseInjection(`injection.json in ${cortexDir} is not valid JSON (partial write?) — retrying next render`)
+  }
+  // JSON.parse accepts non-object documents ("null", "42", "[…]", "\"str\"") —
+  // valid JSON, but property access below would THROW on null (an RSC render
+  // error, not a graceful refusal). Own reason bucket: a non-object file was
+  // read AND parsed fine, which is a different diagnostic than unparseable.
+  if (typeof injection !== 'object' || injection === null || Array.isArray(injection)) {
+    return refuseInjection(`injection.json in ${cortexDir} is valid JSON but not an object — retrying next render`)
   }
 
   // 65535 upper bound (cubic P3): a corrupt port file above the TCP range must
   // take the inactive-warning path, not render a bootstrap pointing at an
   // endpoint that cannot exist.
   if (!Number.isInteger(port) || port <= 0 || port > 65535 || token.length === 0) {
-    return warnOnce(`discovery files in ${cortexDir} are malformed`)
+    return refuseInjection(`discovery files in ${cortexDir} are malformed`)
   }
   // Torn-generation guard: the three discovery files are read separately, so a
   // bridge restart mid-render can pair an old token with a new port/session —
   // every WS message would then fail the token check. writeDiscoveryFiles
   // stamps the port into injection.json alongside the sessionId the token
   // belongs to; if that disagrees with the standalone port file, the reads
-  // straddle a write. Degrade to null (the next render gets a consistent set).
+  // straddle a write. Refuse (the next render gets a consistent set).
   // Older bridges that omit the port field skip this cross-check (backward-compat).
   if (typeof injection.port === 'number' && injection.port !== port) {
-    return warnOnce(
+    return refuseInjection(
       `discovery files in ${cortexDir} disagree on port ` +
       `(torn read: port file=${port}, injection.json=${injection.port})`,
       false,
@@ -136,7 +177,7 @@ export function CortexDevScripts(props: CortexDevScriptsProps = {}): ReactElemen
   }
   const sessionId = typeof injection.sessionId === 'string' ? injection.sessionId : null
   if (!sessionId) {
-    return warnOnce(`injection.json in ${cortexDir} is missing a session id`)
+    return refuseInjection(`injection.json in ${cortexDir} is missing a session id`)
   }
 
   // Owner-liveness gate: discovery-file PRESENCE alone is not proof of a
@@ -150,7 +191,7 @@ export function CortexDevScripts(props: CortexDevScriptsProps = {}): ReactElemen
   // lock-less mode (read-only-root bridges already warn loudly there).
   const lock = inspectCortexLock(cortexDir)
   if (lock.liveness !== 'live') {
-    return warnOnce(
+    return refuseInjection(
       `discovery files in ${cortexDir} have no live bridge owning them ` +
       `(lock ${lock.liveness}) — refusing to inject. If no dev server crash explains ` +
       `this, delete ${cortexDir} and restart \`next dev\``,
@@ -168,7 +209,7 @@ export function CortexDevScripts(props: CortexDevScriptsProps = {}): ReactElemen
   // reclaiming a crashed predecessor's lock (cubic P1). Older bridges omit
   // the field (compat: skip).
   if (typeof injection.lockGeneration === 'string' && lock.holderGeneration !== null && injection.lockGeneration !== lock.holderGeneration) {
-    return warnOnce(
+    return refuseInjection(
       `discovery files in ${cortexDir} were written by a different bridge generation ` +
       `than the live lock owner (handoff in progress) — retrying next render`,
       false,
@@ -186,10 +227,14 @@ export function CortexDevScripts(props: CortexDevScriptsProps = {}): ReactElemen
   try {
     injectionRawAfter = fs.readFileSync(path.join(cortexDir, 'injection.json'), 'utf8')
   } catch {
-    return warnOnce(`could not read discovery files in ${cortexDir}`, true)
+    return refuseInjection(
+      `could not read discovery files in ${cortexDir} (root via ${projectRootSource})`,
+      true,
+      `could-not-read:${cortexDir}`, // same stable key as the first read site
+    )
   }
   if (injectionRaw !== injectionRawAfter) {
-    return warnOnce(
+    return refuseInjection(
       `discovery files in ${cortexDir} changed mid-read (bridge restart) — retrying next render`,
     )
   }

@@ -19,11 +19,13 @@ import {
   cortexReportSourceEditFailedInputSchema,
 } from '../schemas/index.js'
 
-/** Process-scoped UUID announced to the browser on every WebSocket connect.
- *  The browser compares this against its last-seen UUID and wipes the staging
- *  buffer only when the UUID changes — distinguishing a genuine new Claude
- *  session from a transient reconnect (sleep/wake, WiFi flap) which reuses
- *  the same process and therefore the same UUID.
+/** Process-scoped UUID announced via mcp-session-hello on every WebSocket
+ *  connect. The forwarded hello is the browser's reconcile trigger (it runs
+ *  reconcileOnConnect to auto-clear intents whose edits verifiably landed in
+ *  source while MCP was down). It deliberately does NOT drive any destructive
+ *  clear: Claude Code spawns a fresh `cortex mcp` — fresh UUID — per
+ *  conversation, so a UUID change means "an MCP process restarted", never "the
+ *  designer started a new session" (that is the browser page's lifetime).
  *  Exported so tests can assert the exact value sent without a live server. */
 export const MCP_SESSION_ID = randomUUID()
 
@@ -152,6 +154,22 @@ export async function startMCPServer(options: MCPServerOptions = {}): Promise<MC
   let browserConnected = false
   let reconnectTimer: ReturnType<typeof setTimeout> | null = null
   let retryCount = 0
+  // Waiters parked by whenConnected() until the in-flight connection opens (so
+  // a tools/call in the ~1-2s startup window awaits it, P3-2), OR is REJECTED
+  // when that attempt closes / the server shuts down (so the call fails fast
+  // with the right reason instead of stalling the full 5s timeout — codex/
+  // workflow finding). Carries both callbacks.
+  let connectWaiters: Array<{ resolve: () => void; reject: (err: Error) => void }> = []
+  function releaseConnectWaiters(): void {
+    const waiters = connectWaiters
+    connectWaiters = []
+    for (const w of waiters) w.resolve()
+  }
+  function rejectConnectWaiters(err: Error): void {
+    const waiters = connectWaiters
+    connectWaiters = []
+    for (const w of waiters) w.reject(err)
+  }
 
   // Tracks per-annotation thread length at the time of the last MCP push.
   // The Vite server emits `annotation-updated` for *both* thread additions
@@ -180,20 +198,19 @@ export async function startMCPServer(options: MCPServerOptions = {}): Promise<MC
       if (ws !== socket) return
       connected = true
       retryCount = 0
+      releaseConnectWaiters() // resolve anyone awaiting the connection (P3-2)
       // Re-read token on each connection — token changes on dev server restart
       token = discoverToken()
       process.stderr.write(`[cortex] Connected to Cortex dev server at ${url}${token ? '' : ' (token not found — writes will be rejected)'}\n`)
       if (token) {
         socket.send(JSON.stringify({ type: 'cortex-status-request', token }))
-        // Announce process-scoped UUID so the browser can detect a genuine new
-        // Claude session and wipe stale staged edits. Sent on every connect so
-        // the browser updates its last-seen UUID on reconnect as well (transient
-        // reconnects keep the same MCP_SESSION_ID, so the browser won't wipe).
-        // Carries the auth token: mcp-session-hello triggers a destructive
-        // buffer.clear() on the browser, so it must pass Vite's CLI token gate
-        // like every other privileged CLI message. A tokenless MCP server cannot
-        // authenticate, so it equally must not be able to force a wipe — gating
-        // it behind the same `if (token)` as cortex-status-request enforces that.
+        // Announce the process-scoped UUID on every connect. The forwarded
+        // hello triggers the browser's reconcileOnConnect (auto-clears intents
+        // whose edits verifiably landed while MCP was down) — it never wipes
+        // staged work. Carries the auth token: hellos are still a privileged
+        // CLI message (they drive reconcile), so they must pass the same
+        // per-message token gate as cortex-status-request — a random local
+        // process must not be able to forge them.
         socket.send(JSON.stringify({ type: 'mcp-session-hello', sessionId: MCP_SESSION_ID, token }))
       }
     })
@@ -449,6 +466,12 @@ export async function startMCPServer(options: MCPServerOptions = {}): Promise<MC
       connected = false
       editorActive = false
       browserConnected = false
+      // This attempt failed. Reject any parked waiters so a call that landed
+      // during CONNECTING fails FAST rather than stalling the whole 5s timeout;
+      // a shutdown gets the accurate reason, a plain failure the generic one.
+      rejectConnectWaiters(new Error(
+        closed ? 'Cortex MCP server is shutting down' : 'Not connected to Cortex dev server',
+      ))
       if (closed) return
       const delay = calculateReconnectDelay(retryCount)
       retryCount++
@@ -464,7 +487,34 @@ export async function startMCPServer(options: MCPServerOptions = {}): Promise<MC
 
   connect()
 
-  function rpc(method: string, params: Record<string, unknown>): Promise<unknown> {
+  /** Resolve once connected, or reject after `timeoutMs`. Waits ONLY when a
+   *  connection attempt is genuinely in flight (the socket is CONNECTING) — the
+   *  P3-2 startup race where a tools/call lands before the WS handshake
+   *  completes. When the server is down (no socket, or a failed one during
+   *  backoff), it fails FAST rather than hanging the caller for seconds.
+   *  Resolves instantly when already connected. */
+  function whenConnected(timeoutMs = 5000): Promise<void> {
+    if (connected) return Promise.resolve()
+    if (closed) return Promise.reject(new Error('Cortex MCP server is shutting down'))
+    if (!ws || ws.readyState !== WebSocket.CONNECTING) {
+      return Promise.reject(new Error('Not connected to Cortex dev server'))
+    }
+    return new Promise<void>((resolve, reject) => {
+      const entry = {
+        resolve: (): void => { clearTimeout(timer); resolve() },
+        reject: (err: Error): void => { clearTimeout(timer); reject(err) },
+      }
+      const timer = setTimeout(() => {
+        connectWaiters = connectWaiters.filter((w) => w !== entry)
+        reject(new Error('Not connected to Cortex dev server (timed out waiting for the initial connection)'))
+      }, timeoutMs)
+      timer.unref?.()
+      connectWaiters.push(entry)
+    })
+  }
+
+  async function rpc(method: string, params: Record<string, unknown>): Promise<unknown> {
+    await whenConnected()
     const socket = ws
     if (!connected || !socket) return Promise.reject(new Error('Not connected to Cortex dev server'))
     const requestId = randomUUID()
@@ -497,6 +547,7 @@ export async function startMCPServer(options: MCPServerOptions = {}): Promise<MC
     'cortex_activate',
     { description: 'Activate the Cortex visual editor in the browser. The user must have their dev server running and the page open.' },
     async () => {
+      try { await whenConnected() } catch { /* fall through to the not-connected response */ }
       if (!connected || !ws) {
         return {
           content: [{ type: 'text' as const, text: `Cannot connect to Cortex dev server at ${wsUrl()}. Start your app's normal dev server, then retry.` }],
@@ -521,6 +572,7 @@ export async function startMCPServer(options: MCPServerOptions = {}): Promise<MC
     'cortex_deactivate',
     { description: 'Deactivate the Cortex visual editor in the browser.' },
     async () => {
+      try { await whenConnected() } catch { /* fall through to the not-connected response */ }
       if (!connected || !ws) {
         return {
           content: [{ type: 'text' as const, text: `Cannot connect to Cortex dev server at ${wsUrl()}. Start your app's normal dev server, then retry.` }],
@@ -824,6 +876,10 @@ etc.) — anything that means the source change did NOT land.`,
     close() {
       closed = true
       if (reconnectTimer) clearTimeout(reconnectTimer)
+      // Drain parked waiters immediately with a shutdown error — without this a
+      // call awaiting a CONNECTING socket would stall the full 5s timeout after
+      // teardown (the socket 'close' handler that would reject them runs async).
+      rejectConnectWaiters(new Error('Cortex MCP server is shutting down'))
       if (ws) ws.close()
       server.close().catch(() => {})
     },

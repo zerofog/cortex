@@ -395,12 +395,32 @@ export class CortexWebpackRuntime {
   private readonly invalidate?: () => void
   private readonly browserIIFEPath: string
   private session: CortexSession | null = null
+  /** Design-system payloads shipped in the browser hello (swatches, color
+   *  chips, text components, spacing tokens) — lazily resolved ONCE per
+   *  runtime and cached, mirroring vite.ts's server-boot resolver promises.
+   *  Lazy (not tied to initializePipeline) so a browser that inits before the
+   *  pipeline finishes still gets tokens; memoized so repeat inits
+   *  (multi-tab, HMR re-mount) cost ~nothing. Absent on the wire when the
+   *  theme doesn't resolve — the picker shows its empty state, editing is
+   *  unaffected (the edit pipeline has its own resolver). */
+  private helloTokenPayloads: Promise<{
+    swatches: string[] | null
+    colorChips: import('../core/tailwind-resolver.js').ColorChip[] | null
+    textComponents: import('../core/text-components.js').TextComponent[] | null
+    spacingTokens: import('../core/tailwind-resolver.js').SpacingToken[] | null
+  }> | null = null
   /** In-flight discovery-file write, tracked so dispose() serializes with it
    *  (see startInternal / dispose). */
   private discoveryWrites: Promise<void> | null = null
   /** One-shot flag for the silent post-foreign-conflict retry (see the
    *  LockHeldError handling in startInternal). */
   private conflictRetryScheduled = false
+  /** True only while the scheduled retry's start() is executing — so a
+   *  re-entrant start() (beforeRun/watchRun/HTML injection) is not mistaken for
+   *  the retry and doesn't warn early (codex P3). */
+  private conflictRetryFiring = false
+  /** Warn-once guard for a GENUINE (post-retry) foreign conflict. */
+  private conflictWarned = false
   /** Pending retry timer — cancelled by dispose() so a shutdown during the
    *  retry window cannot resurrect a bridge on a disposed runtime (cubic P1). */
   private conflictRetryTimer: ReturnType<typeof setTimeout> | null = null
@@ -523,31 +543,36 @@ export class CortexWebpackRuntime {
           markRuntimeEnabled(this.runtimeId)
           return
         }
-        // Genuine conflict (a second dev server): one actionable message, and
-        // disable this runtime's source-loader transforms — the loader was
-        // attached at apply() time and would otherwise still rewrite JSX with
-        // data-cortex-* attributes for a build whose bridge/client are absent,
-        // while <CortexDevScripts/> injects the OTHER server's port/token.
-        // Symmetric to Vite's cortexDisabledByLock flag. Warn ONCE per
-        // runtime; the silent retry below re-attempts without re-warning.
-        if (!this.conflictRetryScheduled) console.error(err.message)
+        // A non-family conflict — disable this runtime's source-loader
+        // transforms (the loader, attached at apply() time, would otherwise
+        // rewrite JSX for a build whose bridge/client are absent, while
+        // <CortexDevScripts/> injects the OTHER server's port/token).
         markRuntimeDisabled(this.runtimeId)
-        // Transient-holder self-heal: the realistic foreign holder during a
-        // dev boot is a short-lived config evaluator (Next's telemetry
-        // flusher / exiting CLI parent) that won the just-freed lock for a
-        // second or two before draining. One silent, unref'd retry gives this
-        // runtime the lock back without user action; a GENUINE second dev
-        // server is still held then, and we stay refused (already warned).
-        if (!this.conflictRetryScheduled) {
+        if (this.conflictRetryFiring && !this.conflictWarned) {
+          // This refusal IS the scheduled retry still finding the lock held →
+          // a genuine second dev server, not a draining predecessor. Warn once.
+          this.conflictWarned = true
+          console.error(err.message)
+        } else if (!this.conflictRetryScheduled) {
+          // FIRST refusal: DON'T warn yet. The realistic foreign holder during
+          // a quick restart is the dying server still holding the lock for
+          // ~1-2s before it drains (P3-1) — alarming the user then, only to
+          // reclaim moments later, is the spurious warning the retest saw.
+          // Schedule ONE silent, unref'd retry; if it succeeds, no warning ever
+          // fires. conflictRetryFiring gates the warn to the RETRY specifically
+          // — webpack calls start() again from beforeRun/watchRun/HTML-injection,
+          // and those re-entrant refusals (before the retry fires) must stay
+          // silent, or the transient warning we're suppressing leaks back in.
           this.conflictRetryScheduled = true
-          // start() rethrows construction errors after disposing — swallow
-          // here or the fire-and-forget retry surfaces an unhandled rejection.
           this.conflictRetryTimer = setTimeout(() => {
             this.conflictRetryTimer = null
-            this.start().catch(() => {})
+            this.conflictRetryFiring = true
+            this.start().catch(() => {}).finally(() => { this.conflictRetryFiring = false })
           }, this.conflictRetryDelayMs)
           this.conflictRetryTimer.unref()
         }
+        // else: a re-entrant start() while a retry is pending — stay silent; the
+        // pending retry decides transient-vs-genuine.
         return
       }
       throw err
@@ -644,6 +669,11 @@ export class CortexWebpackRuntime {
     if (this.session !== session) return
     this.startHeartbeat(session)
     this.initializePipeline(session)
+    // Warm the hello design-system payloads at boot (vite resolves at
+    // configureServer time) — without this, the FIRST browser init pays the
+    // full Tailwind resolution latency, and the whole init batch (agent-status,
+    // annotations too) would wait on it.
+    void this.resolveHelloTokenPayloads()
   }
 
   private createChannel(session: CortexSession): ServerChannel {
@@ -729,6 +759,30 @@ export class CortexWebpackRuntime {
     session.heartbeatTimer = this.heartbeatTimer
   }
 
+  /** Resolve the four browser-facing design-system payloads, once. Mirrors
+   *  vite.ts's server-boot promises (same per-payload catch-and-warn contract:
+   *  a failed resolver logs and degrades to null — never blocks the hello).
+   *  This producer was MISSING on the webpack/Next path until 0.3.1: the vite
+   *  hello shipped tokens while this adapter sent a bare hello, so the token
+   *  picker showed "No design tokens detected" on every Next app even when
+   *  the server had resolved the theme for the edit pipeline (sibling-adapter
+   *  asymmetry, found by the zerofog-web round-2 retest). */
+  private resolveHelloTokenPayloads() {
+    return (this.helloTokenPayloads ??= (async () => {
+      const warn = (what: string) => (err: unknown) => {
+        console.warn(`[cortex] Tailwind ${what} resolution failed:`, err instanceof Error ? err.message : err)
+        return null
+      }
+      const [swatches, colorChips, textComponents, spacingTokens] = await Promise.all([
+        TailwindResolver.resolveColors(this.root).catch(warn('color')),
+        TailwindResolver.resolveColorChips(this.root).catch(warn('color chip')),
+        TailwindResolver.resolveTextComponents(this.root).catch(warn('text component')),
+        TailwindResolver.resolveSpacingTokens(this.root).catch(warn('spacing token')),
+      ])
+      return { swatches, colorChips, textComponents, spacingTokens }
+    })())
+  }
+
   private initializePipeline(session: CortexSession): void {
     const channel = session.channel
     if (!channel) return
@@ -759,6 +813,9 @@ export class CortexWebpackRuntime {
       session.pipeline = new EditPipeline({
         channel,
         resolver: resolver ?? TailwindResolver.fromTheme({}),
+        // The real resolver may be null (theme unresolved) even though we pass a
+        // truthy empty stand-in above — tell the pipeline which it is.
+        resolverAvailable: !!resolver,
         rewriter,
         inlineStyleRewriter,
         verifier,
@@ -929,26 +986,45 @@ export class CortexWebpackRuntime {
         applySetActiveResult(session, result)
       }
 
-      this.sendToBrowser(session, ws, {
-        type: 'hello',
-        protocolVersion: 1,
-        sessionId: session.sessionId,
-      }, 'webpack.browserMessage.initHello')
-      this.sendToBrowser(session, ws, { type: 'agent-status', connected: session.cliClients.size > 0 }, 'webpack.browserMessage.initAgentStatus')
-      if (session.editorActive) this.sendToBrowser(session, ws, { type: 'cortex' }, 'webpack.browserMessage.initCortex')
-      if (session.capabilitiesCache) this.sendToBrowser(session, ws, { type: 'capabilities', systems: session.capabilitiesCache }, 'webpack.browserMessage.initCapabilities')
-      // Hydrate the browser with annotations the server has in memory.
-      // Always emit — even an empty snapshot is authoritative. A reconnecting
-      // browser (network blip, HMR re-mount) needs to know the server's current
-      // state so any stale local annotations get replaced. The reducer performs
-      // a full Map replacement on this message.
-      this.sendToBrowser(
-        session,
-        ws,
-        // ZF0-1856: DeepReadonly snapshots → mutable wire shape at the send boundary.
-        { type: 'annotations-snapshot', annotations: session.annotations.getAll() as Annotation[] },
-        'webpack.browserMessage.initAnnotationsSnapshot',
-      )
+      // The whole init response awaits the (memoized) design-system payloads so
+      // hello carries them AND the batch order is preserved (hello first, then
+      // agent-status/cortex/capabilities/annotations — same order as before,
+      // just deferred as a unit). In the common case (browser connects seconds
+      // after boot) the promise is settled and this costs one microtask; an
+      // early browser waits like vite's hello does ("ships as fast as the
+      // slowest resolver"). Guards re-checked after the await: the session may
+      // have been disposed/replaced while resolving.
+      this.resolveHelloTokenPayloads()
+        .then(({ swatches, colorChips, textComponents, spacingTokens }) => {
+          if (this.session !== session || session.isDisposed) return
+          this.sendToBrowser(session, ws, {
+            type: 'hello',
+            protocolVersion: 1,
+            sessionId: session.sessionId,
+            swatches: swatches && swatches.length > 0 ? swatches : undefined,
+            colorChips: colorChips && colorChips.length > 0 ? colorChips : undefined,
+            textComponents: textComponents && textComponents.length > 0 ? textComponents : undefined,
+            spacingTokens: spacingTokens && spacingTokens.length > 0 ? spacingTokens : undefined,
+          }, 'webpack.browserMessage.initHello')
+          this.sendToBrowser(session, ws, { type: 'agent-status', connected: session.cliClients.size > 0 }, 'webpack.browserMessage.initAgentStatus')
+          if (session.editorActive) this.sendToBrowser(session, ws, { type: 'cortex' }, 'webpack.browserMessage.initCortex')
+          if (session.capabilitiesCache) this.sendToBrowser(session, ws, { type: 'capabilities', systems: session.capabilitiesCache }, 'webpack.browserMessage.initCapabilities')
+          // Hydrate the browser with annotations the server has in memory.
+          // Always emit — even an empty snapshot is authoritative. A reconnecting
+          // browser (network blip, HMR re-mount) needs to know the server's current
+          // state so any stale local annotations get replaced. The reducer performs
+          // a full Map replacement on this message.
+          this.sendToBrowser(
+            session,
+            ws,
+            // ZF0-1856: DeepReadonly snapshots → mutable wire shape at the send boundary.
+            { type: 'annotations-snapshot', annotations: session.annotations.getAll() as Annotation[] },
+            'webpack.browserMessage.initAnnotationsSnapshot',
+          )
+        })
+        .catch((err) => {
+          console.warn('[cortex] Failed to send init batch:', err instanceof Error ? err.message : err)
+        })
       return
     }
     if (data.type === 'comment') {
@@ -1084,32 +1160,24 @@ export class CortexWebpackRuntime {
       return
     }
 
-    // mcp-session-hello — MCP server announces its process-scoped UUID so the
-    // browser can detect a genuine new Claude session and wipe stale staged edits.
-    // This triggers a DESTRUCTIVE buffer.clear() on the browser, so it is gated
-    // behind the same token check as every other privileged CLI message above —
-    // the MCP server attaches the token (see mcp.ts socket.on('open')). The
-    // /@cortex/ws upgrade is only Origin-checked at connect; the per-message token
-    // is the actual auth, so handling this AFTER the gate prevents any other local
-    // process from forcing a wipe with a merely well-formed UUID.
+    // mcp-session-hello — MCP server announces its process-scoped UUID; the
+    // browser uses the forwarded hello as its reconcile trigger (phantom-intent
+    // self-heal). Still gated behind the same token check as every other
+    // privileged CLI message above — the MCP server attaches the token (see
+    // mcp.ts socket.on('open')). The upgrade is only Origin-checked at connect;
+    // the per-message token is the actual auth, so handling this AFTER the gate
+    // prevents any other local process from forging hellos.
     // Token is STRIPPED — never forwarded to the browser.
     if (type === 'mcp-session-hello') {
       const sessionId = (parsed as Record<string, unknown>).sessionId
       if (typeof sessionId === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(sessionId)) {
-        // ZF0-1869 Review Fix 1: UUID-change-gated server-side clear, mirroring
-        // the browser's lastSessionIdRef logic. A transient same-UUID reconnect
-        // (WiFi flap, sleep/wake — the MCP server keeps the same process-scoped
-        // UUID) must NOT clear stagedEdits: the browser still has its buffer, and
-        // an unconditional clear causes cortex_get_pending_edits to return zero
-        // while the browser still shows staged edits (silent divergence, no self-heal).
-        // Only a DIFFERENT UUID means a genuinely new Claude session — then we clear.
-        // First hello (lastMcpSessionId === null): adopt UUID, do NOT clear.
-        if (session.lastMcpSessionId !== null &&
-            session.lastMcpSessionId !== sessionId) {
-          // Genuine new Claude session — clear stale intents from prior session.
-          session.stagedEdits.clear()
-        }
-        session.lastMcpSessionId = sessionId
+        // DELIBERATELY NO stagedEdits.clear() here (0.3.1): the wipe formerly
+        // keyed on a UUID change, but Claude Code spawns a fresh `cortex mcp`
+        // process — fresh UUID — per conversation, so every Claude restart (and
+        // every interleaved hello from two concurrent Claude clients) destroyed
+        // the designer's staged-but-unapplied work. The designer's session is
+        // the BROWSER page's lifetime (memory-only buffer), not any MCP process
+        // lifetime. See the vite.ts sibling handler for the full rationale.
         // FIX 3: mcp-session-hello is a server→browser message; send BROWSER-ONLY
         // via sendToInitializedBrowsers (bypassing forwardToCLI). The channel.send
         // path fans out to CLI clients — wrong direction, no consumer.
@@ -1310,6 +1378,8 @@ export class CortexWebpackRuntime {
       this.conflictRetryTimer = null
     }
     this.conflictRetryScheduled = false
+    this.conflictRetryFiring = false
+    this.conflictWarned = false
     // Let any in-flight discovery write LAND before session.dispose() removes
     // the files — an unserialized write would resume after removal and
     // re-create orphaned discovery files (or overwrite a successor bridge's

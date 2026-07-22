@@ -424,8 +424,9 @@ export const serverToBrowserSchema = z.discriminatedUnion('type', [
     reason: z.string().max(2048),
   }),
 
-  // 19. mcp-session-hello (Change 6) — MCP server announces its process-scoped UUID
-  // so the browser can wipe the buffer on a genuine session change.
+  // 19. mcp-session-hello — MCP server announces its process-scoped UUID; the
+  // browser uses the forwarded hello as its reconcile trigger (0.3.1: it never
+  // wipes the buffer — an MCP process restart is not a new designer session).
   z.object({
     type: z.literal('mcp-session-hello'),
     sessionId: z.uuid(),

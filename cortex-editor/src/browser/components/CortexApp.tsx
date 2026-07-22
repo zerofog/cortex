@@ -216,11 +216,6 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
   // without capturing a stale value. Follows the same pattern as hmrAppliedVersionRef.
   const bufferVersionRef = useRef(0)
   if (__CORTEX_TEST_BUILD__) bufferVersionRef.current = buffer.version
-  // Change 6 (Task 12): track last-seen MCP session UUID. On UUID change,
-  // wipe the staging buffer to discard stale intents from a prior Claude session.
-  // Transient reconnects (sleep/wake, WiFi flap) keep the same MCP_SESSION_ID
-  // and therefore keep the same UUID here → no wipe.
-  const lastSessionIdRef = useRef<string | null>(null)
 
   // Exposed outside the useEffect so UI handlers (X-button, Toolbar close) can
   // route through the reducer rather than calling setActive(false) directly.
@@ -969,32 +964,22 @@ export function CortexApp({ channel, shadowRoot, initialActive }: CortexAppProps
         return
       }
 
-      // mcp-session-hello: the MCP server announces a process-scoped UUID. A CHANGED
-      // UUID means a genuinely new Claude session — wipe stale staged edits. Same
-      // UUID (transient reconnect: sleep/wake, WiFi flap) → keep edits.
+      // mcp-session-hello: the MCP server announces a process-scoped UUID.
+      // DELIBERATELY NO buffer.clear() here (0.3.1): the wipe formerly keyed on a
+      // UUID change, but Claude Code spawns a fresh `cortex mcp` process — fresh
+      // UUID — per conversation, so every Claude restart (and every interleaved
+      // hello from two concurrent Claude clients) destroyed staged-but-unapplied
+      // work. The designer's session is THIS page's lifetime (the buffer is
+      // memory-only — a genuinely new session starts empty on its own), so no
+      // MCP-process identity can justify a destructive clear. Every hello runs
+      // reconcileOnConnect(): a restarted Claude may have landed intents via the
+      // Edit tool before dying, and transient reconnects (sleep/wake, WiFi flap)
+      // may have converged intents while MCP was disconnected — reconcile clears
+      // exactly the intents whose edits are verifiably in source, nothing more.
+      // (Side-effect, accepted: a stale apply-error banner now persists across
+      // Claude restarts — consistent, since the intent it refers to persists too.)
       if (msg.type === 'mcp-session-hello') {
-        if (lastSessionIdRef.current === null) {
-          lastSessionIdRef.current = msg.sessionId      // first adoption — no wipe
-          // FIX 6 (comment correction): reconcileOnConnect() is called here for
-          // symmetry with the same-UUID path and future-proofing (if buffer
-          // persistence is ever re-added, the no-op becomes meaningful). Under
-          // the current memory-only buffer the buffer is ALWAYS empty at mount —
-          // there is no rehydration source — so this call is a guaranteed no-op
-          // on the first-adopt path. The real work happens on same-UUID reconnects
-          // (the else branch below), where intents may have landed while MCP was
-          // transiently disconnected.
-          reconcileOnConnect()
-        } else if (lastSessionIdRef.current !== msg.sessionId) {
-          buffer.clear()
-          setApplyError(null)   // also clear any stale error banner from the prior session
-          lastSessionIdRef.current = msg.sessionId
-          // Different-UUID path: buffer already wiped — reconcile is moot.
-        } else {
-          // Same-UUID reconnect (transient reconnect — WiFi flap, sleep/wake) — no-wipe path.
-          // reconcileOnConnect() does real work here: intents may have converged
-          // (the Edit tool landed them) while MCP was disconnected between wipes.
-          reconcileOnConnect()
-        }
+        reconcileOnConnect()
         return
       }
 

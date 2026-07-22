@@ -1,6 +1,6 @@
 {
   "name": "cortex-editor",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "Visual editor for Claude Code",
   "license": "MIT",
   "author": "Zerofog",
@@ -93,7 +93,8 @@
     "test:watch": "vitest",
     "test:e2e": "npm run build:test && playwright test",
     "typecheck": "tsc --noEmit && tsc --noEmit -p tests/tsconfig.json && tsc --noEmit -p tests/e2e/tsconfig.json",
-    "prepublishOnly": "node -e \"require('node:fs').rmSync('dist', { recursive: true, force: true })\" && cross-env CORTEX_TEST_BUILD=false CORTEX_PUBLISH=true npm run build"
+    "check:dts": "node scripts/check-dts.mjs",
+    "prepublishOnly": "node -e \"require('node:fs').rmSync('dist', { recursive: true, force: true })\" && cross-env CORTEX_TEST_BUILD=false CORTEX_PUBLISH=true npm run build && npm run check:dts"
   },
   "devDependencies": {
     "@playwright/test": "^1.59.1",
@@ -104,6 +105,7 @@
     "cross-env": "^10.1.0",
     "happy-dom": "^15.0.0",
     "magic-string": "^0.30.21",
+    "next": "^16.1.6",
     "postcss": "^8.5.8",
     "react": "^19.2.7",
     "tsup": "^8.3.5",

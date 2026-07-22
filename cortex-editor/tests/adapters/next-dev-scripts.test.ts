@@ -56,8 +56,35 @@ afterEach(() => {
 
 function scriptBody(element: ReturnType<typeof CortexDevScripts>): string {
   expect(element).not.toBeNull()
-  const props = element!.props as { dangerouslySetInnerHTML: { __html: string } }
-  return props.dangerouslySetInnerHTML.__html
+  const props = element!.props as {
+    dangerouslySetInnerHTML?: { __html: string }
+    'data-cortex-inactive'?: string
+  }
+  // An injecting render must be the bootstrap script, never the inert
+  // refusal marker — without this, a refusal would satisfy `not.toBeNull()`.
+  expect(props['data-cortex-inactive']).toBeUndefined()
+  expect(props.dangerouslySetInnerHTML).toBeDefined()
+  return props.dangerouslySetInnerHTML!.__html
+}
+
+/** Assert a REFUSAL render: the inert diagnostic marker (0.3.1 — refusals
+ *  surface in served HTML because RSC-worker console output can be swallowed).
+ *  Optionally pin the reason text so each refusal test stays falsifiable
+ *  against the specific gate it exercises. */
+function expectInactive(element: ReturnType<typeof CortexDevScripts>, reasonSubstring?: string): void {
+  expect(element).not.toBeNull()
+  expect(element!.type).toBe('script')
+  const props = element!.props as {
+    dangerouslySetInnerHTML?: unknown
+    'data-cortex-inactive'?: string
+    'data-cortex-reason'?: string
+  }
+  expect(props['data-cortex-inactive']).toBeDefined()
+  // Inert by construction: a marker must never carry an executable body.
+  expect(props.dangerouslySetInnerHTML).toBeUndefined()
+  if (reasonSubstring !== undefined) {
+    expect(props['data-cortex-reason']).toContain(reasonSubstring)
+  }
 }
 
 describe('CortexDevScripts', () => {
@@ -85,41 +112,78 @@ describe('CortexDevScripts', () => {
     expect(body).not.toContain('currentScript.remove')
   })
 
-  it('renders null and warns once when discovery files are missing', () => {
+  it('refuses (marker + one warn) when discovery files are missing', () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
 
-    expect(CortexDevScripts({ projectRoot: root })).toBeNull()
-    expect(CortexDevScripts({ projectRoot: root })).toBeNull()
+    expectInactive(CortexDevScripts({ projectRoot: root }))
+    expectInactive(CortexDevScripts({ projectRoot: root }))
 
     expect(warn).toHaveBeenCalledOnce()
     expect(warn.mock.calls[0]![0]).toContain('<CortexDevScripts/> is inactive')
+  })
+
+  it('refusal marker carries the reason + projectRoot provenance in the served HTML, on EVERY render (0.3.1 silent-boot fix)', () => {
+    // The zerofog-web round-2 retest hit a boot where injection silently never
+    // happened and NO console output surfaced (RSC-worker console can be
+    // swallowed by the host). The refusal must therefore be discoverable from
+    // the page itself: an inert marker whose reason includes WHICH fallback
+    // resolved the project root — "cwd" appearing when withCortex ran means
+    // the __CORTEX_PROJECT_ROOT env channel didn't reach the worker.
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+
+    const first = CortexDevScripts({ projectRoot: root })
+    expectInactive(first, 'could not read discovery files')
+    expectInactive(first, 'projectRoot prop')  // provenance: explicit prop
+
+    // Marker returns on EVERY render — only the console warn is deduped. A
+    // null second render would reintroduce the exact silent-boot the marker
+    // exists to prevent.
+    const second = CortexDevScripts({ projectRoot: root })
+    expectInactive(second, 'could not read discovery files')
+    expect(warn).toHaveBeenCalledOnce()
+
+    // Env-resolved root reports its own provenance.
+    vi.stubEnv('__CORTEX_PROJECT_ROOT', path.join(root, 'does-not-exist'))
+    expectInactive(CortexDevScripts({}), '__CORTEX_PROJECT_ROOT env')
   })
 
   it('warns once per distinct reason so a later diagnostic is not masked (3C)', () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
 
     // Reason 1: discovery files missing entirely (transient first-render state).
-    expect(CortexDevScripts({ projectRoot: root })).toBeNull()
-    expect(CortexDevScripts({ projectRoot: root })).toBeNull()
+    expectInactive(CortexDevScripts({ projectRoot: root }))
+    expectInactive(CortexDevScripts({ projectRoot: root }))
     expect(warn).toHaveBeenCalledTimes(1)
 
     // Reason 2: files now present but malformed — a genuinely different cause. A
     // single-boolean latch would suppress this, hiding the real diagnostic.
     writeDiscovery({ port: 'not-a-port' })
-    expect(CortexDevScripts({ projectRoot: root })).toBeNull()
+    expectInactive(CortexDevScripts({ projectRoot: root }))
     expect(warn).toHaveBeenCalledTimes(2)
     expect(warn.mock.calls[1]![0]).toContain('malformed')
   })
 
   it.each([['not-a-port'], ['0'], ['99999']])(
-    'renders null on a malformed port file (%s)',
+    'refuses on a malformed port file (%s)',
     (badPort) => {
       // Same validation branch, boundary variants: non-numeric, non-positive,
       // and above the TCP range (cubic P3 — an over-range corrupt value must
       // not render a bootstrap pointing at an endpoint that cannot exist).
       vi.spyOn(console, 'warn').mockImplementation(() => {})
       writeDiscovery({ port: badPort })
-      expect(CortexDevScripts({ projectRoot: root })).toBeNull()
+      expectInactive(CortexDevScripts({ projectRoot: root }))
+    },
+  )
+
+  it.each([['null'], ['42'], ['"a-string"'], ['[1,2]']])(
+    'refuses (not throws) when injection.json is valid JSON but not an object (%s) — coderabbit/cubic round-3',
+    (doc) => {
+      // JSON.parse succeeds on non-object documents; `injection.port` access on
+      // null would THROW inside the RSC render. Must refuse gracefully instead.
+      // Boundary variants of the single non-object guard branch.
+      vi.spyOn(console, 'warn').mockImplementation(() => {})
+      writeDiscovery({ injection: doc })
+      expectInactive(CortexDevScripts({ projectRoot: root }), 'not an object')
     },
   )
 
@@ -129,11 +193,11 @@ describe('CortexDevScripts', () => {
     // but failed to PARSE; if it shared the "could not read" bucket it would be
     // silently suppressed. It must warn with a distinct parse reason.
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
-    expect(CortexDevScripts({ projectRoot: root })).toBeNull() // reason 1: could not read
+    expectInactive(CortexDevScripts({ projectRoot: root })) // reason 1: could not read
     expect(warn).toHaveBeenCalledTimes(1)
 
     writeDiscovery({ injection: '{ not valid json' })
-    expect(CortexDevScripts({ projectRoot: root })).toBeNull() // reason 2: parse error — must NOT be masked
+    expectInactive(CortexDevScripts({ projectRoot: root })) // reason 2: parse error — must NOT be masked
     expect(warn).toHaveBeenCalledTimes(2)
     expect(warn.mock.calls[1]![0]).toContain('not valid JSON')
   })
@@ -141,12 +205,12 @@ describe('CortexDevScripts', () => {
   it('appends the withCortex setup hint ONLY for the could-not-read reason (silent-failure review)', () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
     // could-not-read → bridge might be misconfigured → hint is appropriate.
-    expect(CortexDevScripts({ projectRoot: root })).toBeNull()
+    expectInactive(CortexDevScripts({ projectRoot: root }))
     expect(warn.mock.calls[0]![0]).toContain('withCortex()')
 
     // malformed (bridge IS running, just wrote a bad file) → hint would misdirect.
     writeDiscovery({ port: 'not-a-port' })
-    expect(CortexDevScripts({ projectRoot: root })).toBeNull()
+    expectInactive(CortexDevScripts({ projectRoot: root }))
     expect(warn.mock.calls[1]![0]).not.toContain('withCortex()')
   })
 
@@ -155,14 +219,14 @@ describe('CortexDevScripts', () => {
     // repeated restarts onto different ports would grow warnedReasons unbounded.
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
     writeDiscovery({ port: '4321', injection: JSON.stringify({ port: 4322, sessionId: 's', toggleShortcut: '$mod+Shift+Period' }) })
-    expect(CortexDevScripts({ projectRoot: root })).toBeNull()
+    expectInactive(CortexDevScripts({ projectRoot: root }))
     writeDiscovery({ port: '5555', injection: JSON.stringify({ port: 6666, sessionId: 's', toggleShortcut: '$mod+Shift+Period' }) })
-    expect(CortexDevScripts({ projectRoot: root })).toBeNull()
+    expectInactive(CortexDevScripts({ projectRoot: root }))
     // Two distinct port pairs, but one stable dedup key → warned exactly once.
     expect(warn).toHaveBeenCalledOnce()
   })
 
-  it('renders null on a torn discovery read: port file and injection.json disagree on port (3C)', () => {
+  it('refuses on a torn discovery read: port file and injection.json disagree on port (3C)', () => {
     // A bridge restart mid-render can pair an old token with a new port/session
     // (three separate reads). injection.json carries the port the token/session
     // belong to; when it disagrees with the standalone port file the set is
@@ -173,11 +237,11 @@ describe('CortexDevScripts', () => {
       port: '4321',
       injection: JSON.stringify({ port: 4322, sessionId: 'session-abc', toggleShortcut: '$mod+Shift+Period' }),
     })
-    expect(CortexDevScripts({ projectRoot: root })).toBeNull()
+    expectInactive(CortexDevScripts({ projectRoot: root }))
     expect(warn).toHaveBeenCalledOnce()
   })
 
-  it('renders null on a same-port torn read: injection.json changes between the two reads (3J)', () => {
+  it('refuses on a same-port torn read: injection.json changes between the two reads (3J)', () => {
     // A bridge restart onto the SAME port rewrites token + injection.json (new
     // sessionId) while a render straddles the write. The port cross-check can't
     // see it (port is unchanged), but re-reading injection.json before and after
@@ -198,7 +262,7 @@ describe('CortexDevScripts', () => {
       return (realRead as (...a: unknown[]) => unknown)(p, ...rest)
     }) as typeof fs.readFileSync)
 
-    expect(CortexDevScripts({ projectRoot: root })).toBeNull()
+    expectInactive(CortexDevScripts({ projectRoot: root }))
     expect(warn).toHaveBeenCalledOnce()
     expect(warn.mock.calls[0]![0]).toContain('changed mid-read')
   })
@@ -209,14 +273,13 @@ describe('CortexDevScripts', () => {
       injection: JSON.stringify({ port: 4321, sessionId: 'session-abc', toggleShortcut: '$mod+Shift+Period' }),
     })
     const element = CortexDevScripts({ projectRoot: root })
-    expect(element).not.toBeNull()
     expect(scriptBody(element)).toContain('window.__cortex_ws_port__=4321')
   })
 
-  it('renders null when injection.json lacks a session id', () => {
+  it('refuses when injection.json lacks a session id', () => {
     vi.spyOn(console, 'warn').mockImplementation(() => {})
     writeDiscovery({ injection: JSON.stringify({ toggleShortcut: '$mod+Shift+Period' }) })
-    expect(CortexDevScripts({ projectRoot: root })).toBeNull()
+    expectInactive(CortexDevScripts({ projectRoot: root }))
   })
 
   it('renders null in production without touching the filesystem', () => {
@@ -246,7 +309,7 @@ describe('CortexDevScripts', () => {
       return (realAccess as (...a: unknown[]) => unknown)(p, ...rest)
     }) as typeof fs.accessSync)
 
-    expect(CortexDevScripts({ projectRoot: root })).not.toBeNull()
+    scriptBody(CortexDevScripts({ projectRoot: root }))  // asserts injecting, not the refusal marker
 
     const lastInjectionRead = reads.map((p, i) => (p.endsWith('injection.json') ? i : -1)).reduce((a, b) => Math.max(a, b), -1)
     const lockTouch = reads.findIndex((p) => p.endsWith('.lock'))
@@ -261,7 +324,7 @@ describe('CortexDevScripts', () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
     writeDiscovery({ lock: JSON.stringify({ pid: await deadPid(), nonce: 'dead', startedAt: 0 }) })
 
-    expect(CortexDevScripts({ projectRoot: root })).toBeNull()
+    expectInactive(CortexDevScripts({ projectRoot: root }))
     expect(warn).toHaveBeenCalledOnce()
     expect(warn.mock.calls[0]![0]).toContain('no live bridge')
   })
@@ -273,7 +336,7 @@ describe('CortexDevScripts', () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
     writeDiscovery({ lock: false })
 
-    expect(CortexDevScripts({ projectRoot: root })).toBeNull()
+    expectInactive(CortexDevScripts({ projectRoot: root }))
     expect(warn.mock.calls[0]![0]).toContain('lock missing')
   })
 
@@ -281,7 +344,7 @@ describe('CortexDevScripts', () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
     writeDiscovery({ lock: '{ not json' })
 
-    expect(CortexDevScripts({ projectRoot: root })).toBeNull()
+    expectInactive(CortexDevScripts({ projectRoot: root }))
     expect(warn.mock.calls[0]![0]).toContain('lock corrupt')
   })
 
@@ -296,7 +359,7 @@ describe('CortexDevScripts', () => {
       lock: JSON.stringify({ pid: process.pid, nonce: 'new-owner', generation: 'successor-gen', startedAt: Date.now() }),
     })
 
-    expect(CortexDevScripts({ projectRoot: root })).toBeNull()
+    expectInactive(CortexDevScripts({ projectRoot: root }))
     expect(warn.mock.calls[0]![0]).toContain('different bridge generation')
   })
 
@@ -311,7 +374,7 @@ describe('CortexDevScripts', () => {
       lock: JSON.stringify({ pid: process.pid, nonce: 'shared-family-nonce', generation: 'gen-successor', startedAt: Date.now() }),
     })
 
-    expect(CortexDevScripts({ projectRoot: root })).not.toBeNull()
+    scriptBody(CortexDevScripts({ projectRoot: root }))  // asserts injecting, not the refusal marker
   })
 
   it('reads discovery files from __CORTEX_PROJECT_ROOT when no projectRoot prop is given (cubic P2)', () => {
@@ -319,6 +382,6 @@ describe('CortexDevScripts', () => {
     // default to cwd) read `.cortex/` from where the bridge WROTE it.
     writeDiscovery()
     vi.stubEnv('__CORTEX_PROJECT_ROOT', root)
-    expect(CortexDevScripts({})).not.toBeNull()
+    scriptBody(CortexDevScripts({}))  // asserts injecting, not the refusal marker
   })
 })

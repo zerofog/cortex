@@ -14,6 +14,8 @@ let activeChannel: CortexChannel | null = null
 let themeMediaQuery: MediaQueryList | null = null
 let themeObserver: MutationObserver | null = null
 let currentTheme: 'blueprint' | null = null
+/** One-shot guard so the no-transport diagnostic never spams across re-renders. */
+let warnedNoTransport = false
 
 export type { ThemePreference } from './theme.js'
 export { getThemePreference, setThemePreference } from './theme.js'
@@ -119,11 +121,23 @@ export function bootstrap(): void {
     attributeFilter: ['class', 'data-theme', 'data-mode'],
   })
 
-  // Detect adapter type and create appropriate channel
+  // Detect adapter type and create appropriate channel.
   if (typeof window.__cortex_send__ === 'function') {
     activeChannel = createViteChannel()
   } else {
-    console.warn('[cortex] __cortex_send__ not found — using WebSocket fallback. If you are using the Vite plugin, remove any manual <script> tags for cortex-browser.js from your index.html.')
+    // WebSocket transport. This is the INTENDED path for the Next/webpack
+    // adapter (which injects __cortex_ws_port__ and never defines
+    // __cortex_send__) — so it must be SILENT there, not warn on every render
+    // with Vite-specific advice. Only note the genuinely-broken state (no
+    // bridge AND no port), at debug level, once, in adapter-neutral terms.
+    if (typeof window.__cortex_ws_port__ !== 'number' && !warnedNoTransport) {
+      warnedNoTransport = true
+      console.debug(
+        '[cortex] No editor transport found (neither __cortex_send__ nor ' +
+        '__cortex_ws_port__). The dev-server bridge may not have injected — ' +
+        'check that withCortex() / the cortex plugin is active.',
+      )
+    }
     activeChannel = createWebSocketChannel()
   }
 
@@ -181,6 +195,7 @@ export function _resetForTesting(): void {
   themeObserver?.disconnect()
   themeObserver = null
   currentTheme = null
+  warnedNoTransport = false
   hostElement?.remove()
   hostElement = null
   shadowRoot = null

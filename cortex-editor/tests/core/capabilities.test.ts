@@ -83,7 +83,7 @@ describe('computeCapabilities', () => {
     )
     const cl = caps.find(c => c.name === 'Component Library')
     expect(cl?.status).toBe('ai-required')
-    expect(cl?.reason).toContain('API key')
+    expect(cl?.reason).toContain('Claude Code')
   })
 
   it('reports both Tailwind and component library when AI available', () => {

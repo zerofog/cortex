@@ -27,12 +27,19 @@ export function computeCapabilities(
     } else if (resolver.aiAvailable) {
       capabilities.push({ name: 'Tailwind', status: 'supported', reason: 'AI-assisted editing active.' })
     } else {
+      // Theme couldn't be resolved → editing utility CLASSES is off. But if the
+      // inline-style rewriter is available, manual overrides still apply and
+      // save to source (P1-2b) — set the reason to match, so the user knows
+      // their edits persist even though the classes stay untouched.
+      const versionNote = detection.tailwindVersion === 4
+        ? 'Tailwind v4 theme could not be resolved'
+        : 'Tailwind theme could not be resolved (is tailwindcss installed and the config readable?)'
       capabilities.push({
         name: 'Tailwind',
         status: 'preview-only',
-        reason: detection.tailwindVersion === 4
-          ? 'Tailwind v4 theme could not be resolved. Visual preview is active — file writes are not yet available.'
-          : 'Tailwind theme could not be resolved. Visual preview is active — file writes require a valid Tailwind config.',
+        reason: resolver.inlineStyleAvailable
+          ? `${versionNote}, so editing utility classes is disabled — inline-style overrides still apply and save to source.`
+          : `${versionNote}. Visual preview is active — file writes require a valid Tailwind config.`,
       })
     }
   }
@@ -60,7 +67,7 @@ export function computeCapabilities(
       capabilities.push({
         name: 'Component Library',
         status: 'ai-required',
-        reason: 'Component library editing requires an API key. Visual preview is active.',
+        reason: 'Component library editing requires Claude Code. Visual preview is active.',
       })
     }
   }

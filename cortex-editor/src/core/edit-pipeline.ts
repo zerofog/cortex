@@ -284,6 +284,14 @@ export interface WriteIntent {
 export interface EditPipelineOptions {
   channel: ServerChannel;
   resolver: TailwindResolver;
+  /** Whether `resolver` reflects a REAL, resolved Tailwind theme. Both adapters
+   *  install an empty `TailwindResolver.fromTheme({})` when theme resolution
+   *  FAILS (so `resolver` is always a truthy object) — without this flag the
+   *  pipeline can't tell "theme resolved" from "theme failed, using an empty
+   *  stand-in", and would route Tailwind edits to a class rewriter that can
+   *  never find a token. Defaults to `true` (a caller passing a real resolver
+   *  keeps the prior behavior); adapters pass `!!resolver` (pre-fallback). */
+  resolverAvailable?: boolean;
   rewriter: TailwindRewriter;
   verifier: HMRVerifier;
   /** Injected for testability. Receives a WriteIntent and writes intent.content to intent.filePath. */
@@ -425,6 +433,8 @@ export class EditPipeline {
   >();
   private readonly channel: ServerChannel;
   private readonly resolver: TailwindResolver;
+  /** See EditPipelineOptions.resolverAvailable. */
+  private readonly resolverAvailable: boolean;
   private readonly rewriter: TailwindRewriter;
   private readonly verifier: HMRVerifier;
   private readonly writeFile: (intent: WriteIntent) => Promise<void>;
@@ -449,6 +459,7 @@ export class EditPipeline {
   constructor(options: EditPipelineOptions) {
     this.channel = options.channel;
     this.resolver = options.resolver;
+    this.resolverAvailable = options.resolverAvailable ?? true;
     this.rewriter = options.rewriter;
     this.verifier = options.verifier;
     // Wrap writeFile so that after the first successful write we fire
@@ -880,7 +891,10 @@ export class EditPipeline {
     // through to the legacy Tailwind path for backward compatibility.
     const strategy = this.classifyDetector
       ? classifyEdit(edit, this.classifyDetector, {
-          resolverAvailable: !!this.resolver,
+          // NOT `!!this.resolver` — the resolver is always a truthy object
+          // (adapters install an empty one when the theme fails). Use the real
+          // availability so an unresolved-theme Tailwind app degrades correctly.
+          resolverAvailable: this.resolverAvailable,
           aiAvailable: false,
           inlineStyleAvailable: !!this.inlineStyleRewriter,
         })
@@ -1004,10 +1018,14 @@ export class EditPipeline {
         : null);
 
     if (!newToken || !oldToken) {
-      // Layer 3.5: Inline style rewriter — only when there is no Tailwind utility
-      // for this property on the element (elements with currentClass should stay on
-      // the Tailwind/AI path)
-      if (this.inlineStyleRewriter && !edit.currentClass) {
+      // Layer 3.5: Inline style rewriter. Normally reserved for elements WITHOUT
+      // a Tailwind utility (currentClass absent) — a classed element should edit
+      // its class, not accumulate an inline override. BUT when the theme could
+      // not be resolved (resolverAvailable=false), there is NO way to edit the
+      // class, so the inline override IS the correct degradation even with
+      // currentClass present — it leaves the classes untouched and still saves
+      // (P1-2b; the manual-override path the retest expected).
+      if (this.inlineStyleRewriter && (!edit.currentClass || !this.resolverAvailable)) {
         let handled = false;
         try {
           handled = await this.tryInlineStyleWrite(

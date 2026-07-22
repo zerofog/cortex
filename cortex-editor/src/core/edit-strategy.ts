@@ -27,16 +27,24 @@ export function classifyEdit(
     return resolver?.aiAvailable ? 'deferred' : 'unsupported'
   }
 
-  // Tailwind with working resolver — immediate
+  // Tailwind with a working resolver — immediate utility-class rewrite.
   if (detection.hasTailwind && resolver?.resolverAvailable) return 'immediate'
 
-  // Tailwind without resolver — inline styles are NOT the right fallback
-  // (would accumulate inline styles alongside Tailwind utility classes)
-  if (detection.hasTailwind && !resolver?.resolverAvailable) {
-    return resolver?.aiAvailable ? 'deferred' : 'unsupported'
+  // Tailwind WITHOUT a resolvable theme: editing the utility classes is off
+  // (we can't map values to valid tokens), but a manual OVERRIDE still applies
+  // and saves — an inline style, or CSS Modules if the app has them. It just
+  // doesn't touch the classes. This is the P1-2b scoped degradation: an
+  // unresolved theme disables Tailwind-class editing ONLY, not the whole write
+  // path. Previously this returned 'unsupported' and killed even inline
+  // overrides, so a config-load hiccup made every edit silently no-op. AI, if
+  // present, is preferred (it can edit the class); otherwise fall through to
+  // the deterministic inline rewriter below.
+  if (detection.hasTailwind && !resolver?.resolverAvailable && resolver?.aiAvailable) {
+    return 'deferred'
   }
 
-  // Inline style rewriter — deterministic fallback for non-Tailwind JSX
+  // Inline style rewriter — deterministic fallback for non-Tailwind JSX AND the
+  // manual-override path for a Tailwind app whose theme won't resolve.
   if (resolver?.inlineStyleAvailable) return 'immediate'
 
   // AI available — deferred (covers Tailwind fallback, component libs, CSS-in-JS)

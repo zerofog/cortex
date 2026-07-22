@@ -12,6 +12,7 @@ import {
   _getInjectedClientScriptForTesting,
 } from '../../src/adapters/webpack.js'
 import { isRuntimeDisabled, markRuntimeDisabled } from '../../src/adapters/source-loader-utils.js'
+import { TailwindResolver } from '../../src/core/tailwind-resolver.js'
 
 const cleanupDirs: string[] = []
 
@@ -251,13 +252,15 @@ describe('cortexWebpack adapter', () => {
     try {
       await runtime.start()
       expect(runtime.started).toBe(false)
-      expect(errorSpy).toHaveBeenCalledTimes(1)
+      // P3-1: the FIRST refusal is SILENT — a draining predecessor shouldn't
+      // alarm the user before the retry reclaims.
+      expect(errorSpy).not.toHaveBeenCalled()
 
       fs.unlinkSync(lockPath) // transient holder drained and released
 
       await vi.waitFor(() => { if (!runtime.started) throw new Error('retry has not healed yet') }, { timeout: 5000 })
       expect(isRuntimeDisabled('rt-retry-test')).toBe(false)
-      expect(errorSpy).toHaveBeenCalledTimes(1) // the retry was silent
+      expect(errorSpy).not.toHaveBeenCalled() // healed transiently → never warned
     } finally {
       errorSpy.mockRestore()
       await runtime.dispose()
@@ -290,7 +293,11 @@ describe('cortexWebpack adapter', () => {
     }
   })
 
-  it('foreign lock refusal logs ONE actionable conflict and disables instrumentation', async () => {
+  it('warns about a PERSISTENT foreign conflict only AFTER the silent retry also fails (P3-1)', async () => {
+    // A genuine second dev server: the lock stays foreign-held across the
+    // retry. The first refusal is silent; the warning fires once the retry
+    // (delay 60ms) still finds it held — proving the transient-vs-persistent
+    // distinction, so a real conflict is still surfaced.
     const root = makeTempProject()
     const cortexDir = path.join(root, '.cortex')
     fs.mkdirSync(cortexDir, { recursive: true })
@@ -300,12 +307,21 @@ describe('cortexWebpack adapter', () => {
     )
     const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
     const runtime = new CortexWebpackRuntime({
-      root, mode: 'development', toggleShortcut: '$mod+Shift+Period', runtimeId: 'rt-foreign-test',
+      root, mode: 'development', toggleShortcut: '$mod+Shift+Period', runtimeId: 'rt-foreign-test', conflictRetryDelayMs: 60,
     })
     try {
       await runtime.start()
-      expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining('Another cortex instance'))
+      expect(errorSpy).not.toHaveBeenCalled()       // first refusal is silent
       expect(isRuntimeDisabled('rt-foreign-test')).toBe(true)
+
+      // The lock stays held (never unlinked) → the retry also refuses → warn.
+      await vi.waitFor(() => {
+        expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining('Another cortex instance'))
+      }, { timeout: 5000 })
+      // Warn-once: even a further recompile doesn't re-warn.
+      const callsAfterFirst = errorSpy.mock.calls.length
+      await runtime.start()
+      expect(errorSpy.mock.calls.length).toBe(callsAfterFirst)
     } finally {
       errorSpy.mockRestore()
       await runtime.dispose()
@@ -478,6 +494,47 @@ describe('cortexWebpack adapter', () => {
     } finally {
       ws.close()
       await compiler.hooks.shutdown.run()
+    }
+  })
+
+  it('hello ships the resolved design-system payloads (spacingTokens/swatches) — the missing producer on the Next path (0.3.1)', async () => {
+    // The vite hello carried tokens from day one; the webpack/Next hello sent a
+    // bare {type, protocolVersion, sessionId}, so the browser token picker
+    // showed "No design tokens detected" on every Next app even when the
+    // server had resolved the theme (zerofog-web round-2 finding). Spy BEFORE
+    // the first browser init — resolveHelloTokenPayloads memoizes per runtime.
+    const spacing = [{ name: '--spacing-4', valuePx: 16, source: 'tailwind-v3' }]
+    vi.spyOn(TailwindResolver, 'resolveSpacingTokens').mockResolvedValue(spacing as never)
+    vi.spyOn(TailwindResolver, 'resolveColors').mockResolvedValue(['#ef4444'])
+    vi.spyOn(TailwindResolver, 'resolveColorChips').mockResolvedValue(null)
+    vi.spyOn(TailwindResolver, 'resolveTextComponents').mockResolvedValue(null)
+    try {
+      const root = makeTempProject()
+      const compiler = createMockCompiler(root)
+      const plugin = cortexWebpack({ projectRoot: root })
+
+      plugin.apply(compiler)
+      await compiler.hooks.watchRun.run()
+      const port = fs.readFileSync(path.join(root, '.cortex', 'port'), 'utf8').trim()
+      const token = fs.readFileSync(path.join(root, '.cortex', 'token'), 'utf8').trim()
+      const ws = new WebSocket(`ws://localhost:${port}/cortex`)
+
+      try {
+        await waitForOpen(ws)
+        ws.send(JSON.stringify({ type: 'init', token }))
+        const message = await nextMessageOfType(ws, 'hello')
+        expect(message.spacingTokens).toEqual(spacing)
+        expect(message.swatches).toEqual(['#ef4444'])
+        // Unresolved payloads are ABSENT from the wire, not null/empty — the
+        // browser reducer's `?? []` default handles omission.
+        expect('colorChips' in message).toBe(false)
+        expect('textComponents' in message).toBe(false)
+      } finally {
+        ws.close()
+        await compiler.hooks.shutdown.run()
+      }
+    } finally {
+      vi.restoreAllMocks()
     }
   })
 
@@ -760,14 +817,14 @@ describe('cortexWebpack adapter', () => {
     }
   })
 
-  // ─── Fix 1 (ZF0-1869 Review): UUID-change-gated server-side clear ──────────
-  // The server must mirror the browser's lastSessionIdRef logic:
-  //   (a) first mcp-session-hello (lastMcpSessionId === null) → adopt UUID, do NOT clear
+  // ─── mcp-session-hello NEVER clears staged edits (0.3.1) ──────────────────
+  // History: ZF0-1869 originally cleared on UUID change. That keyed a
+  // destructive clear on the MCP PROCESS lifetime — but Claude Code spawns a
+  // fresh `cortex mcp` (fresh UUID) per conversation, so every Claude restart
+  // destroyed the designer's staged work. See the vite.test.ts sibling block.
+  //   (a) first hello → do NOT clear
   //   (b) same UUID again (transient reconnect) → do NOT clear
-  //   (c) different UUID (genuine new Claude session) → MUST clear
-  //
-  // Tests (a) and (b) FAIL against the unconditional-clear code and PASS after Fix 1.
-  // Test (c) passes before and after — clearing on UUID-change is the correct behavior.
+  //   (c) different UUID (Claude restart / second client) → do NOT clear
 
   it('mcp-session-hello first-adopt (no prior UUID) does NOT clear server stagedEdits (Fix 1 TDD-a)', async () => {
     const root = makeTempProject()
@@ -859,7 +916,11 @@ describe('cortexWebpack adapter', () => {
     }
   })
 
-  it('mcp-session-hello different-UUID DOES clear server stagedEdits (Fix 1 TDD-c / Fix 2 successor)', async () => {
+  it('mcp-session-hello different-UUID does NOT clear stagedEdits — getPendingEdits still returns them after a Claude restart (0.3.1)', async () => {
+    // The reported bug, end-to-end: designer stages an edit, Claude Code
+    // restarts (fresh mcp process → fresh UUID), the NEW session's
+    // getPendingEdits must still return the staged work. The old UUID-change
+    // wipe destroyed it here.
     const root = makeTempProject()
     const compiler = createMockCompiler(root)
     const plugin = cortexWebpack({ projectRoot: root })
@@ -880,25 +941,25 @@ describe('cortexWebpack adapter', () => {
       const UUID_A = '11111111-0000-4000-a000-000000000003'
       const UUID_B = '22222222-0000-4000-a000-000000000003'
 
-      // First hello — adopt UUID_A (first adopt, no clear).
+      // First hello — the first Claude session announces itself.
       cli.send(JSON.stringify({ type: 'mcp-session-hello', sessionId: UUID_A, token }))
       await nextMessageOfType(browser, 'mcp-session-hello')
 
-      // Seed stale intent from prior session.
-      const staleEdit = { intentId: 'stale-fix1c', source: 'Hero.tsx:5:3', property: 'color', value: 'red', previousValue: '', timestamp: Date.now() }
-      browser.send(JSON.stringify({ type: 'staged-edit-add', edit: staleEdit, token }))
+      // Designer stages an edit during the first session.
+      const stagedEdit = { intentId: 'survives-claude-restart', source: 'Hero.tsx:5:3', property: 'color', value: 'red', previousValue: '', timestamp: Date.now() }
+      browser.send(JSON.stringify({ type: 'staged-edit-add', edit: stagedEdit, token }))
       await vi.waitFor(async () => {
         const result = await rpc(cli, token, 'getPendingEdits') as { count: number }
         expect(result.count).toBe(1)
       }, { timeout: 1000 })
 
-      // Second hello — DIFFERENT UUID → genuine new Claude session → MUST clear.
+      // Claude restarts: DIFFERENT UUID hello. Staged work must survive.
       cli.send(JSON.stringify({ type: 'mcp-session-hello', sessionId: UUID_B, token }))
+      await nextMessageOfType(browser, 'mcp-session-hello')
 
-      await vi.waitFor(async () => {
-        const result = await rpc(cli, token, 'getPendingEdits') as { count: number }
-        expect(result.count).toBe(0)
-      }, { timeout: 1000 })
+      const result = await rpc(cli, token, 'getPendingEdits') as { count: number; intents: Array<{ intentId: string }> }
+      expect(result.count).toBe(1)
+      expect(result.intents[0]!.intentId).toBe('survives-claude-restart')
     } finally {
       cli.close()
       browser.close()
